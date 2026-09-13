@@ -25,6 +25,18 @@ export {
 } from "./protocol";
 
 export {
+  getNormalizedPose,
+  parseNormalizedPose,
+  resetNormalizedPose,
+  setNormalizedPose,
+} from "./pose";
+
+export {
+  createHumanoidAnimationClip,
+  type HumanoidAnimationOptions,
+} from "./humanoid-animation";
+
+export {
   GLTFLoader,
   OrbitControls,
   THREE,

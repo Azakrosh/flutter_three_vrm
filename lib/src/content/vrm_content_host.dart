@@ -15,6 +15,16 @@ abstract interface class VrmContentHost {
 
   Uri exposeBytes(Uint8List bytes, {required String fileName});
 
+  Uri exposeFileBundle(
+    Map<String, File> files, {
+    required String entryFileName,
+  });
+
+  Uri exposeBytesBundle(
+    Map<String, Uint8List> files, {
+    required String entryFileName,
+  });
+
   void release(Uri uri);
 
   Future<void> close();

@@ -103,7 +103,6 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
     controller._bridge.attachTransport(
       owner: _webView,
       runJavaScript: _webView.runJavaScript,
-      evaluateJavaScript: _webView.runJavaScriptReturningResult,
     );
   }
 

@@ -101,7 +101,7 @@ class _AvatarScreenState extends State<AvatarScreen> {
 controller.setCameraMode(VrmCameraMode.constrained);
 
 final saved = await controller.getTransform();
-controller.setTransform(saved);
+await controller.setTransform(saved);
 ```
 
 `VrmTransform` содержит `x`, `y` и `zoom` и подходит для хранения в настройках приложения.
@@ -123,6 +123,52 @@ controller.setExpression(
 );
 ```
 
+## Pose API
+
+Pose API работает с нормализованным humanoid-скелетом three-vrm. Позу можно получить, сохранить, применить к совместимому VRM-аватару или сбросить:
+
+```dart
+final pose = await controller.getPose();
+await controller.setPose(
+  VrmPose({
+    VrmHumanBone.head: const VrmPoseTransform(
+      rotation: VrmQuaternion(0, 0.15, 0, 0.9887),
+    ),
+  }),
+);
+await controller.resetPose();
+```
+
+По умолчанию `setPose()` и `resetPose()` останавливают текущую анимацию, иначе AnimationMixer перезапишет те же кости на следующем кадре.
+
+## GLB/glTF и Mixamo
+
+VRMA обрабатывается `@pixiv/three-vrm-animation`. Обычные humanoid-анимации из GLB/glTF автоматически ретаргетятся на normalized bones VRM. Ретаргетер поддерживает Mixamo-названия костей, namespace-варианты, rest-pose rotation, масштаб hips и VRM 0 handedness.
+
+```dart
+await controller.playAnimationFromFile(
+  File('/app/cache/talking.glb'),
+  clipName: 'Talking',
+  rootMotion: VrmRootMotion.inPlace,
+  fadeDuration: 0.3,
+);
+```
+
+`VrmRootMotion.inPlace` фиксирует горизонтальное перемещение hips, но сохраняет вертикальную составляющую. Для движения по сцене используйте `VrmRootMotion.full`.
+
+GLB и self-contained glTF передаются одним файлом. Если `.gltf` ссылается на внешние `.bin` или текстуры, передайте явный защищённый bundle:
+
+```dart
+await controller.playAnimationFromBytesBundle(
+  {
+    'animation.gltf': gltfBytes,
+    'buffers/motion.bin': motionBytes,
+  },
+  entryFileName: 'animation.gltf',
+);
+```
+
+Bundle доступен только внутри текущей loopback-сессии, не раскрывает файловые пути или API-токены и освобождается целиком после парсинга.
 ## Lip sync
 
 Аудио воспроизводит Flutter-приложение. Пакет получает только амплитуду или временную шкалу визем:
@@ -150,7 +196,7 @@ corepack pnpm build
 
 ## Статус roadmap
 
-До стабильного релиза запланированы: типизированный command/response bridge с timeout/cancel, authenticated resource client, GLB/glTF и Mixamo-retargeting, полный Pose API, adaptive quality tiers, диагностика WebGL и интеграционные тесты Android/Windows.
+До стабильного релиза запланированы: адаптивные quality tiers и автоматическое управление нагрузкой Android, диагностические события WebGL/GPU, cancellation для долгих загрузок, восстановление контекста WebGL и интеграционные smoke-тесты на физических Android/Windows устройствах.
 
 ## Лицензия
 

@@ -12,4 +12,8 @@
 - Remove the WebView IndexedDB model cache and release hosted resources after parsing.
 - Remove camera preset API and report serializable pan/zoom camera state.
 - Pause rendering automatically with the Flutter application lifecycle.
+- Add a typed normalized humanoid Pose API backed by `VRMHumanoid`.
+- Add rest-pose-aware Mixamo-style GLB/glTF retargeting, named clip selection, and configurable root motion.
+- Add protected multi-file resource bundles for glTF files with external buffers or textures.
+- Make the renderer FPS cap effective and use mobile-safe 60 FPS / 1.5 pixel-ratio defaults.
 - Add strict analysis, unit tests, Android/Windows CI, MIT license, and updated documentation.

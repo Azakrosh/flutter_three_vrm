@@ -7,8 +7,12 @@ const {
   VRMLookAtQuaternionProxy,
   VRMUtils,
   createVRMAnimationClip,
+  createHumanoidAnimationClip,
   failure,
+  getNormalizedPose,
   parseCommand,
+  resetNormalizedPose,
+  setNormalizedPose,
   success,
 } = window.FlutterThreeVrm;
 
@@ -156,7 +160,7 @@ class VrmRunner {
     // Graphics and Performance state
     this.currentAntialias = true;
     this.enablePhysics = true;
-    this.fpsCap = 0;
+    this.fpsCap = 60;
     this.lastFrameTime = 0;
 
     this.initScene();
@@ -202,7 +206,7 @@ class VrmRunner {
       preserveDrawingBuffer: false
     });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
 
     this.renderer.shadowMap.enabled = false;
@@ -266,33 +270,14 @@ class VrmRunner {
     window.addEventListener('resize', () => this.onWindowResize());
     this.attachPointerEvents();
 
-    window.addEventListener('message', (event) => {
-      try {
-        const data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
-        if (data && data.action) {
-          this.handleFlutterCommand(data.action, data.payload);
-        }
-      } catch (err) {
-        console.error('Message handler error:', err);
-      }
-    });
-
-    window.flutterVrmInvoke = (action, payloadJson) => {
-      try {
-        const payload = payloadJson ? JSON.parse(payloadJson) : {};
-        void this.handleFlutterCommand(action, payload);
-      } catch (error) {
-        console.error('flutterVrmInvoke error:', error);
-      }
-    };
 
     window.flutterVrmDispatch = async (commandJson) => {
       let id = 'invalid-command';
       try {
         const command = parseCommand(commandJson);
         id = command.id;
-        await this.handleFlutterCommand(command.action, command.payload ?? {});
-        postFlutterMessage(success(id));
+        const result = await this.handleFlutterCommand(command.action, command.payload ?? {});
+        postFlutterMessage(success(id, result ?? null));
       } catch (error) {
         const code = typeof error?.code === 'string' ? error.code : 'runtimeError';
         const message = error instanceof Error ? error.message : String(error);
@@ -515,6 +500,32 @@ class VrmRunner {
       case 'setAnimationSpeed':
         if (this.mixer) this.mixer.timeScale = payload.speed;
         break;
+      case 'getPose':
+        return getNormalizedPose(this.currentVrm);
+      case 'setPose':
+        if (payload.stopAnimation !== false && this.mixer) {
+          this.mixer.stopAllAction();
+          this.mixer.timeScale = 1.0;
+          this.currentAction = null;
+          this.isAnimationPaused = false;
+        }
+        setNormalizedPose(this.currentVrm, payload.pose);
+        this.baseBonesSaved = false;
+        this.currentVrm.update(0);
+        this.currentVrm.scene.updateMatrixWorld(true);
+        break;
+      case 'resetPose':
+        if (payload.stopAnimation !== false && this.mixer) {
+          this.mixer.stopAllAction();
+          this.mixer.timeScale = 1.0;
+          this.currentAction = null;
+          this.isAnimationPaused = false;
+        }
+        resetNormalizedPose(this.currentVrm);
+        this.baseBonesSaved = false;
+        this.currentVrm.update(0);
+        this.currentVrm.scene.updateMatrixWorld(true);
+        break;
       case 'setShadows':
         this.setShadows(payload.enabled);
         break;
@@ -578,6 +589,11 @@ class VrmRunner {
         break;
       case 'setCameraMode':
         this.setCameraMode(payload.mode);
+        break;
+      case 'getTransform':
+        return this.getAvatarTransform();
+      case 'setTransform':
+        this.setAvatarTransform(payload.transform);
         break;
       case 'setLighting':
         this.setLighting(payload);
@@ -814,7 +830,11 @@ class VrmRunner {
     loader.register((parser) => new VRMAnimationLoaderPlugin(parser));
     try {
       const gltf = await loader.loadAsync(url);
-      this._playLoadedAnimation(gltf, options);
+      try {
+        this._playLoadedAnimation(gltf, options);
+      } finally {
+        if (gltf.scene) VRMUtils.deepDispose(gltf.scene);
+      }
     } catch (error) {
       this.notifyFlutter('onError', {
         message: error instanceof Error ? error.message : String(error),
@@ -842,7 +862,15 @@ class VrmRunner {
     }
 
     if (!clip && gltf.animations && gltf.animations.length > 0) {
-      clip = this.bindAnimationClipToVRM(gltf.animations[0]);
+      const sourceClip = options.clipName
+        ? THREE.AnimationClip.findByName(gltf.animations, options.clipName)
+        : gltf.animations[0];
+      if (!sourceClip) {
+        throw new Error(`Animation clip was not found: ${options.clipName}`);
+      }
+      clip = createHumanoidAnimationClip(gltf.scene, sourceClip, this.currentVrm, {
+        rootMotion: options.rootMotion,
+      });
     }
 
     if (!clip) {
@@ -888,78 +916,6 @@ class VrmRunner {
     }
   }
 
-
-  bindAnimationClipToVRM(clip) {
-    if (!clip || !this.currentVrm || !this.currentVrm.humanoid) return clip;
-
-    const tracks = [];
-    const boneNameMap = {
-      'hips': 'hips', 'spine': 'spine', 'chest': 'chest', 'upperchest': 'upperChest',
-      'neck': 'neck', 'head': 'head', 'lefteye': 'leftEye', 'righteye': 'rightEye',
-      'jaw': 'jaw', 'leftshoulder': 'leftShoulder', 'leftupperarm': 'leftUpperArm',
-      'leftlowerarm': 'leftLowerArm', 'lefthand': 'leftHand', 'rightshoulder': 'rightShoulder',
-      'rightupperarm': 'rightUpperArm', 'rightlowerarm': 'rightLowerArm',
-      'righthand': 'rightHand', 'leftupperleg': 'leftUpperLeg', 'leftlowerleg': 'leftLowerLeg',
-      'leftfoot': 'leftFoot', 'lefttoes': 'leftToes', 'rightupperleg': 'rightUpperLeg',
-      'rightlowerleg': 'rightLowerLeg', 'rightfoot': 'rightFoot', 'righttoes': 'rightToes',
-      'leftthumbproximal': 'leftThumbProximal', 'leftthumbintermediate': 'leftThumbIntermediate',
-      'leftthumbdistal': 'leftThumbDistal', 'leftindexproximal': 'leftIndexProximal',
-      'leftindexintermediate': 'leftIndexIntermediate', 'leftindexdistal': 'leftIndexDistal',
-      'leftmiddleproximal': 'leftMiddleProximal', 'leftmiddleintermediate': 'leftMiddleIntermediate',
-      'leftmiddledistal': 'leftMiddleDistal', 'leftringproximal': 'leftRingProximal',
-      'leftringintermediate': 'leftRingIntermediate', 'leftringdistal': 'leftRingDistal',
-      'leftlittleproximal': 'leftLittleProximal', 'leftlittleintermediate': 'leftLittleIntermediate',
-      'leftlittledistal': 'leftLittleDistal', 'rightthumbproximal': 'rightThumbProximal',
-      'rightthumbintermediate': 'rightThumbIntermediate', 'rightthumbdistal': 'rightThumbDistal',
-      'rightindexproximal': 'rightIndexProximal', 'rightindexintermediate': 'rightIndexIntermediate',
-      'rightindexdistal': 'rightIndexDistal', 'rightmiddleproximal': 'rightMiddleProximal',
-      'rightmiddleintermediate': 'rightMiddleIntermediate', 'rightmiddledistal': 'rightMiddleDistal',
-      'rightringproximal': 'rightRingProximal', 'rightringintermediate': 'rightRingIntermediate',
-      'rightringdistal': 'rightRingDistal', 'rightlittleproximal': 'rightLittleProximal',
-      'rightlittleintermediate': 'rightLittleIntermediate', 'rightlittledistal': 'rightLittleDistal'
-    };
-
-    for (const track of clip.tracks) {
-      const parts = track.name.split('.');
-      const trackNodeName = parts[0];
-      const propertyName = parts.slice(1).join('.');
-
-      const lowerName = trackNodeName.toLowerCase();
-      const humanoidBoneName = boneNameMap[lowerName] || lowerName;
-
-      let boneNode = null;
-      try {
-        boneNode = this.currentVrm.humanoid.getNormalizedBoneNode(humanoidBoneName) ||
-          this.currentVrm.humanoid.getRawBoneNode(humanoidBoneName);
-      } catch (_) { }
-
-      if (!boneNode) {
-        boneNode = this.scene.getObjectByName(trackNodeName);
-      }
-
-      if (boneNode) {
-        const newTrackName = `${boneNode.name}.${propertyName}`;
-        const clonedTrack = track.clone();
-        clonedTrack.name = newTrackName;
-
-        // Принудительно фиксируем высоту бёдер Y к истинной высоте кости бёдер текущей модели (boneNode.position.y),
-        // чтобы ЛЮБЫЕ анимации (VRMA_01, VRMA_02, LookAround, Thinking, Sad) не проваливали и не поднимали персонажа!
-        if (propertyName.includes('position') && (humanoidBoneName === 'hips' || lowerName.includes('hips'))) {
-          const values = clonedTrack.values;
-          if (values && values.length >= 3) {
-            const modelHipsY = boneNode.position.y;
-            for (let i = 1; i < values.length; i += 3) {
-              values[i] = modelHipsY;
-            }
-          }
-        }
-
-        tracks.push(clonedTrack);
-      }
-    }
-
-    return new THREE.AnimationClip(clip.name || 'vrmAnimation', clip.duration, tracks);
-  }
 
   setExpression(expressionName, layerName = 'eyes', targetWeight = 1.0, durationSec = 0.25, disableAutoBlink = false) {
     if (!this.expressionLayers[layerName]) return;
@@ -1369,7 +1325,12 @@ class VrmRunner {
     }
 
     if (settings.fpsCap !== undefined) {
-      this.fpsCap = settings.fpsCap;
+      const requestedFps = Number(settings.fpsCap);
+      if (!Number.isFinite(requestedFps) || requestedFps < 0) {
+        throw new TypeError('fpsCap must be zero or a positive finite number.');
+      }
+      this.fpsCap = requestedFps === 0 ? 0 : THREE.MathUtils.clamp(Math.round(requestedFps), 1, 120);
+      this.lastFrameTime = 0;
     }
 
     if (needsRendererRecreate) {
@@ -1377,7 +1338,12 @@ class VrmRunner {
     }
 
     if (settings.pixelRatio !== undefined && this.renderer) {
-      this.renderer.setPixelRatio(settings.pixelRatio);
+      const requestedRatio = Number(settings.pixelRatio);
+      if (!Number.isFinite(requestedRatio) || requestedRatio <= 0) {
+        throw new TypeError('pixelRatio must be a positive finite number.');
+      }
+      this.renderer.setPixelRatio(THREE.MathUtils.clamp(requestedRatio, 0.5, 3));
+      this.renderer.setSize(window.innerWidth, window.innerHeight, false);
     }
   }
 
@@ -1452,6 +1418,13 @@ class VrmRunner {
     this._animationFrameId = requestAnimationFrame(() => this.animate());
 
     const now = performance.now();
+    if (this.fpsCap > 0) {
+      const frameInterval = 1000 / this.fpsCap;
+      const elapsedSinceFrame = now - this.lastFrameTime;
+      if (this.lastFrameTime > 0 && elapsedSinceFrame < frameInterval) return;
+      this.lastFrameTime = now - (elapsedSinceFrame % frameInterval);
+    }
+
     let delta = (now - this.lastTime) / 1000;
     if (delta > 0.1) delta = 0.1; // Ограничение скачков при лагах (10 fps min)
     this.lastTime = now;
@@ -1822,6 +1795,46 @@ class VrmRunner {
     }
   }
 
+  getAvatarTransform() {
+    if (!this.currentVrm) return { x: 0, y: 0, zoom: 0 };
+
+    const target = this.targetCameraTarget;
+    return {
+      x: -target.x,
+      y: 0.95 - target.y,
+      zoom: this.controls.getDistance(),
+    };
+  }
+
+  setAvatarTransform(data) {
+    if (!data || typeof data !== 'object') {
+      throw new TypeError('Camera transform must be an object.');
+    }
+    const x = Number(data.x);
+    const y = Number(data.y);
+    const zoom = Number(data.zoom);
+    if (![x, y, zoom].every(Number.isFinite)) {
+      throw new TypeError('Camera transform components must be finite numbers.');
+    }
+
+    this.hasCustomCameraTransform = true;
+    const targetX = -x;
+    const targetY = 0.95 - y;
+    this.targetCameraTarget.set(targetX, targetY, 0);
+    this.controls.target.set(targetX, targetY, 0);
+
+    if (zoom > 0) {
+      const distance = THREE.MathUtils.clamp(
+        zoom,
+        this.controls.minDistance,
+        this.controls.maxDistance,
+      );
+      const target = this.controls.target;
+      this.camera.position.set(target.x, target.y, target.z + distance);
+      this.controls.update();
+    }
+  }
+
   notifyFlutter(event, payload) {
     postFlutterMessage({ event, payload });
   }
@@ -1835,47 +1848,5 @@ VrmRunner.VISEME_MAP = {
 };
 
 window.addEventListener('DOMContentLoaded', () => {
-  window.vrmRunner = new VrmRunner();
-
-  // Export Global Bridge Methods for Flutter
-  window.getAvatarTransform = () => {
-    if (!window.vrmRunner || !window.vrmRunner.currentVrm) {
-      return JSON.stringify({ x: 0, y: 0, zoom: 0 });
-    }
-    // Поскольку теперь модель всегда в (0,0,0), мы берем координаты цели камеры.
-    // Для обратной совместимости: если раньше модель смещали вправо (x > 0), 
-    // теперь мы смещаем камеру влево (target.x < 0).
-    const target = window.vrmRunner.targetCameraTarget;
-    const zoom = window.vrmRunner.controls.getDistance();
-
-    const equivalentX = -target.x;
-    const equivalentY = 0.95 - target.y; // 0.95 - дефолтная высота цели камеры
-
-    return JSON.stringify({ x: equivalentX, y: equivalentY, zoom: zoom });
-  };
-
-  window.setAvatarTransform = (jsonString) => {
-    if (!window.vrmRunner) return;
-    try {
-      const data = JSON.parse(jsonString);
-
-      window.vrmRunner.hasCustomCameraTransform = true;
-
-      if (data.x !== undefined && data.y !== undefined) {
-        // Конвертируем обратно: эквивалентные координаты модели в координаты цели камеры
-        const targetX = -data.x;
-        const targetY = 0.95 - data.y;
-
-        window.vrmRunner.targetCameraTarget.set(targetX, targetY, 0);
-        window.vrmRunner.controls.target.set(targetX, targetY, 0);
-      }
-      if (data.zoom !== undefined && data.zoom > 0) {
-        const target = window.vrmRunner.controls.target;
-        window.vrmRunner.camera.position.set(target.x, target.y, target.z + data.zoom);
-        window.vrmRunner.controls.update();
-      }
-    } catch (e) {
-      console.error('Failed to setAvatarTransform', e);
-    }
-  };
+  new VrmRunner();
 });

@@ -17,6 +17,7 @@ import 'models/vrm_exception.dart';
 import 'models/vrm_expression.dart';
 import 'models/vrm_lip_sync_data.dart';
 import 'models/vrm_mood.dart';
+import 'models/vrm_pose.dart';
 import 'models/vrm_transform.dart';
 import 'models/vrm_wind.dart';
 import 'platform/create_vrm_webview_adapter.dart';

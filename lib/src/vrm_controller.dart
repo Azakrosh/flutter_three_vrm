@@ -41,18 +41,6 @@ class VrmController {
     );
   }
 
-  void _evaluateJavaScript(String source) {
-    unawaited(
-      _bridge.evaluateJavaScript(source).catchError((
-        Object error,
-        StackTrace stackTrace,
-      ) {
-        _bridge.reportAsyncError(error, stackTrace);
-        return null;
-      }),
-    );
-  }
-
   Future<void> _sendHostedResourceCommand({
     required Uri Function(VrmContentHost host) expose,
     required String action,
@@ -158,6 +146,8 @@ class VrmController {
     bool loop = true,
     double speed = 1,
     double fadeDuration = 0.5,
+    VrmRootMotion rootMotion = VrmRootMotion.inPlace,
+    String? clipName,
   }) {
     return _playHostedAnimation(
       expose: (host) => host.exposeAsset('$folderPath$fileName'),
@@ -165,6 +155,8 @@ class VrmController {
       loop: loop,
       speed: speed,
       fadeDuration: fadeDuration,
+      rootMotion: rootMotion,
+      clipName: clipName,
     );
   }
 
@@ -174,6 +166,8 @@ class VrmController {
     bool loop = true,
     double speed = 1,
     double fadeDuration = 0.5,
+    VrmRootMotion rootMotion = VrmRootMotion.inPlace,
+    String? clipName,
   }) {
     return _playHostedAnimation(
       expose: (host) => host.exposeFile(file),
@@ -181,6 +175,8 @@ class VrmController {
       loop: loop,
       speed: speed,
       fadeDuration: fadeDuration,
+      rootMotion: rootMotion,
+      clipName: clipName,
     );
   }
 
@@ -191,6 +187,8 @@ class VrmController {
     bool loop = true,
     double speed = 1,
     double fadeDuration = 0.5,
+    VrmRootMotion rootMotion = VrmRootMotion.inPlace,
+    String? clipName,
   }) {
     return _playHostedAnimation(
       expose: (host) => host.exposeBytes(bytes, fileName: fileName),
@@ -198,6 +196,57 @@ class VrmController {
       loop: loop,
       speed: speed,
       fadeDuration: fadeDuration,
+      rootMotion: rootMotion,
+      clipName: clipName,
+    );
+  }
+
+  /// Plays an external-resource glTF animation from an explicit file bundle.
+  ///
+  /// Keys are safe relative URI paths used by the glTF document, for example
+  /// `animation.gltf`, `animation.bin`, and `textures/atlas.png`.
+  Future<void> playAnimationFromFileBundle(
+    Map<String, io.File> files, {
+    required String entryFileName,
+    bool loop = true,
+    double speed = 1,
+    double fadeDuration = 0.5,
+    VrmRootMotion rootMotion = VrmRootMotion.inPlace,
+    String? clipName,
+  }) {
+    return _playHostedAnimation(
+      expose: (host) =>
+          host.exposeFileBundle(files, entryFileName: entryFileName),
+      fileName: entryFileName,
+      loop: loop,
+      speed: speed,
+      fadeDuration: fadeDuration,
+      rootMotion: rootMotion,
+      clipName: clipName,
+    );
+  }
+
+  /// Plays an external-resource glTF animation from authenticated bytes.
+  ///
+  /// Every URI referenced by the entrypoint must be present in [files].
+  Future<void> playAnimationFromBytesBundle(
+    Map<String, Uint8List> files, {
+    required String entryFileName,
+    bool loop = true,
+    double speed = 1,
+    double fadeDuration = 0.5,
+    VrmRootMotion rootMotion = VrmRootMotion.inPlace,
+    String? clipName,
+  }) {
+    return _playHostedAnimation(
+      expose: (host) =>
+          host.exposeBytesBundle(files, entryFileName: entryFileName),
+      fileName: entryFileName,
+      loop: loop,
+      speed: speed,
+      fadeDuration: fadeDuration,
+      rootMotion: rootMotion,
+      clipName: clipName,
     );
   }
 
@@ -207,11 +256,15 @@ class VrmController {
     required bool loop,
     required double speed,
     required double fadeDuration,
+    required VrmRootMotion rootMotion,
+    required String? clipName,
   }) {
     final options = VrmAnimationOptions(
       loop: loop,
       speed: speed,
       fadeDuration: fadeDuration,
+      rootMotion: rootMotion,
+      clipName: clipName,
     );
     return _sendHostedResourceCommand(
       expose: expose,
@@ -227,11 +280,15 @@ class VrmController {
     bool loop = true,
     double speed = 1,
     double fadeDuration = 0.5,
+    VrmRootMotion rootMotion = VrmRootMotion.inPlace,
+    String? clipName,
   }) {
     final options = VrmAnimationOptions(
       loop: loop,
       speed: speed,
       fadeDuration: fadeDuration,
+      rootMotion: rootMotion,
+      clipName: clipName,
     );
     return _bridge.sendCommand('playAnimationFromUrl', {
       'url': url,
@@ -258,6 +315,34 @@ class VrmController {
   /// Sets playback speed multiplier for current animation.
   Future<void> setAnimationSpeed(double speed) async {
     await _bridge.sendCommand('setAnimationSpeed', {'speed': speed});
+  }
+
+  // --- Humanoid pose ---
+
+  /// Returns the model's normalized humanoid pose.
+  ///
+  /// Bone transforms are relative to the normalized rest pose defined by
+  /// `@pixiv/three-vrm`, so the result can be stored and applied to another
+  /// compatible VRM avatar.
+  Future<VrmPose> getPose() async {
+    final result = await _bridge.requestCommand('getPose');
+    return VrmPose.fromJson(result);
+  }
+
+  /// Applies a normalized humanoid [pose].
+  ///
+  /// By default the active animation is stopped because its tracks would
+  /// otherwise overwrite the same bones on the next frame.
+  Future<void> setPose(VrmPose pose, {bool stopAnimation = true}) {
+    return _bridge.sendCommand('setPose', {
+      'pose': pose.toJson(),
+      'stopAnimation': stopAnimation,
+    });
+  }
+
+  /// Restores all normalized humanoid bones to their rest transforms.
+  Future<void> resetPose({bool stopAnimation = true}) {
+    return _bridge.sendCommand('resetPose', {'stopAnimation': stopAnimation});
   }
 
   // --- Mood Presets ---
@@ -452,30 +537,20 @@ class VrmController {
     });
   }
 
-  /// Retrieves the current pan and zoom state of the avatar.
-  ///
-  /// This gets the current `x` and `y` translation of the model, and the `zoom`
-  /// distance of the camera. You can save this state and restore it later.
+  /// Retrieves the current serializable pan and zoom state of the avatar.
   Future<VrmTransform> getTransform() async {
-    final result = await _bridge.evaluateJavaScript(
-      'window.getAvatarTransform()',
-    );
-    if (result != null && result is String) {
-      // Sometimes the webview returns the JSON string wrapped in quotes if it's evaluated as a string primitive
-      final cleaned = result.startsWith('"') && result.endsWith('"')
-          ? jsonDecode(result) as String
-          : result;
-      return VrmTransform.fromJson(cleaned);
+    final result = await _bridge.requestCommand('getTransform');
+    if (result is! Map<String, dynamic>) {
+      throw const FormatException('VRM transform response must be an object.');
     }
-    return const VrmTransform(x: 0, y: 0, zoom: 0);
+    return VrmTransform.fromMap(result);
   }
 
   /// Restores a previously saved pan and zoom state of the avatar.
-  void setTransform(VrmTransform transform) {
-    // We must pass the JSON string safely. The bridge's runJavaScript doesn't need sendCommand structure
-    // since we exposed a global window method for this.
-    final jsonStr = jsonEncode(transform.toJson());
-    _evaluateJavaScript('window.setAvatarTransform($jsonStr)');
+  Future<void> setTransform(VrmTransform transform) {
+    return _bridge.sendCommand('setTransform', {
+      'transform': transform.toMap(),
+    });
   }
 
   String _colorToHex(Color color) {

@@ -104,6 +104,28 @@ final class LocalAssetsServer implements VrmContentHost {
   }
 
   @override
+  Uri exposeFileBundle(
+    Map<String, File> files, {
+    required String entryFileName,
+  }) {
+    _requireServer();
+    final bundle = _validatedBundle(files, entryFileName: entryFileName);
+    final id = _register(_FileBundleResource(bundle.files));
+    return _resourceUri(id, bundle.entryFileName);
+  }
+
+  @override
+  Uri exposeBytesBundle(
+    Map<String, Uint8List> files, {
+    required String entryFileName,
+  }) {
+    _requireServer();
+    final bundle = _validatedBundle(files, entryFileName: entryFileName);
+    final id = _register(_MemoryBundleResource(bundle.files));
+    return _resourceUri(id, bundle.entryFileName);
+  }
+
+  @override
   void release(Uri uri) {
     final segments = uri.pathSegments;
     if (uri.host != InternetAddress.loopbackIPv4.address ||
@@ -124,8 +146,11 @@ final class LocalAssetsServer implements VrmContentHost {
     return id;
   }
 
-  Uri _resourceUri(String id, String fileName) {
+  Uri _resourceUri(String id, String relativePath) {
     final server = _requireServer();
+    final resourceSegments = relativePath.isEmpty
+        ? const <String>['resource.bin']
+        : relativePath.split('/');
     return Uri(
       scheme: 'http',
       host: InternetAddress.loopbackIPv4.address,
@@ -134,9 +159,66 @@ final class LocalAssetsServer implements VrmContentHost {
         _sessionToken,
         'resource',
         id,
-        fileName.isEmpty ? 'resource.bin' : fileName,
+        ...resourceSegments,
       ],
     );
+  }
+
+  _ValidatedBundle<T> _validatedBundle<T>(
+    Map<String, T> files, {
+    required String entryFileName,
+  }) {
+    if (files.isEmpty) {
+      throw ArgumentError.value(files, 'files', 'A resource bundle is empty.');
+    }
+
+    final normalizedFiles = <String, T>{};
+    for (final entry in files.entries) {
+      final logicalPath = _validateLogicalPath(entry.key);
+      if (normalizedFiles.containsKey(logicalPath)) {
+        throw ArgumentError.value(
+          entry.key,
+          'files',
+          'Duplicate logical path.',
+        );
+      }
+      normalizedFiles[logicalPath] = entry.value;
+    }
+
+    final normalizedEntry = _validateLogicalPath(entryFileName);
+    if (!normalizedFiles.containsKey(normalizedEntry)) {
+      throw ArgumentError.value(
+        entryFileName,
+        'entryFileName',
+        'The entrypoint is not present in the resource bundle.',
+      );
+    }
+    return _ValidatedBundle<T>(
+      Map<String, T>.unmodifiable(normalizedFiles),
+      normalizedEntry,
+    );
+  }
+
+  String _validateLogicalPath(String value) {
+    final uri = Uri.tryParse(value);
+    final segments = value.split('/');
+    if (value.isEmpty ||
+        value.startsWith('/') ||
+        value.contains(r'\') ||
+        uri == null ||
+        uri.hasScheme ||
+        uri.hasQuery ||
+        uri.hasFragment ||
+        segments.any(
+          (segment) => segment.isEmpty || segment == '.' || segment == '..',
+        )) {
+      throw ArgumentError.value(
+        value,
+        'logicalPath',
+        'Expected a safe relative URI path.',
+      );
+    }
+    return segments.join('/');
   }
 
   Future<void> _handleRequest(HttpRequest request) async {
@@ -251,6 +333,26 @@ final class LocalAssetsServer implements VrmContentHost {
         }
       case _MemoryResource(:final bytes, :final fileName):
         await _serveBytes(request, bytes, fileName);
+      case _FileBundleResource(:final files):
+        final logicalPath = segments.skip(3).join('/');
+        final file = files[logicalPath];
+        if (file == null || !await file.exists()) {
+          request.response.statusCode = HttpStatus.notFound;
+          return;
+        }
+        request.response.headers.contentType = _contentType(logicalPath);
+        request.response.contentLength = await file.length();
+        if (request.method == 'GET') {
+          await request.response.addStream(file.openRead());
+        }
+      case _MemoryBundleResource(:final files):
+        final logicalPath = segments.skip(3).join('/');
+        final bytes = files[logicalPath];
+        if (bytes == null) {
+          request.response.statusCode = HttpStatus.notFound;
+          return;
+        }
+        await _serveBytes(request, bytes, logicalPath);
     }
   }
 
@@ -362,4 +464,23 @@ final class _MemoryResource extends _HostedResource {
 
   final Uint8List bytes;
   final String fileName;
+}
+
+final class _FileBundleResource extends _HostedResource {
+  const _FileBundleResource(this.files);
+
+  final Map<String, File> files;
+}
+
+final class _MemoryBundleResource extends _HostedResource {
+  const _MemoryBundleResource(this.files);
+
+  final Map<String, Uint8List> files;
+}
+
+final class _ValidatedBundle<T> {
+  const _ValidatedBundle(this.files, this.entryFileName);
+
+  final Map<String, T> files;
+  final String entryFileName;
 }

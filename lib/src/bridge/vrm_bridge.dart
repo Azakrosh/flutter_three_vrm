@@ -1,7 +1,6 @@
 part of '../vrm_runtime.dart';
 
 typedef VrmJavaScriptRunner = Future<void> Function(String source);
-typedef VrmJavaScriptEvaluator = Future<Object?> Function(String source);
 
 final class _VrmBridge {
   static const int _protocolVersion = 1;
@@ -12,7 +11,6 @@ final class _VrmBridge {
 
   Object? _transportOwner;
   VrmJavaScriptRunner? _runJavaScript;
-  VrmJavaScriptEvaluator? _evaluateJavaScript;
   int _nextCommandId = 0;
   bool _disposed = false;
 
@@ -21,7 +19,6 @@ final class _VrmBridge {
   void attachTransport({
     required Object owner,
     required VrmJavaScriptRunner runJavaScript,
-    required VrmJavaScriptEvaluator evaluateJavaScript,
   }) {
     if (_disposed) {
       throw StateError('VrmController has already been disposed.');
@@ -33,7 +30,6 @@ final class _VrmBridge {
     }
     _transportOwner = owner;
     _runJavaScript = runJavaScript;
-    _evaluateJavaScript = evaluateJavaScript;
   }
 
   void detachTransport(Object owner) {
@@ -42,7 +38,6 @@ final class _VrmBridge {
     }
     _transportOwner = null;
     _runJavaScript = null;
-    _evaluateJavaScript = null;
     _failPending(
       StateError('VrmView was detached before a command completed.'),
     );
@@ -86,7 +81,7 @@ final class _VrmBridge {
     pending.timer.cancel();
 
     if (envelope['ok'] == true) {
-      pending.completer.complete();
+      pending.completer.complete(envelope['result']);
       return;
     }
 
@@ -190,13 +185,20 @@ final class _VrmBridge {
     String action, [
     Map<String, dynamic>? payload,
   ]) async {
+    await requestCommand(action, payload);
+  }
+
+  Future<Object?> requestCommand(
+    String action, [
+    Map<String, dynamic>? payload,
+  ]) async {
     final runner = _runJavaScript;
     if (runner == null) {
       throw StateError('VrmView is not attached to this controller.');
     }
 
     final id = '${DateTime.now().microsecondsSinceEpoch}-${_nextCommandId++}';
-    final completer = Completer<void>();
+    final completer = Completer<Object?>();
     final timer = Timer(_commandTimeout, () {
       final pending = _pending.remove(id);
       pending?.completer.completeError(
@@ -224,15 +226,7 @@ final class _VrmBridge {
       pending?.completer.completeError(error, stackTrace);
     }
 
-    await completer.future;
-  }
-
-  Future<Object?> evaluateJavaScript(String source) async {
-    final evaluator = _evaluateJavaScript;
-    if (evaluator == null) {
-      throw StateError('VrmView is not attached to this controller.');
-    }
-    return evaluator(source);
+    return completer.future;
   }
 
   void reportAsyncError(Object error, StackTrace stackTrace) {
@@ -258,7 +252,6 @@ final class _VrmBridge {
     _disposed = true;
     _transportOwner = null;
     _runJavaScript = null;
-    _evaluateJavaScript = null;
     _failPending(StateError('VrmController was disposed.'));
     await _eventController.close();
   }
@@ -267,6 +260,6 @@ final class _VrmBridge {
 final class _PendingCommand {
   const _PendingCommand({required this.completer, required this.timer});
 
-  final Completer<void> completer;
+  final Completer<Object?> completer;
   final Timer timer;
 }
