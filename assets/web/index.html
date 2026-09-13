@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>flutter_three-vrm WebGL Runner</title>
+  <link rel="stylesheet" href="css/style.css">
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "./js/three.module.js",
+      "three/addons/loaders/GLTFLoader.js": "./js/GLTFLoader.js",
+      "three/addons/controls/OrbitControls.js": "./js/OrbitControls.js",
+      "@pixiv/three-vrm": "./js/three-vrm.module.js",
+      "@pixiv/three-vrm-animation": "./js/three-vrm-animation.module.js"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="canvas-container"></div>
+  <script type="module" src="js/vrm_runner.js"></script>
+</body>
+</html>

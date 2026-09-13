@@ -1,0 +1,27 @@
+name: flutter_three_vrm
+description: "A cross-platform Flutter package for loading and displaying VRM 1.0 models with VRMA animations, lip sync, multi-layer expressions, look-at and interactive camera controls using webview_flutter and three-vrm."
+version: 0.1.0
+homepage: https://github.com/pixiv/three-vrm
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+  flutter: ">=3.10.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  webview_flutter: ^4.14.1
+  webview_flutter_windows: ^1.1.1
+  path: ^1.9.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  assets:
+    - assets/web/
+    - assets/web/css/
+    - assets/web/js/
+    - assets/web/utils/

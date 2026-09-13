@@ -1,0 +1,47 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.buildlog/
+.history
+.svn/
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# VS Code
+.vscode/
+
+# Flutter/Dart/Pub related
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+/build/
+/coverage/
+lib/generated_plugin_registrant.dart
+pubspec.lock
+
+# Android related
+**/android/app/src/main/res/values/strings.xml
+**/android/key.properties
+*.jks
+*.keystore
+
+# Web
+/build/web/
+
+# Ignore artifacts created by the agent
+implementation_plan.md
+task.md
+walkthrough.md
