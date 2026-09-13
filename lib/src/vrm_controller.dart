@@ -1,166 +1,241 @@
-import 'dart:async';
-import 'dart:convert';
-import 'dart:io' as io;
-import 'package:flutter/material.dart';
-import 'package:path/path.dart' as p;
-import 'package:webview_flutter/webview_flutter.dart';
-import 'bridge/local_server.dart';
-import 'bridge/vrm_bridge.dart';
-import 'models/vrm_animation_options.dart';
-import 'models/vrm_camera_preset.dart';
-import 'models/vrm_events.dart';
-import 'models/vrm_expression.dart';
-import 'models/vrm_lip_sync_data.dart';
-import 'models/vrm_mood.dart';
-import 'models/vrm_transform.dart';
-import 'models/vrm_wind.dart';
+part of 'vrm_runtime.dart';
 
-/// Primary controller for loading, animating, and interacting with a VRM 1.0 model.
+/// Primary controller for loading, animating, and interacting with one VRM model.
 class VrmController {
-  final VrmBridge _bridge = VrmBridge();
+  final _VrmBridge _bridge = _VrmBridge();
   bool _isLoadingModel = false;
+  VrmContentHost? _contentHost;
 
-  /// Internal bridge accessor used by [VrmView].
-  VrmBridge get bridge => _bridge;
-
-  /// True if a model is currently being loaded and parsed.
+  /// True while a model is being transferred and parsed by the runtime.
   bool get isLoadingModel => _isLoadingModel;
 
-  /// Attaches the WebViewController to the IPC bridge.
-  void attachWebViewController(WebViewController webViewController) {
-    _bridge.attachController(webViewController);
+  void _attachContentHost(VrmContentHost contentHost) {
+    _contentHost = contentHost;
   }
 
-  // --- Model Lifecycle ---
+  void _detachContentHost(VrmContentHost contentHost) {
+    if (identical(_contentHost, contentHost)) {
+      _contentHost = null;
+    }
+  }
 
-  /// Loads a VRM 1.0 model from Flutter assets using folder path and file name.
-  /// Example: `controller.loadModel('assets/vrm/', 'avatar.vrm');`
-  Future<void> loadModel(String folderPath, String fileName) async {
-    _isLoadingModel = true;
+  VrmContentHost get _requiredContentHost {
+    final contentHost = _contentHost;
+    if (contentHost == null || !contentHost.isStarted) {
+      throw StateError(
+        'VrmView is not ready. Wait for VrmView.onCreated before loading '
+        'assets or local files.',
+      );
+    }
+    return contentHost;
+  }
+
+  void _sendCommand(String action, [Map<String, dynamic>? payload]) {
+    unawaited(
+      _bridge.sendCommand(action, payload).catchError((
+        Object error,
+        StackTrace stackTrace,
+      ) {
+        _bridge.reportAsyncError(error, stackTrace);
+      }),
+    );
+  }
+
+  void _evaluateJavaScript(String source) {
+    unawaited(
+      _bridge.evaluateJavaScript(source).catchError((
+        Object error,
+        StackTrace stackTrace,
+      ) {
+        _bridge.reportAsyncError(error, stackTrace);
+        return null;
+      }),
+    );
+  }
+
+  Future<void> _sendHostedResourceCommand({
+    required Uri Function(VrmContentHost host) expose,
+    required String action,
+    required String fileName,
+    Map<String, dynamic>? payload,
+  }) async {
+    final host = _requiredContentHost;
+    final uri = expose(host);
     try {
-      final port = LocalAssetsServer.port;
-      final url =
-          'http://127.0.0.1:$port/asset?path=${Uri.encodeComponent('$folderPath$fileName')}';
-      await _bridge.sendCommand('loadModelFromUrl', {
-        'url': url,
+      await _bridge.sendCommand(action, <String, dynamic>{
+        ...?payload,
+        'url': uri.toString(),
         'fileName': fileName,
       });
     } finally {
-      _isLoadingModel = false;
+      host.release(uri);
     }
   }
 
-  /// Loads a VRM 1.0 model from a local file.
-  Future<void> loadModelFromFile(io.File file) async {
+  // --- Model lifecycle ---
+
+  /// Loads a VRM model from Flutter assets.
+  Future<void> loadModel(String folderPath, String fileName) async {
     _isLoadingModel = true;
     try {
-      final port = LocalAssetsServer.port;
-      final url =
-          'http://127.0.0.1:$port/file?path=${Uri.encodeComponent(file.path)}';
-      await _bridge.sendCommand('loadModelFromUrl', {
-        'url': url,
-        'fileName': p.basename(file.path),
-      });
+      await _sendHostedResourceCommand(
+        expose: (host) => host.exposeAsset('$folderPath$fileName'),
+        action: 'loadModelFromUrl',
+        fileName: fileName,
+      );
     } finally {
       _isLoadingModel = false;
     }
   }
 
-  /// Loads a VRM 1.0 model directly from a URL.
+  /// Loads a VRM model from a local file.
+  Future<void> loadModelFromFile(io.File file) async {
+    _isLoadingModel = true;
+    try {
+      await _sendHostedResourceCommand(
+        expose: (host) => host.exposeFile(file),
+        action: 'loadModelFromUrl',
+        fileName: p.basename(file.path),
+      );
+    } finally {
+      _isLoadingModel = false;
+    }
+  }
+
+  /// Loads VRM bytes obtained by an authenticated Flutter API client.
+  ///
+  /// For very large models prefer [loadModelFromFile] to avoid retaining the
+  /// complete file in Dart memory.
+  Future<void> loadModelFromBytes(
+    Uint8List bytes, {
+    required String fileName,
+  }) async {
+    _isLoadingModel = true;
+    try {
+      await _sendHostedResourceCommand(
+        expose: (host) => host.exposeBytes(bytes, fileName: fileName),
+        action: 'loadModelFromUrl',
+        fileName: fileName,
+      );
+    } finally {
+      _isLoadingModel = false;
+    }
+  }
+
+  /// Loads a public URL directly in WebView.
+  ///
+  /// Prefer [loadModelFromFile] or [loadModelFromBytes] for authenticated URLs.
   Future<void> loadModelFromUrl(String url) async {
     _isLoadingModel = true;
     try {
       await _bridge.sendCommand('loadModelFromUrl', {
         'url': url,
-        'fileName': url.split('/').last,
+        'fileName': Uri.parse(url).pathSegments.lastOrNull ?? 'avatar.vrm',
       });
     } finally {
       _isLoadingModel = false;
     }
   }
 
-  /// Unloads the current VRM model and frees WebGL textures/memory.
-  Future<void> unloadModel() async {
-    await _bridge.sendCommand('unloadModel');
-  }
+  /// Unloads the model and releases its GPU resources.
+  Future<void> unloadModel() => _bridge.sendCommand('unloadModel');
 
-  /// Clears the IndexedDB cache for downloaded VRM models.
-  Future<void> clearCache() async {
-    await _bridge.sendCommand('clearCache');
-  }
+  /// Disposes this controller and its event streams.
+  Future<void> dispose() => _bridge.dispose();
 
-  /// Disposes the controller and cleans up event streams.
-  void dispose() {
-    _bridge.dispose();
-  }
+  /// Pauses the WebGL render loop.
+  Future<void> pauseRendering() => _bridge.sendCommand('pauseRendering');
 
-  /// Pauses WebGL rendering loop to save GPU/battery when app is backgrounded.
-  void pauseRendering() {
-    _bridge.sendCommand('pauseRendering');
-  }
+  /// Resumes the WebGL render loop.
+  Future<void> resumeRendering() => _bridge.sendCommand('resumeRendering');
 
-  /// Resumes WebGL rendering loop.
-  void resumeRendering() {
-    _bridge.sendCommand('resumeRendering');
-  }
+  // --- Animation control ---
 
-  // --- Animation Control (VRMA) ---
-
-  /// Plays a `.vrma` animation clip from assets.
-  /// Example: `controller.playAnimation('assets/vrma/', 'dance.vrma');`
+  /// Plays a VRMA animation from Flutter assets.
   Future<void> playAnimation(
     String folderPath,
     String fileName, {
     bool loop = true,
-    double speed = 1.0,
+    double speed = 1,
     double fadeDuration = 0.5,
-  }) async {
-    final port = LocalAssetsServer.port;
-    final url =
-        'http://127.0.0.1:$port/asset?path=${Uri.encodeComponent('$folderPath$fileName')}';
-    final options = VrmAnimationOptions(
-        loop: loop, speed: speed, fadeDuration: fadeDuration);
-
-    await _bridge.sendCommand('playAnimationFromUrl', {
-      'url': url,
-      'fileName': fileName,
-      'options': options.toJson(),
-    });
+  }) {
+    return _playHostedAnimation(
+      expose: (host) => host.exposeAsset('$folderPath$fileName'),
+      fileName: fileName,
+      loop: loop,
+      speed: speed,
+      fadeDuration: fadeDuration,
+    );
   }
 
-  /// Plays a `.vrma` animation clip from a local file.
+  /// Plays a VRMA or glTF animation from a local file.
   Future<void> playAnimationFromFile(
     io.File file, {
     bool loop = true,
-    double speed = 1.0,
+    double speed = 1,
     double fadeDuration = 0.5,
-  }) async {
-    final port = LocalAssetsServer.port;
-    final url =
-        'http://127.0.0.1:$port/file?path=${Uri.encodeComponent(file.path)}';
-    final options = VrmAnimationOptions(
-        loop: loop, speed: speed, fadeDuration: fadeDuration);
-
-    await _bridge.sendCommand('playAnimationFromUrl', {
-      'url': url,
-      'fileName': p.basename(file.path),
-      'options': options.toJson(),
-    });
+  }) {
+    return _playHostedAnimation(
+      expose: (host) => host.exposeFile(file),
+      fileName: p.basename(file.path),
+      loop: loop,
+      speed: speed,
+      fadeDuration: fadeDuration,
+    );
   }
 
-  /// Plays a `.vrma` animation clip from a URL.
+  /// Plays VRMA or glTF animation bytes obtained by Flutter.
+  Future<void> playAnimationFromBytes(
+    Uint8List bytes, {
+    required String fileName,
+    bool loop = true,
+    double speed = 1,
+    double fadeDuration = 0.5,
+  }) {
+    return _playHostedAnimation(
+      expose: (host) => host.exposeBytes(bytes, fileName: fileName),
+      fileName: fileName,
+      loop: loop,
+      speed: speed,
+      fadeDuration: fadeDuration,
+    );
+  }
+
+  Future<void> _playHostedAnimation({
+    required Uri Function(VrmContentHost host) expose,
+    required String fileName,
+    required bool loop,
+    required double speed,
+    required double fadeDuration,
+  }) {
+    final options = VrmAnimationOptions(
+      loop: loop,
+      speed: speed,
+      fadeDuration: fadeDuration,
+    );
+    return _sendHostedResourceCommand(
+      expose: expose,
+      action: 'playAnimationFromUrl',
+      fileName: fileName,
+      payload: {'options': options.toJson()},
+    );
+  }
+
+  /// Plays a VRMA or glTF animation from a public URL.
   Future<void> playAnimationFromUrl(
     String url, {
     bool loop = true,
-    double speed = 1.0,
+    double speed = 1,
     double fadeDuration = 0.5,
-  }) async {
+  }) {
     final options = VrmAnimationOptions(
-        loop: loop, speed: speed, fadeDuration: fadeDuration);
-
-    await _bridge.sendCommand('playAnimationFromUrl', {
+      loop: loop,
+      speed: speed,
+      fadeDuration: fadeDuration,
+    );
+    return _bridge.sendCommand('playAnimationFromUrl', {
       'url': url,
-      'fileName': url.split('/').last,
+      'fileName': Uri.parse(url).pathSegments.lastOrNull ?? 'animation.vrma',
       'options': options.toJson(),
     });
   }
@@ -262,7 +337,7 @@ class VrmController {
     Duration duration = const Duration(milliseconds: 250),
     bool disableAutoBlink = false,
   }) {
-    _bridge.sendCommand('setExpression', {
+    _sendCommand('setExpression', {
       'expression': expression.name,
       'layer': (layer ?? expression.defaultLayer).name,
       'weight': weight,
@@ -273,71 +348,67 @@ class VrmController {
 
   /// Clears active expression from a layer.
   void clearExpressionLayer(ExpressionLayer layer) {
-    _bridge.sendCommand('clearExpressionLayer', {'layer': layer.name});
+    _sendCommand('clearExpressionLayer', {'layer': layer.name});
   }
 
   /// Clears all active facial expressions, blendshapes, and visemes.
   void clearAllExpressions() {
-    _bridge.sendCommand('clearAllExpressions');
+    _sendCommand('clearAllExpressions');
   }
 
   /// Sets a custom blendshape key by name and weight (0.0 to 1.0).
   void setCustomBlendShape(String name, double weight) {
-    _bridge
-        .sendCommand('setCustomBlendShape', {'name': name, 'weight': weight});
+    _sendCommand('setCustomBlendShape', {'name': name, 'weight': weight});
   }
 
   // --- Lip Sync (ElevenLabs & Amplitude) ---
 
   /// Sets real-time audio volume amplitude (0.0 to 1.0) for smooth speech mouth opening.
   void setLipSyncAmplitude(double amplitude) {
-    _bridge.sendCommand(
-        'setLipSyncAmplitude', {'amplitude': amplitude.clamp(0.0, 1.0)});
+    _sendCommand('setLipSyncAmplitude', {
+      'amplitude': amplitude.clamp(0.0, 1.0),
+    });
   }
 
   /// Sets specific ElevenLabs viseme (AA, IH, OU, EE, OH).
   void setViseme(VrmViseme viseme, {double weight = 1.0}) {
-    _bridge.sendCommand('setViseme', {'viseme': viseme.name, 'weight': weight});
+    _sendCommand('setViseme', {'viseme': viseme.name, 'weight': weight});
   }
 
   /// Enqueues a list of timed speech viseme frames for TTS playback.
   void enqueueSpeechVisemes(List<VisemeFrame> frames) {
     final sortedFrames = List<VisemeFrame>.from(frames)..sort();
 
-    _bridge.sendCommand('enqueueSpeechVisemes', {
+    _sendCommand('enqueueSpeechVisemes', {
       'frames': sortedFrames.map((f) => f.toJson()).toList(),
     });
   }
 
   /// Starts a streaming speech timeline. Subsequent frame batches use
   /// timestamps relative to the same clock and do not replace older batches.
-  void beginSpeech({
-    Duration startDelay = const Duration(milliseconds: 180),
-  }) {
-    _bridge.sendCommand('beginSpeech', {
-      'startDelayMs': startDelay.inMilliseconds,
-    });
+  void beginSpeech({Duration startDelay = const Duration(milliseconds: 180)}) {
+    _sendCommand('beginSpeech', {'startDelayMs': startDelay.inMilliseconds});
   }
 
   /// Appends timed frames to the active streaming speech timeline.
   void appendSpeechVisemes(List<VisemeFrame> frames) {
     if (frames.isEmpty) return;
     final sortedFrames = List<VisemeFrame>.from(frames)..sort();
-    _bridge.sendCommand('appendSpeechVisemes', {
+    _sendCommand('appendSpeechVisemes', {
       'frames': sortedFrames.map((f) => f.toJson()).toList(),
     });
   }
 
   /// Marks a streaming speech timeline as complete.
   void finishSpeech(Duration audioDuration) {
-    _bridge.sendCommand('finishSpeech', {
+    _sendCommand('finishSpeech', {
       'audioDurationMs': audioDuration.inMilliseconds,
     });
   }
 
   /// Cancels queued speech and closes only the mouth expression layer.
   void cancelSpeech() {
-    _bridge.sendCommand('cancelSpeech');
+    _sendCommand('cancelSpeech');
   }
 
   // --- LookAt, Touch & Auto-Blink ---
@@ -345,16 +416,16 @@ class VrmController {
   /// Toggles random auto-blinking generator.
   /// Включает или отключает случайные движения зрачков (саккады).
   void setAutoSaccades({bool enabled = true}) {
-    _bridge.sendCommand('setAutoSaccades', {'enabled': enabled});
+    _sendCommand('setAutoSaccades', {'enabled': enabled});
   }
 
   void setAutoBlink(bool enabled) {
-    _bridge.sendCommand('setAutoBlink', {'enabled': enabled});
+    _sendCommand('setAutoBlink', {'enabled': enabled});
   }
 
   /// Sets 3D LookAt target point on screen.
   void setLookAtTarget(Offset screenPosition) {
-    _bridge.sendCommand('setLookAtTarget', {
+    _sendCommand('setLookAtTarget', {
       'x': screenPosition.dx,
       'y': screenPosition.dy,
     });
@@ -362,8 +433,8 @@ class VrmController {
 
   /// Configures LookAt dead zone X range (default 0.35) and gaze hold duration (default 1.8s).
   void setLookAtConfig({double? deadZoneX, Duration? holdDuration}) {
-    _bridge.sendCommand('setLookAtConfig', {
-      if (deadZoneX != null) 'deadZoneX': deadZoneX,
+    _sendCommand('setLookAtConfig', {
+      'deadZoneX': ?deadZoneX,
       if (holdDuration != null)
         'holdDurationSec': holdDuration.inMilliseconds / 1000.0,
     });
@@ -371,9 +442,14 @@ class VrmController {
 
   // --- Camera & Scene ---
 
-  /// Sets camera operation mode (characterCreator, preset, free).
+  /// Selects constrained avatar controls or unrestricted orbit controls.
   void setCameraMode(VrmCameraMode mode) {
-    _bridge.sendCommand('setCameraMode', {'mode': mode.name});
+    _sendCommand('setCameraMode', {
+      'mode': switch (mode) {
+        VrmCameraMode.constrained => 'constrained',
+        VrmCameraMode.free => 'free',
+      },
+    });
   }
 
   /// Retrieves the current pan and zoom state of the avatar.
@@ -381,7 +457,9 @@ class VrmController {
   /// This gets the current `x` and `y` translation of the model, and the `zoom`
   /// distance of the camera. You can save this state and restore it later.
   Future<VrmTransform> getTransform() async {
-    final result = await _bridge.evalJavaScript('window.getAvatarTransform()');
+    final result = await _bridge.evaluateJavaScript(
+      'window.getAvatarTransform()',
+    );
     if (result != null && result is String) {
       // Sometimes the webview returns the JSON string wrapped in quotes if it's evaluated as a string primitive
       final cleaned = result.startsWith('"') && result.endsWith('"')
@@ -397,7 +475,7 @@ class VrmController {
     // We must pass the JSON string safely. The bridge's runJavaScript doesn't need sendCommand structure
     // since we exposed a global window method for this.
     final jsonStr = jsonEncode(transform.toJson());
-    _bridge.evalJavaScript('window.setAvatarTransform($jsonStr)');
+    _evaluateJavaScript('window.setAvatarTransform($jsonStr)');
   }
 
   String _colorToHex(Color color) {
@@ -412,13 +490,12 @@ class VrmController {
     Color? directionalColor,
     double? directionalIntensity,
   }) {
-    _bridge.sendCommand('setLighting', {
+    _sendCommand('setLighting', {
       if (ambientColor != null) 'ambientColor': _colorToHex(ambientColor),
-      if (ambientIntensity != null) 'ambientIntensity': ambientIntensity,
+      'ambientIntensity': ?ambientIntensity,
       if (directionalColor != null)
         'directionalColor': _colorToHex(directionalColor),
-      if (directionalIntensity != null)
-        'directionalIntensity': directionalIntensity,
+      'directionalIntensity': ?directionalIntensity,
     });
   }
 
@@ -426,7 +503,7 @@ class VrmController {
   /// [color] is the dominant color of the background.
   /// [intensity] (0.0 to 1.0) controls how strongly the ambient light mixes with the background color (default 0.5).
   void setEnvironmentColor(Color color, {double intensity = 0.5}) {
-    _bridge.sendCommand('setEnvironmentColor', {
+    _sendCommand('setEnvironmentColor', {
       'color': _colorToHex(color),
       'intensity': intensity.clamp(0.0, 1.0),
     });
@@ -435,7 +512,7 @@ class VrmController {
   /// Enables or disables real-time shadow mapping in WebGL.
   /// Shadows improve visual quality significantly but increase GPU usage.
   void setShadows(bool enabled) {
-    _bridge.sendCommand('setShadows', {'enabled': enabled});
+    _sendCommand('setShadows', {'enabled': enabled});
   }
 
   /// Adjusts the physics of the model's soft bodies (Spring Bones) like hair and clothes.
@@ -447,7 +524,7 @@ class VrmController {
     double gravity = 1.0,
     double drag = 1.0,
   }) {
-    _bridge.sendCommand('setPhysics', {
+    _sendCommand('setPhysics', {
       'stiffness': stiffness,
       'gravity': gravity,
       'drag': drag,
@@ -459,15 +536,12 @@ class VrmController {
     VrmWindType type = VrmWindType.none,
     VrmWindDirection direction = VrmWindDirection.right,
   }) {
-    _bridge.sendCommand('setWind', {
-      'type': type.name,
-      'direction': direction.name,
-    });
+    _sendCommand('setWind', {'type': type.name, 'direction': direction.name});
   }
 
   /// Smoothly fades out the wind effect over a few seconds.
   void stopWind() {
-    _bridge.sendCommand('stopWind');
+    _sendCommand('stopWind');
   }
 
   /// Configures scene background (color and optional image).
@@ -483,15 +557,15 @@ class VrmController {
 
     // Convert asset path to local server URL to bypass CORS
     if (imageAssetPath != null) {
-      final port = LocalAssetsServer.port;
-      finalImageUrl =
-          'http://127.0.0.1:$port/asset?path=${Uri.encodeComponent(imageAssetPath)}';
+      finalImageUrl = _requiredContentHost
+          .exposeAsset(imageAssetPath)
+          .toString();
     }
 
-    _bridge.sendCommand('setBackground', {
+    _sendCommand('setBackground', {
       'color': _colorToHex(color),
       'transparent': transparent,
-      if (finalImageUrl != null) 'imageUrl': finalImageUrl,
+      'imageUrl': ?finalImageUrl,
     });
   }
 
@@ -518,9 +592,7 @@ class VrmController {
     if (enablePhysics != null) settings['enablePhysics'] = enablePhysics;
     if (fpsCap != null) settings['fpsCap'] = fpsCap;
 
-    _bridge.sendCommand('setGraphicsSettings', {
-      'settings': settings,
-    });
+    _sendCommand('setGraphicsSettings', {'settings': settings});
   }
 
   // --- Event Stream Getters ---
@@ -531,10 +603,10 @@ class VrmController {
 
   /// Emitted repeatedly while a model is downloading, with [percent] 0–100.
   /// Useful for showing a progress indicator during model load.
-  Stream<VrmModelLoadProgressEvent> get onModelLoadProgress =>
-      _bridge.eventStream
-          .where((e) => e is VrmModelLoadProgressEvent)
-          .cast<VrmModelLoadProgressEvent>();
+  Stream<VrmModelLoadProgressEvent> get onModelLoadProgress => _bridge
+      .eventStream
+      .where((e) => e is VrmModelLoadProgressEvent)
+      .cast<VrmModelLoadProgressEvent>();
 
   Stream<VrmModelUnloadedEvent> get onModelUnloaded => _bridge.eventStream
       .where((e) => e is VrmModelUnloadedEvent)
@@ -544,15 +616,15 @@ class VrmController {
       .where((e) => e is VrmAnimationStartedEvent)
       .cast<VrmAnimationStartedEvent>();
 
-  Stream<VrmAnimationFinishedEvent> get onAnimationFinished =>
-      _bridge.eventStream
-          .where((e) => e is VrmAnimationFinishedEvent)
-          .cast<VrmAnimationFinishedEvent>();
+  Stream<VrmAnimationFinishedEvent> get onAnimationFinished => _bridge
+      .eventStream
+      .where((e) => e is VrmAnimationFinishedEvent)
+      .cast<VrmAnimationFinishedEvent>();
 
-  Stream<VrmExpressionChangedEvent> get onExpressionChanged =>
-      _bridge.eventStream
-          .where((e) => e is VrmExpressionChangedEvent)
-          .cast<VrmExpressionChangedEvent>();
+  Stream<VrmExpressionChangedEvent> get onExpressionChanged => _bridge
+      .eventStream
+      .where((e) => e is VrmExpressionChangedEvent)
+      .cast<VrmExpressionChangedEvent>();
 
   Stream<VrmSpeechFinishedEvent> get onSpeechFinished => _bridge.eventStream
       .where((e) => e is VrmSpeechFinishedEvent)

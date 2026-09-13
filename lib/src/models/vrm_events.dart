@@ -6,7 +6,7 @@ abstract class VrmEvent {
   VrmEvent() : timestamp = DateTime.now();
 }
 
-/// Emitted when a VRM 1.0 model is successfully loaded and added to the 3D scene.
+/// Emitted when a VRM model is successfully loaded and added to the scene.
 class VrmModelLoadedEvent extends VrmEvent {
   final String name;
   final String version;
@@ -72,11 +72,13 @@ class VrmStateChangedEvent extends VrmEvent {
   VrmStateChangedEvent({required this.state});
 }
 
-/// Emitted when camera view changes.
+/// Emitted when the user changes pan or zoom.
 class VrmCameraChangedEvent extends VrmEvent {
-  final String preset;
+  final double? x;
+  final double? y;
+  final double? zoom;
 
-  VrmCameraChangedEvent({required this.preset});
+  VrmCameraChangedEvent({this.x, this.y, this.zoom});
 }
 
 /// Emitted when user taps or clicks on the 3D view.

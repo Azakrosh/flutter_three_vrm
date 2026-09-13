@@ -45,3 +45,6 @@ pubspec.lock
 implementation_plan.md
 task.md
 walkthrough.md
+
+# Embedded web runtime
+web/node_modules/

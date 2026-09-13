@@ -1,0 +1,27 @@
+library;
+
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io' as io;
+
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:path/path.dart' as p;
+
+import 'bridge/local_server.dart';
+import 'content/vrm_content_host.dart';
+import 'models/vrm_animation_options.dart';
+import 'models/vrm_camera_mode.dart';
+import 'models/vrm_events.dart';
+import 'models/vrm_exception.dart';
+import 'models/vrm_expression.dart';
+import 'models/vrm_lip_sync_data.dart';
+import 'models/vrm_mood.dart';
+import 'models/vrm_transform.dart';
+import 'models/vrm_wind.dart';
+import 'platform/create_vrm_webview_adapter.dart';
+import 'platform/vrm_webview_adapter.dart';
+
+part 'bridge/vrm_bridge.dart';
+part 'vrm_controller.dart';
+part 'vrm_view.dart';

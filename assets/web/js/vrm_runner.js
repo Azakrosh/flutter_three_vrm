@@ -1,9 +1,27 @@
-import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
-import { VRMAnimationLoaderPlugin, createVRMAnimationClip, VRMLookAtQuaternionProxy } from '@pixiv/three-vrm-animation';
+const {
+  GLTFLoader,
+  OrbitControls,
+  THREE,
+  VRMAnimationLoaderPlugin,
+  VRMLoaderPlugin,
+  VRMLookAtQuaternionProxy,
+  VRMUtils,
+  createVRMAnimationClip,
+  failure,
+  parseCommand,
+  success,
+} = window.FlutterThreeVrm;
 
+function postFlutterMessage(value) {
+  const message = typeof value === 'string' ? value : JSON.stringify(value);
+  if (window.FlutterBridge && window.FlutterBridge.postMessage) {
+    window.FlutterBridge.postMessage(message);
+  } else if (window.chrome && window.chrome.webview) {
+    window.chrome.webview.postMessage(message);
+  } else if (window.parent) {
+    window.parent.postMessage(message, '*');
+  }
+}
 // Подавляем безвредные предупреждения от @pixiv/three-vrm-animation для старых vrma файлов
 const originalConsoleWarn = console.warn;
 console.warn = function (...args) {
@@ -12,66 +30,6 @@ console.warn = function (...args) {
   }
   originalConsoleWarn.apply(console, args);
 };
-
-class VrmCache {
-  constructor(dbName = 'VRMCacheDB', storeName = 'models') {
-    this.dbName = dbName;
-    this.storeName = storeName;
-    this.db = null;
-  }
-
-  async init() {
-    if (this.db) return this.db;
-    return new Promise((resolve, reject) => {
-      const request = indexedDB.open(this.dbName, 1);
-      request.onupgradeneeded = (e) => {
-        const db = e.target.result;
-        if (!db.objectStoreNames.contains(this.storeName)) {
-          db.createObjectStore(this.storeName);
-        }
-      };
-      request.onsuccess = (e) => {
-        this.db = e.target.result;
-        resolve(this.db);
-      };
-      request.onerror = (e) => reject(e.target.error);
-    });
-  }
-
-  async get(key) {
-    await this.init();
-    return new Promise((resolve, reject) => {
-      const tx = this.db.transaction(this.storeName, 'readonly');
-      const store = tx.objectStore(this.storeName);
-      const request = store.get(key);
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
-  }
-
-  async set(key, blob) {
-    await this.init();
-    return new Promise((resolve, reject) => {
-      const tx = this.db.transaction(this.storeName, 'readwrite');
-      const store = tx.objectStore(this.storeName);
-      const request = store.put(blob, key);
-      request.onsuccess = () => resolve();
-      request.onerror = () => reject(request.error);
-    });
-  }
-
-  async clear() {
-    await this.init();
-    return new Promise((resolve, reject) => {
-      const tx = this.db.transaction(this.storeName, 'readwrite');
-      const store = tx.objectStore(this.storeName);
-      const request = store.clear();
-      request.onsuccess = () => resolve();
-      request.onerror = () => reject(request.error);
-    });
-  }
-}
-const vrmCache = new VrmCache();
 
 class VrmRunner {
   constructor() {
@@ -148,9 +106,8 @@ class VrmRunner {
     this.isBlinking = false;
     this.blinkProgress = 0;
 
-    // Camera Presets
-    this.cameraMode = 'preset'; // or 'characterCreator', doesn't matter since we auto-set
-    this.currentPresetName = 'upperBody';
+    // Camera interaction and automatic framing
+    this.cameraMode = 'constrained';
     this.targetCameraPos = new THREE.Vector3();
     this.targetCameraTarget = new THREE.Vector3();
     this.isCameraAnimating = false;
@@ -323,9 +280,23 @@ class VrmRunner {
     window.flutterVrmInvoke = (action, payloadJson) => {
       try {
         const payload = payloadJson ? JSON.parse(payloadJson) : {};
-        this.handleFlutterCommand(action, payload);
-      } catch (err) {
-        console.error('flutterVrmInvoke error:', err);
+        void this.handleFlutterCommand(action, payload);
+      } catch (error) {
+        console.error('flutterVrmInvoke error:', error);
+      }
+    };
+
+    window.flutterVrmDispatch = async (commandJson) => {
+      let id = 'invalid-command';
+      try {
+        const command = parseCommand(commandJson);
+        id = command.id;
+        await this.handleFlutterCommand(command.action, command.payload ?? {});
+        postFlutterMessage(success(id));
+      } catch (error) {
+        const code = typeof error?.code === 'string' ? error.code : 'runtimeError';
+        const message = error instanceof Error ? error.message : String(error);
+        postFlutterMessage(failure(id, code, message));
       }
     };
   }
@@ -480,19 +451,16 @@ class VrmRunner {
     this.notifyFlutter('onTap', { x: clientX, y: clientY });
   }
 
-  handleFlutterCommand(action, payload) {
+  async handleFlutterCommand(action, payload) {
     switch (action) {
       case 'loadModelFromUrl':
-        this.loadModelFromUrl(payload.url);
-        break;
-      case 'clearCache':
-        vrmCache.clear().then(() => console.log('[VRM Cache] Cleared'));
+        await this.loadModelFromUrl(payload.url);
         break;
       case 'unloadModel':
         this.unloadModel();
         break;
       case 'playAnimationFromUrl':
-        this.playAnimationFromUrl(payload.url, payload.options);
+        await this.playAnimationFromUrl(payload.url, payload.options);
         break;
       case 'pauseAnimation':
         this.isAnimationPaused = true;
@@ -637,7 +605,7 @@ class VrmRunner {
         this.setRenderQuality(payload.pixelRatio);
         break;
       default:
-        console.warn('Unknown action:', action);
+        throw new Error('Unknown VRM command: ' + action);
     }
   }
 
@@ -673,97 +641,33 @@ class VrmRunner {
     this._lastLoadPercent = -1;
     this.unloadModel();
 
-    let objectUrl = null;
-    let finalUrl = url;
-
     try {
-      // 1. Попытка загрузить из кэша
-      let blob = await vrmCache.get(url);
-
-      if (blob) {
-        console.log('[VRM Cache] Model loaded from IndexedDB');
-        objectUrl = URL.createObjectURL(blob);
-        finalUrl = objectUrl;
-
-        // Сразу отправляем 100% прогресс, так как загружено из кэша локально
-        this.notifyFlutter('onModelLoadProgress', { percent: 100, loaded: blob.size, total: blob.size });
-      } else {
-        console.log('[VRM Cache] Downloading model from network');
-        const response = await fetch(url);
-
-        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-
-        const total = parseInt(response.headers.get('content-length'), 10) || 0;
-        let loaded = 0;
-
-        // Используем Streams API для отслеживания прогресса скачивания вручную
-        const reader = response.body.getReader();
-        const chunks = [];
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          chunks.push(value);
-          loaded += value.length;
-
-          if (total > 0) {
-            const percent = Math.round((loaded / total) * 100);
-            if (percent !== this._lastLoadPercent) {
-              this._lastLoadPercent = percent;
-              this.notifyFlutter('onModelLoadProgress', {
-                percent: percent,
-                loaded: loaded,
-                total: total,
-              });
-            }
-          }
-        }
-
-        blob = new Blob(chunks);
-
-        // 2. Сохраняем в кэш
-        try {
-          await vrmCache.set(url, blob);
-          console.log('[VRM Cache] Saved to IndexedDB');
-        } catch (e) {
-          console.warn('[VRM Cache] Failed to save to IndexedDB', e);
-        }
-
-        objectUrl = URL.createObjectURL(blob);
-        finalUrl = objectUrl;
-      }
-
-      // Загрузка в Three.js
       const loader = new GLTFLoader();
       loader.register((parser) => new VRMLoaderPlugin(parser));
-
-      loader.load(
-        finalUrl,
-        (gltf) => {
-          this._setupLoadedVrm(gltf);
-          if (objectUrl) URL.revokeObjectURL(objectUrl);
-        },
-        undefined, // Прогресс уже был обработан при скачивании
-        (err) => {
-          this._lastLoadPercent = -1;
-          this.notifyFlutter('onError', { message: err?.message || 'GLTF load error' });
-          if (objectUrl) URL.revokeObjectURL(objectUrl);
+      const gltf = await loader.loadAsync(url, (progress) => {
+        const loaded = Number(progress.loaded || 0);
+        const total = Number(progress.total || 0);
+        if (total <= 0) return;
+        const percent = Math.round((loaded / total) * 100);
+        if (percent !== this._lastLoadPercent) {
+          this._lastLoadPercent = percent;
+          this.notifyFlutter('onModelLoadProgress', { percent, loaded, total });
         }
-      );
-
-    } catch (err) {
+      });
+      this._setupLoadedVrm(gltf);
+    } catch (error) {
       this._lastLoadPercent = -1;
-      this.notifyFlutter('onError', { message: err?.message || 'Network or Cache load error' });
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      this.notifyFlutter('onError', {
+        message: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
     }
   }
 
   _setupLoadedVrm(gltf) {
     const vrm = gltf.userData.vrm;
     if (!vrm) {
-      this.notifyFlutter('onError', { message: 'Failed to parse VRM model from GLTF' });
-      return;
+      throw new Error('Failed to parse a VRM model from the glTF container.');
     }
 
     // Выгружаем предыдущую модель и очищаем память WebGL перед добавлением новой
@@ -902,22 +806,21 @@ class VrmRunner {
     material.dispose();
   }
 
-  playAnimationFromUrl(url, options = {}) {
-    if (!this.currentVrm || !this.mixer) return;
-
+  async playAnimationFromUrl(url, options = {}) {
+    if (!this.currentVrm || !this.mixer) {
+      throw new Error('Load a VRM model before playing an animation.');
+    }
     const loader = new GLTFLoader();
     loader.register((parser) => new VRMAnimationLoaderPlugin(parser));
-
-    loader.load(
-      url,
-      (gltf) => {
-        this._playLoadedAnimation(gltf, options);
-      },
-      undefined,
-      (err) => {
-        this.notifyFlutter('onError', { message: err?.message || 'VRMA load error' });
-      }
-    );
+    try {
+      const gltf = await loader.loadAsync(url);
+      this._playLoadedAnimation(gltf, options);
+    } catch (error) {
+      this.notifyFlutter('onError', {
+        message: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
   }
 
   _playLoadedAnimation(gltf, options) {
@@ -943,8 +846,7 @@ class VrmRunner {
     }
 
     if (!clip) {
-      this.notifyFlutter('onError', { message: 'No VRMA or GLTF animation clip found in file' });
-      return;
+      throw new Error('No VRMA or glTF animation clip was found.');
     }
 
     if (this.mixer) {
@@ -1227,12 +1129,6 @@ class VrmRunner {
   // ПРЕСЕТЫ И РЕЖИМЫ КАМЕРЫ
   // ==========================================
 
-  /**
-   * Переключает камеру на один из готовых пресетов (fullBody, upperBody, faceCloseUp)
-   * @param {string} presetName Имя пресета
-   * @param {number} durationMs Длительность плавного перехода в миллисекундах
-   */
-
   getBoneWorldY(boneName, defaultY) {
     if (!this.currentVrm || !this.currentVrm.humanoid) return defaultY;
     const node = this.currentVrm.humanoid.getNormalizedBoneNode(boneName) ||
@@ -1306,7 +1202,11 @@ class VrmRunner {
       this.cameraAnimStartTime = this.elapsedTime || 0;
     }
 
-    this.notifyFlutter('onCameraChanged', { preset: 'fullBodyCentered' });
+    this.notifyFlutter('onCameraChanged', {
+      x: -this.targetCameraTarget.x,
+      y: 0.95 - this.targetCameraTarget.y,
+      zoom: this.controls.getDistance(),
+    });
   }
 
   /**
@@ -1315,7 +1215,7 @@ class VrmRunner {
    */
   setCameraMode(mode) {
     this.cameraMode = mode;
-    if (mode === 'characterCreator') {
+    if (mode === 'constrained') {
       this.controls.enabled = true;
       this.setupCharacterCreatorControls();
     } else if (mode === 'free') {
@@ -1323,8 +1223,6 @@ class VrmRunner {
       this.controls.enablePan = true;
       this.controls.minPolarAngle = 0;
       this.controls.maxPolarAngle = Math.PI;
-    } else if (mode === 'preset') {
-      this.controls.enabled = false;
     }
   }
 
@@ -1925,14 +1823,7 @@ class VrmRunner {
   }
 
   notifyFlutter(event, payload) {
-    const message = JSON.stringify({ event, payload });
-    if (window.FlutterBridge && window.FlutterBridge.postMessage) {
-      window.FlutterBridge.postMessage(message);
-    } else if (window.chrome && window.chrome.webview) {
-      window.chrome.webview.postMessage(message);
-    } else if (window.parent) {
-      window.parent.postMessage(message, '*');
-    }
+    postFlutterMessage({ event, payload });
   }
 }
 

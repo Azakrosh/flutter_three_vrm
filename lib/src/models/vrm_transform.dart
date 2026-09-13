@@ -1,45 +1,34 @@
 import 'dart:convert';
 
-/// Represents the physical position and zoom level of the avatar on screen.
-/// 
-/// This state can be retrieved and restored to maintain the user's custom
-/// framing of the 3D model across sessions or screen changes.
-class VrmTransform {
-  /// The X coordinate (pan) of the avatar in world space.
+/// Serializable pan and zoom state of the avatar camera.
+final class VrmTransform {
+  const VrmTransform({required this.x, required this.y, required this.zoom});
+
   final double x;
-
-  /// The Y coordinate (pan) of the avatar in world space.
   final double y;
-
-  /// The distance of the camera from the avatar (zoom level).
   final double zoom;
 
-  const VrmTransform({
-    required this.x,
-    required this.y,
-    required this.zoom,
-  });
-
-  Map<String, dynamic> toMap() {
-    return {
-      'x': x,
-      'y': y,
-      'zoom': zoom,
-    };
-  }
+  Map<String, double> toMap() => <String, double>{'x': x, 'y': y, 'zoom': zoom};
 
   factory VrmTransform.fromMap(Map<String, dynamic> map) {
     return VrmTransform(
-      x: (map['x'] ?? 0.0).toDouble(),
-      y: (map['y'] ?? 0.0).toDouble(),
-      zoom: (map['zoom'] ?? 0.0).toDouble(),
+      x: _asDouble(map['x']),
+      y: _asDouble(map['y']),
+      zoom: _asDouble(map['zoom']),
     );
   }
 
-  String toJson() => json.encode(toMap());
+  String toJson() => jsonEncode(toMap());
 
-  factory VrmTransform.fromJson(String source) =>
-      VrmTransform.fromMap(json.decode(source));
+  factory VrmTransform.fromJson(String source) {
+    final Object? decoded = jsonDecode(source);
+    if (decoded is! Map<String, dynamic>) {
+      throw const FormatException('VRM transform must be a JSON object.');
+    }
+    return VrmTransform.fromMap(decoded);
+  }
+
+  static double _asDouble(Object? value) => value is num ? value.toDouble() : 0;
 
   @override
   String toString() => 'VrmTransform(x: $x, y: $y, zoom: $zoom)';

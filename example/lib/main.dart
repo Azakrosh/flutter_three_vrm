@@ -738,7 +738,7 @@ class _ThreeVRMDemoState extends State<ThreeVRMDemo>
                           setModalState(() {
                             _lipSyncAmplitude = val;
                           });
-                          this.setState(() {
+                          setState(() {
                             _lipSyncAmplitude = val;
                           });
                           _vrmController.setLipSyncAmplitude(val);
@@ -794,7 +794,7 @@ class _ThreeVRMDemoState extends State<ThreeVRMDemo>
                           setModalState(() {
                             _lipSyncAmplitude = 0.0;
                           });
-                          this.setState(() {
+                          setState(() {
                             _lipSyncAmplitude = 0.0;
                           });
                           _vrmController.setLipSyncAmplitude(0.0);
@@ -836,7 +836,7 @@ class _ThreeVRMDemoState extends State<ThreeVRMDemo>
                           timestamp: Duration(milliseconds: 1800)),
                     ];
                     _vrmController.enqueueSpeechVisemes(fakeFrames);
-                    this.setState(() {
+                    setState(() {
                       _statusMessage =
                           'Проигрывание очереди визем (LipSync)...';
                     });
@@ -846,7 +846,7 @@ class _ThreeVRMDemoState extends State<ThreeVRMDemo>
                       if (mounted) {
                         _vrmController
                             .clearExpressionLayer(ExpressionLayer.mouth);
-                        this.setState(() {
+                        setState(() {
                           _statusMessage = 'Поток визем завершен. Рот закрыт.';
                         });
                       }
@@ -991,7 +991,7 @@ class _ThreeVRMDemoState extends State<ThreeVRMDemo>
                             setModalState(() {
                               _directionalIntensity = val;
                             });
-                            this.setState(() {
+                            setState(() {
                               _directionalIntensity = val;
                             });
                             _vrmController.setLighting(
@@ -1203,7 +1203,7 @@ class _ThreeVRMDemoState extends State<ThreeVRMDemo>
                           setModalState(() {
                             _renderQuality = set.first;
                           });
-                          this.setState(() {
+                          setState(() {
                             _renderQuality = set.first;
                           });
                           _vrmController.setGraphicsSettings(
@@ -1224,7 +1224,7 @@ class _ThreeVRMDemoState extends State<ThreeVRMDemo>
                         setModalState(() {
                           _shadowsEnabled = val;
                         });
-                        this.setState(() {
+                        setState(() {
                           _shadowsEnabled = val;
                         });
                         _vrmController.setShadows(val);
@@ -1243,7 +1243,7 @@ class _ThreeVRMDemoState extends State<ThreeVRMDemo>
                         setModalState(() {
                           _antiAliasing = val;
                         });
-                        this.setState(() {
+                        setState(() {
                           _antiAliasing = val;
                         });
                         _vrmController.setGraphicsSettings(antialias: val);
@@ -1262,7 +1262,7 @@ class _ThreeVRMDemoState extends State<ThreeVRMDemo>
                         setModalState(() {
                           _vrmPhisics = val;
                         });
-                        this.setState(() {
+                        setState(() {
                           _vrmPhisics = val;
                         });
                         _vrmController.setGraphicsSettings(enablePhysics: val);
@@ -1293,7 +1293,7 @@ class _ThreeVRMDemoState extends State<ThreeVRMDemo>
                         setModalState(() {
                           _fps = set.first;
                         });
-                        this.setState(() {
+                        setState(() {
                           _fps = set.first;
                         });
                         _vrmController.setGraphicsSettings(fpsCap: _fps);

@@ -1,0 +1,29 @@
+{
+    "name": "flutter-three-vrm-runtime",
+    "version": "0.2.0-dev.1",
+    "private": true,
+    "type": "module",
+    "packageManager": "pnpm@10.33.0",
+    "scripts": {
+        "build": "node scripts/build.mjs",
+        "build:dev": "node scripts/build.mjs --development",
+        "typecheck": "tsc --noEmit",
+        "test": "vitest run"
+    },
+    "dependencies": {
+        "@pixiv/three-vrm": "3.5.5",
+        "@pixiv/three-vrm-animation": "3.5.5",
+        "three": "0.180.0"
+    },
+    "devDependencies": {
+        "@types/three": "0.180.0",
+        "esbuild": "0.28.2",
+        "typescript": "7.0.2",
+        "vitest": "5.0.0"
+    },
+    "pnpm": {
+        "onlyBuiltDependencies": [
+            "esbuild"
+        ]
+    }
+}

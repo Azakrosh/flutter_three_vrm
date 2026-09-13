@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:math';
 
-import '../vrm_controller.dart';
+import '../vrm_runtime.dart';
 import '../models/vrm_events.dart';
 import 'vrm_animation_queue_state.dart';
 
@@ -49,28 +49,24 @@ class VrmAnimationQueue {
 
   /// Creates an animation queue.
   ///
-  /// [controller] — the VRM controller to play animations on.
-  /// [folderPath] — asset folder path (e.g. `'assets/vrma/'`).
+  /// [_controller] — the VRM controller to play animations on.
+  /// [_folderPath] — asset folder path (e.g. `'assets/vrma/'`).
   /// [fileNames] — list of `.vrma` file names to queue.
   /// [random] — if `true`, shuffles play order each cycle (Fisher-Yates).
   /// [loop] — if `true`, restarts from the beginning after the last track.
-  /// [speed] — playback speed multiplier for all queued animations.
-  /// [fadeDuration] — crossfade duration in seconds between animations.
+  /// [_speed] — playback speed multiplier for all queued animations.
+  /// [_fadeDuration] — crossfade duration in seconds between animations.
   VrmAnimationQueue({
-    required VrmController controller,
-    required String folderPath,
+    required this._controller,
+    required this._folderPath,
     required List<String> fileNames,
     bool random = false,
     bool loop = true,
-    double speed = 1.0,
-    double fadeDuration = 0.5,
-  })  : _controller = controller,
-        _folderPath = folderPath,
-        _fileNames = List<String>.unmodifiable(fileNames),
-        _isRandom = random,
-        _isLooping = loop,
-        _speed = speed,
-        _fadeDuration = fadeDuration {
+    this._speed = 1.0,
+    this._fadeDuration = 0.5,
+  }) : _fileNames = List<String>.unmodifiable(fileNames),
+       _isRandom = random,
+       _isLooping = loop {
     // Pre-allocate the index array once
     _playOrder = List<int>.generate(fileNames.length, (i) => i);
   }
@@ -149,7 +145,7 @@ class VrmAnimationQueue {
     if (_state != VrmAnimationQueueState.stopped) {
       _setState(VrmAnimationQueueState.stopped);
     }
-    _controller.stopAnimation();
+    unawaited(_controller.stopAnimation());
   }
 
   /// Interrupts the queue with a priority animation.
@@ -168,18 +164,20 @@ class VrmAnimationQueue {
 
     _ensureSubscription();
     _setState(VrmAnimationQueueState.interrupted);
-    _controller.playAnimation(
-      folderPath,
-      fileName,
-      loop: false,
-      speed: speed ?? _speed,
+    unawaited(
+      _controller.playAnimation(
+        folderPath,
+        fileName,
+        loop: false,
+        speed: speed ?? _speed,
+      ),
     );
   }
 
   /// Releases resources. Must be called when the queue is no longer needed.
   void dispose() {
     _cancelSubscription();
-    _stateController.close();
+    unawaited(_stateController.close());
   }
 
   // ---------------------------------------------------------------------------
@@ -188,12 +186,14 @@ class VrmAnimationQueue {
 
   void _playCurrentTrack() {
     final fileName = _fileNames[_playOrder[_currentIndex]];
-    _controller.playAnimation(
-      _folderPath,
-      fileName,
-      loop: false,
-      speed: _speed,
-      fadeDuration: _fadeDuration,
+    unawaited(
+      _controller.playAnimation(
+        _folderPath,
+        fileName,
+        loop: false,
+        speed: _speed,
+        fadeDuration: _fadeDuration,
+      ),
     );
   }
 
@@ -207,7 +207,7 @@ class VrmAnimationQueue {
       } else {
         _cancelSubscription();
         _setState(VrmAnimationQueueState.stopped);
-        _controller.stopAnimation();
+        unawaited(_controller.stopAnimation());
         return;
       }
     }
@@ -225,7 +225,8 @@ class VrmAnimationQueue {
 
     if (_isRandom && _playOrder.length > 1) {
       // Remember last played track to avoid immediate repeat
-      final int lastPlayed = _currentIndex > 0 && _currentIndex <= _playOrder.length
+      final int lastPlayed =
+          _currentIndex > 0 && _currentIndex <= _playOrder.length
           ? _playOrder[_currentIndex - 1]
           : -1;
 
@@ -270,11 +271,13 @@ class VrmAnimationQueue {
   }
 
   void _ensureSubscription() {
-    _subscription ??= _controller.onAnimationFinished.listen(_onAnimationFinished);
+    _subscription ??= _controller.onAnimationFinished.listen(
+      _onAnimationFinished,
+    );
   }
 
   void _cancelSubscription() {
-    _subscription?.cancel();
+    unawaited(_subscription?.cancel());
     _subscription = null;
   }
 

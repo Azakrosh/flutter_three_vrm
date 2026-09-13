@@ -1,10 +1,10 @@
-export 'src/vrm_view.dart';
-export 'src/vrm_controller.dart';
+export 'src/vrm_runtime.dart';
 export 'src/models/vrm_expression.dart';
-export 'src/models/vrm_camera_preset.dart';
+export 'src/models/vrm_camera_mode.dart';
 export 'src/models/vrm_animation_options.dart';
 export 'src/models/vrm_lip_sync_data.dart';
 export 'src/models/vrm_events.dart';
+export 'src/models/vrm_exception.dart';
 export 'src/models/vrm_wind.dart';
 export 'src/models/vrm_mood.dart';
 export 'src/models/vrm_transform.dart';

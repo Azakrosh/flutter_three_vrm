@@ -1,106 +1,272 @@
-import 'dart:async';
-import 'dart:convert';
-import 'package:flutter/foundation.dart';
-import 'package:webview_flutter/webview_flutter.dart';
-import '../models/vrm_events.dart';
-import '../models/vrm_expression.dart';
+part of '../vrm_runtime.dart';
 
-class VrmBridge {
-  WebViewController? _webViewController;
+typedef VrmJavaScriptRunner = Future<void> Function(String source);
+typedef VrmJavaScriptEvaluator = Future<Object?> Function(String source);
 
-  final StreamController<VrmEvent> _eventController = StreamController<VrmEvent>.broadcast();
+final class _VrmBridge {
+  static const int _protocolVersion = 1;
+  static const Duration _commandTimeout = Duration(minutes: 2);
+  final StreamController<VrmEvent> _eventController =
+      StreamController<VrmEvent>.broadcast();
+  final Map<String, _PendingCommand> _pending = <String, _PendingCommand>{};
+
+  Object? _transportOwner;
+  VrmJavaScriptRunner? _runJavaScript;
+  VrmJavaScriptEvaluator? _evaluateJavaScript;
+  int _nextCommandId = 0;
+  bool _disposed = false;
+
   Stream<VrmEvent> get eventStream => _eventController.stream;
 
-  void attachController(WebViewController webViewController) {
-    _webViewController = webViewController;
+  void attachTransport({
+    required Object owner,
+    required VrmJavaScriptRunner runJavaScript,
+    required VrmJavaScriptEvaluator evaluateJavaScript,
+  }) {
+    if (_disposed) {
+      throw StateError('VrmController has already been disposed.');
+    }
+    if (_transportOwner != null && !identical(_transportOwner, owner)) {
+      _failPending(
+        StateError('The VrmController was attached to another VrmView.'),
+      );
+    }
+    _transportOwner = owner;
+    _runJavaScript = runJavaScript;
+    _evaluateJavaScript = evaluateJavaScript;
   }
 
-  /// Handles incoming JavaScript messages from WebView bridge
-  void handleJsMessage(JavaScriptMessage message) {
+  void detachTransport(Object owner) {
+    if (!identical(_transportOwner, owner)) {
+      return;
+    }
+    _transportOwner = null;
+    _runJavaScript = null;
+    _evaluateJavaScript = null;
+    _failPending(
+      StateError('VrmView was detached before a command completed.'),
+    );
+  }
+
+  void handleJsMessage(String message) {
+    if (_disposed) {
+      return;
+    }
+
     try {
-      final data = jsonDecode(message.message) as Map<String, dynamic>;
-      final event = data['event'] as String?;
-      final payload = data['payload'] as Map<String, dynamic>? ?? {};
-
-      if (event == null) return;
-
-      switch (event) {
-        case 'onModelLoaded':
-          _eventController.add(VrmModelLoadedEvent(
-            name: payload['name'] ?? 'VRM Model',
-            version: payload['version'] ?? '1.0',
-          ));
-          break;
-        case 'onModelLoadProgress':
-          _eventController.add(VrmModelLoadProgressEvent(
-            percent: (payload['percent'] as num?)?.toInt() ?? 0,
-            loaded: (payload['loaded'] as num?)?.toInt() ?? 0,
-            total: (payload['total'] as num?)?.toInt() ?? 0,
-          ));
-          break;
-        case 'onModelUnloaded':
-          _eventController.add(VrmModelUnloadedEvent());
-          break;
-        case 'onAnimationStarted':
-          _eventController.add(VrmAnimationStartedEvent(name: payload['name'] ?? 'Animation'));
-          break;
-        case 'onAnimationFinished':
-          _eventController.add(VrmAnimationFinishedEvent(name: payload['name'] ?? 'Animation'));
-          break;
-        case 'onExpressionChanged':
-          _eventController.add(VrmExpressionChangedEvent(
-            expression: VrmExpression.fromString(payload['expression'] ?? ''),
-            layer: ExpressionLayer.fromString(payload['layer'] ?? ''),
-          ));
-          break;
-        case 'onSpeechFinished':
-          _eventController.add(VrmSpeechFinishedEvent());
-          break;
-        case 'onError':
-          _eventController.add(VrmErrorEvent(message: payload['message'] ?? 'Unknown WebGL error'));
-          break;
-        case 'onStateChanged':
-          _eventController.add(VrmStateChangedEvent(state: payload['state'] ?? ''));
-          break;
-        case 'onCameraChanged':
-          _eventController.add(VrmCameraChangedEvent(
-            preset: payload['preset'] ?? 'upperBody',
-          ));
-          break;
-        case 'onTap':
-          _eventController.add(VrmTapEvent(
-            x: (payload['x'] as num?)?.toDouble() ?? 0.0,
-            y: (payload['y'] as num?)?.toDouble() ?? 0.0,
-          ));
-          break;
-        default:
-          debugPrint('Unknown VRM WebGL Event: $event');
+      final Object? decodedValue = jsonDecode(message);
+      if (decodedValue is! Map<String, dynamic>) {
+        throw const FormatException('Bridge message must be a JSON object.');
       }
-    } catch (e) {
-      debugPrint('Error parsing JS message: $e');
+      if (decodedValue['type'] == 'response') {
+        _handleResponse(decodedValue);
+        return;
+      }
+      _handleLegacyEvent(decodedValue);
+    } on Object catch (error, stackTrace) {
+      debugPrint('Invalid VRM runtime message: $error\n$stackTrace');
     }
   }
 
-  /// Sends a command and payload to the JavaScript runner
-  Future<void> sendCommand(String action, [Map<String, dynamic>? payload]) async {
-    if (_webViewController == null) return;
+  void _handleResponse(Map<String, dynamic> envelope) {
+    if (envelope['version'] != _protocolVersion) {
+      throw FormatException(
+        'Unsupported VRM protocol version: ${envelope['version']}.',
+      );
+    }
+    final id = envelope['id'];
+    if (id is! String) {
+      throw const FormatException('Response id is missing.');
+    }
+    final pending = _pending.remove(id);
+    if (pending == null) {
+      debugPrint('Ignoring response for unknown VRM command: $id');
+      return;
+    }
+    pending.timer.cancel();
 
-    final map = Map<String, dynamic>.from(payload ?? {});
-    final payloadJson = jsonEncode(map);
-    
-    // jsonEncode(payloadJson) escapes the JSON string safely for JS injection.
-    final safePayload = jsonEncode(payloadJson);
-    final jsCode = "if (window.flutterVrmInvoke) { window.flutterVrmInvoke('$action', $safePayload); }";
-    await _webViewController!.runJavaScript(jsCode);
+    if (envelope['ok'] == true) {
+      pending.completer.complete();
+      return;
+    }
+
+    final rawError = envelope['error'];
+    final error = rawError is Map<String, dynamic>
+        ? rawError
+        : const <String, dynamic>{};
+    pending.completer.completeError(
+      VrmRuntimeException(
+        code: error['code'] as String? ?? 'runtimeError',
+        message: error['message'] as String? ?? 'VRM runtime command failed.',
+        details: error['details'],
+      ),
+    );
   }
 
-  /// Evaluates JavaScript and returns the result
-  Future<Object?> evalJavaScript(String jsCode) async {
-    if (_webViewController == null) return null;
-    return await _webViewController!.runJavaScriptReturningResult(jsCode);
+  void _handleLegacyEvent(Map<String, dynamic> decoded) {
+    final event = decoded['event'];
+    if (event is! String) {
+      throw const FormatException('Bridge event name is missing.');
+    }
+    final rawPayload = decoded['payload'];
+    final payload = rawPayload is Map<String, dynamic>
+        ? rawPayload
+        : const <String, dynamic>{};
+
+    switch (event) {
+      case 'onModelLoaded':
+        _eventController.add(
+          VrmModelLoadedEvent(
+            name: payload['name'] as String? ?? 'VRM Model',
+            version: payload['version'] as String? ?? '1.0',
+          ),
+        );
+      case 'onModelLoadProgress':
+        _eventController.add(
+          VrmModelLoadProgressEvent(
+            percent: (payload['percent'] as num?)?.toInt() ?? 0,
+            loaded: (payload['loaded'] as num?)?.toInt() ?? 0,
+            total: (payload['total'] as num?)?.toInt() ?? 0,
+          ),
+        );
+      case 'onModelUnloaded':
+        _eventController.add(VrmModelUnloadedEvent());
+      case 'onAnimationStarted':
+        _eventController.add(
+          VrmAnimationStartedEvent(
+            name: payload['name'] as String? ?? 'Animation',
+          ),
+        );
+      case 'onAnimationFinished':
+        _eventController.add(
+          VrmAnimationFinishedEvent(
+            name: payload['name'] as String? ?? 'Animation',
+          ),
+        );
+      case 'onExpressionChanged':
+        _eventController.add(
+          VrmExpressionChangedEvent(
+            expression: VrmExpression.fromString(
+              payload['expression'] as String? ?? '',
+            ),
+            layer: ExpressionLayer.fromString(
+              payload['layer'] as String? ?? '',
+            ),
+          ),
+        );
+      case 'onSpeechFinished':
+        _eventController.add(VrmSpeechFinishedEvent());
+      case 'onError':
+        _eventController.add(
+          VrmErrorEvent(
+            message: payload['message'] as String? ?? 'Unknown WebGL error',
+          ),
+        );
+      case 'onStateChanged':
+        _eventController.add(
+          VrmStateChangedEvent(state: payload['state'] as String? ?? ''),
+        );
+      case 'onCameraChanged':
+        _eventController.add(
+          VrmCameraChangedEvent(
+            x: (payload['x'] as num?)?.toDouble(),
+            y: (payload['y'] as num?)?.toDouble(),
+            zoom: (payload['zoom'] as num?)?.toDouble(),
+          ),
+        );
+      case 'onTap':
+        _eventController.add(
+          VrmTapEvent(
+            x: (payload['x'] as num?)?.toDouble() ?? 0,
+            y: (payload['y'] as num?)?.toDouble() ?? 0,
+          ),
+        );
+      default:
+        debugPrint('Unknown VRM runtime event: $event');
+    }
   }
 
-  void dispose() {
-    _eventController.close();
+  Future<void> sendCommand(
+    String action, [
+    Map<String, dynamic>? payload,
+  ]) async {
+    final runner = _runJavaScript;
+    if (runner == null) {
+      throw StateError('VrmView is not attached to this controller.');
+    }
+
+    final id = '${DateTime.now().microsecondsSinceEpoch}-${_nextCommandId++}';
+    final completer = Completer<void>();
+    final timer = Timer(_commandTimeout, () {
+      final pending = _pending.remove(id);
+      pending?.completer.completeError(
+        TimeoutException(
+          'VRM command "$action" did not complete.',
+          _commandTimeout,
+        ),
+      );
+    });
+    _pending[id] = _PendingCommand(completer: completer, timer: timer);
+
+    final command = jsonEncode(<String, Object?>{
+      'version': _protocolVersion,
+      'id': id,
+      'type': 'command',
+      'action': action,
+      'payload': payload ?? const <String, dynamic>{},
+    });
+
+    try {
+      await runner('window.flutterVrmDispatch(${jsonEncode(command)});');
+    } on Object catch (error, stackTrace) {
+      final pending = _pending.remove(id);
+      pending?.timer.cancel();
+      pending?.completer.completeError(error, stackTrace);
+    }
+
+    await completer.future;
   }
+
+  Future<Object?> evaluateJavaScript(String source) async {
+    final evaluator = _evaluateJavaScript;
+    if (evaluator == null) {
+      throw StateError('VrmView is not attached to this controller.');
+    }
+    return evaluator(source);
+  }
+
+  void reportAsyncError(Object error, StackTrace stackTrace) {
+    if (!_disposed) {
+      _eventController.add(VrmErrorEvent(message: error.toString()));
+      debugPrint('Asynchronous VRM command failed: $error\n$stackTrace');
+    }
+  }
+
+  void _failPending(Object error) {
+    final pendingCommands = _pending.values.toList(growable: false);
+    _pending.clear();
+    for (final pending in pendingCommands) {
+      pending.timer.cancel();
+      pending.completer.completeError(error);
+    }
+  }
+
+  Future<void> dispose() async {
+    if (_disposed) {
+      return;
+    }
+    _disposed = true;
+    _transportOwner = null;
+    _runJavaScript = null;
+    _evaluateJavaScript = null;
+    _failPending(StateError('VrmController was disposed.'));
+    await _eventController.close();
+  }
+}
+
+final class _PendingCommand {
+  const _PendingCommand({required this.completer, required this.timer});
+
+  final Completer<void> completer;
+  final Timer timer;
 }

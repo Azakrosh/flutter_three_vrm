@@ -1,98 +1,157 @@
-# flutter_three-vrm
+# flutter_three_vrm
 
-Кроссплатформенный пакет для Flutter (Android и Windows), предназначенный для загрузки и управления VRM 1.0 моделями и VRMA анимациями. Пакет служит базовым движком для создания AI Vtuber приложений.
+Flutter-пакет для отображения и управления одним VRM-аватаром внутри WebView. Целевые платформы — Android и Windows.
 
-## Возможности
+> Версия `0.2.0-dev.1` находится в активной переработке. Обратная совместимость с `0.1.x` не гарантируется.
 
-- 🚀 **VRM 1.0 & VRMA**: Полная поддержка спецификации VRM 1.0 и стандарта анимаций `.vrma` на базе Three.js и `@pixiv/three-vrm`.
-- 📁 **Раздельная загрузка из Assets**: Простой синтаксис `controller.loadModel('assets/vrm/', 'avatar.vrm');`.
-- 🔄 **Управление памятью**: Методы `loadModel()`, `unloadModel()`, `disposeModel()`, а также пауза рендеринга при сворачивании приложения.
-- 👁️ **Многослойные эмоции (Multi-Layer Expressions)**: 3 независимых слоя мимики (глаза, рот, брови), исключающие конфликт между анимациями эмоций и синхронизацией речи.
-- 🗣️ **Lip Sync & ElevenLabs**: Потоковое сглаженное управление открытием рта по громкости речи (`0.0`–`1.0`) + поддержка визем ElevenLabs (`AA`, `IH`, `OU`, `EE`, `OH`).
-- 🔄 **Авторазворот и тапы (Auto-Turnback)**: При развороте модели спиной к пользователю она автоматически поворачивается обратно лицом через 3.5 секунды.
-- 📷 **Камера Редактора Персонажей**: Ограничение вращения по оси Y, фиксированный зум и готовые пресеты (`FullBody`, `UpperBody`, `FaceCloseUp`).
-- 🎨 **Прозрачный WebGL Canvas**: Прозрачный фон для наложения модели на любые виджеты Flutter.
+## Что уже поддерживается
 
-## Установка
+- VRM 0.x/1.0 через `@pixiv/three-vrm`;
+- VRMA-анимации и очереди анимаций;
+- слои выражений, моргание, взгляд, wind и spring bones;
+- amplitude lip sync и timeline визем без воспроизведения аудио;
+- pan/zoom, ограниченный и свободный режим камеры, автоматическое кадрирование;
+- сохранение и восстановление `VrmTransform`;
+- прозрачный или цветной фон, свет, тени и настройки качества;
+- загрузка из Flutter assets, локального файла или URL;
+- остановка render loop при уходе приложения в фон.
 
-Добавьте пакет в ваш `pubspec.yaml`:
+Runtime собирается из зафиксированных зависимостей:
+
+- `three 0.180.0`;
+- `@pixiv/three-vrm 3.5.5`;
+- `@pixiv/three-vrm-animation 3.5.5`.
+
+`VrmCameraPreset` и `setCameraPreset()` не являются частью API. Камера управляется ограничениями, pan/zoom и сериализуемым состоянием.
+
+## Подключение с GitHub
 
 ```yaml
 dependencies:
   flutter_three_vrm:
-    path: ../flutter_three-vrm
-  webview_flutter: ^4.14.1
-  webview_flutter_windows: ^1.1.1
-  path: ^1.9.1
+    git:
+      url: https://github.com/OWNER/flutter_three_vrm.git
+      ref: <commit-or-tag>
 ```
+
+Требования: Dart `>=3.12`, Flutter `>=3.44`, Android System WebView; на Windows — установленный Microsoft Edge WebView2 Runtime.
+
+## Android
+
+Runtime доступен WebView через случайный loopback-порт. Разрешите cleartext только для loopback, а не для всех доменов. Пример настройки находится в `example/android/app/src/main/res/xml/network_security_config.xml`.
+
+```xml
+<application
+    android:networkSecurityConfig="@xml/network_security_config"
+    ...>
+```
+
+Для загрузки модели с внешнего сервера приложению также нужен `android.permission.INTERNET`.
 
 ## Быстрый старт
 
+Добавьте VRM в assets приложения:
+
+```yaml
+flutter:
+  assets:
+    - assets/vrm/
+```
+
 ```dart
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_three_vrm/flutter_three_vrm.dart';
 
-class VtuberView extends StatefulWidget {
+class AvatarScreen extends StatefulWidget {
+  const AvatarScreen({super.key});
+
   @override
-  State<VtuberView> createState() => _VtuberViewState();
+  State<AvatarScreen> createState() => _AvatarScreenState();
 }
 
-class _VtuberViewState extends State<VtuberView> {
-  final VrmController _controller = VrmController();
+class _AvatarScreenState extends State<AvatarScreen> {
+  final VrmController controller = VrmController();
+
+  @override
+  void dispose() {
+    unawaited(controller.dispose());
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: VrmView(
-        controller: _controller,
-        transparent: true,
-        onCreated: (controller) {
-          // Загрузка модели из assets
-          controller.loadModel('assets/vrm/', 'avatar.vrm');
-        },
-      ),
+    return VrmView(
+      controller: controller,
+      transparent: true,
+      onCreated: (controller) async {
+        await controller.loadModel('assets/vrm/', 'avatar.vrm');
+      },
     );
   }
 }
 ```
 
-### Основные методы VrmController
+Вызывайте методы загрузки только после `onCreated`.
 
-#### Загрузка и жизненный цикл
+## Камера
+
 ```dart
-await controller.loadModel('assets/vrm/', 'avatar.vrm');
-await controller.unloadModel();
-controller.disposeModel();
+controller.setCameraMode(VrmCameraMode.constrained);
+
+final saved = await controller.getTransform();
+controller.setTransform(saved);
 ```
 
-#### Анимации (VRMA)
+`VrmTransform` содержит `x`, `y` и `zoom` и подходит для хранения в настройках приложения.
+
+## Анимации и выражения
+
 ```dart
-await controller.playAnimation('assets/vrma/', 'dance.vrma', loop: true, interrupt: true);
-await controller.pauseAnimation();
-await controller.resumeAnimation();
+await controller.playAnimation(
+  'assets/vrma/',
+  'idle.vrma',
+  loop: true,
+  fadeDuration: 0.35,
+);
+
+controller.setExpression(
+  VrmExpression.happy,
+  layer: ExpressionLayer.eyes,
+  weight: 0.8,
+);
 ```
 
-#### Эмоции и слои
+## Lip sync
+
+Аудио воспроизводит Flutter-приложение. Пакет получает только амплитуду или временную шкалу визем:
+
 ```dart
-controller.setExpression(VrmExpression.happy, layer: ExpressionLayer.eyes);
-controller.setExpression(VrmExpression.sad, layer: ExpressionLayer.brows);
+controller.setLipSyncAmplitude(0.65);
+controller.beginSpeech(startDelay: const Duration(milliseconds: 180));
+controller.appendSpeechVisemes(frames);
+controller.finishSpeech(audioDuration);
 ```
 
-#### Синхронизация речи (Lip Sync)
-```dart
-// В реальном времени по громкости аудиопотока (0.0 - 1.0)
-controller.setLipSyncAmplitude(0.8);
+Для потокового TTS передавайте небольшие порции timeline заранее. Авторизационные токены сервера нельзя передавать в JavaScript/WebView; защищённую загрузку следует выполнять Flutter-клиентом, а затем вызывать `loadModelFromFile()` (предпочтительно для больших файлов) или `loadModelFromBytes()`.
 
-// Виземы ElevenLabs
-controller.setViseme(VrmViseme.aa);
+## Сборка web-runtime
+
+```bash
+cd web
+corepack pnpm install --frozen-lockfile
+corepack pnpm typecheck
+corepack pnpm test
+corepack pnpm build
 ```
 
-#### Камера
-```dart
-controller.setCameraPreset(VrmCameraPreset.faceCloseUp);
-controller.setCameraPreset(VrmCameraPreset.fullBody);
-```
+Собранные `assets/web/dist/vrm-engine.js` и `manifest.json` входят в репозиторий и проверяются CI.
+
+## Статус roadmap
+
+До стабильного релиза запланированы: типизированный command/response bridge с timeout/cancel, authenticated resource client, GLB/glTF и Mixamo-retargeting, полный Pose API, adaptive quality tiers, диагностика WebGL и интеграционные тесты Android/Windows.
 
 ## Лицензия
 
-MIT License
+MIT
