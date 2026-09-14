@@ -133,6 +133,8 @@ VrmView(
 
 Для ручного восстановления вызовите `await controller.reloadRuntime()`, а затем `await controller.waitUntilReady()`. Незавершённые команды завершаются ошибкой сразу при начале reload и не остаются ждать timeout.
 
+`VrmView` автоматически останавливает render loop в состояниях `inactive`, `hidden`, `paused` и `detached`. Состояние паузы сохраняется при автоматическом или ручном восстановлении runtime; после `resumed` рендеринг возобновляется. Дополнительно вызывать `pauseRendering()` и `resumeRendering()` для lifecycle приложения не требуется.
+
 ## Камера
 
 ```dart

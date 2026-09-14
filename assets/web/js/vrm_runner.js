@@ -57,6 +57,7 @@ class VrmRunner {
     this.currentVrm = null;
     this.mixer = null;
     this.modelReport = null;
+    this._cachedSpringBoneManager = null;
     this.modelLoadAbortController = null;
     this.animationLoadAbortController = null;
     this.modelLoadGeneration = 0;
@@ -125,6 +126,7 @@ class VrmRunner {
     this.isCameraAnimating = false;
     this.cameraAnimDuration = 0.5;
     this.cameraAnimStartTime = 0;
+    this.hasCustomCameraTransform = false;
     this.startCameraPos = new THREE.Vector3();
     this.startCameraTarget = new THREE.Vector3();
 
@@ -980,25 +982,16 @@ class VrmRunner {
       }
       this.clearAllExpressions();
 
-      // Усиленная ручная очистка WebGL ресурсов (Geometry, Material, Texture) 
-      // для защиты от утечек памяти при частой смене аватаров
-      this.currentVrm.scene.traverse((object) => {
-        if (object.geometry) object.geometry.dispose();
-        if (object.material) {
-          if (Array.isArray(object.material)) {
-            object.material.forEach(m => this.disposeMaterial(m));
-          } else {
-            this.disposeMaterial(object.material);
-          }
-        }
-      });
-
       this.scene.remove(this.currentVrm.scene);
+      // The official helper disposes geometry, skeletons, every material texture,
+      // shader-uniform textures, and materials without double-disposing them.
       VRMUtils.deepDispose(this.currentVrm.scene);
       this.currentVrm = null;
       this.mixer = null;
       this.currentAction = null;
       this.modelReport = null;
+      this._cachedSpringBoneManager = null;
+      this.hasCustomCameraTransform = false;
 
       // Сбрасываем переменные аддитивного поворота, чтобы при загрузке новой модели голова не принимала ошибочную позу
       this.baseBonesSaved = false;
@@ -1016,16 +1009,6 @@ class VrmRunner {
 
       this.notifyFlutter('onModelUnloaded', {});
     }
-  }
-
-  disposeMaterial(material) {
-    if (material.map) material.map.dispose();
-    if (material.lightMap) material.lightMap.dispose();
-    if (material.bumpMap) material.bumpMap.dispose();
-    if (material.normalMap) material.normalMap.dispose();
-    if (material.specularMap) material.specularMap.dispose();
-    if (material.envMap) material.envMap.dispose();
-    material.dispose();
   }
 
   async playAnimationFromUrl(url, options = {}) {

@@ -7,6 +7,9 @@
 - Bound realtime amplitude, direct-viseme, and LookAt bridge traffic with latest-value backpressure while preserving ordered speech timelines.
 - Make speech timeline operations awaitable and isolate them from stale direct amplitude or viseme updates.
 - Validate realtime samples and speech timeline frames before they cross the Flutter/WebView boundary.
+- Preserve the Flutter lifecycle render-pause state across runtime recovery and suppress expected lifecycle/reload races.
+- Release VRM geometry, skeletons, materials, and textures exactly once through `VRMUtils.deepDispose`, including models with disabled spring-bone physics.
+- Reset saved camera framing when an avatar is explicitly unloaded while continuing to preserve it across runtime-only reloads.
 
 - Raise the minimum versions to Dart 3.12 and Flutter 3.44.
 - Add dedicated Android and Windows WebView adapters.

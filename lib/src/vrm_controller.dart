@@ -239,6 +239,8 @@ class VrmController {
     _isLoadingModel = false;
     await _bridge.sendCommand('unloadModel');
     _isModelLoaded = false;
+    _lastKnownCameraTransform = null;
+    _cameraTransformRevision += 1;
   }
 
   /// Disposes this controller and its event streams.
