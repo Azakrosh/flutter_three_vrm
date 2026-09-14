@@ -4,6 +4,7 @@ part of 'vrm_runtime.dart';
 class VrmController {
   final _VrmBridge _bridge = _VrmBridge();
   bool _isLoadingModel = false;
+  int _modelLoadGeneration = 0;
   VrmContentHost? _contentHost;
 
   /// True while a model is being transferred and parsed by the runtime.
@@ -64,6 +65,7 @@ class VrmController {
 
   /// Loads a VRM model from Flutter assets.
   Future<void> loadModel(String folderPath, String fileName) async {
+    final loadGeneration = ++_modelLoadGeneration;
     _isLoadingModel = true;
     try {
       await _sendHostedResourceCommand(
@@ -72,12 +74,15 @@ class VrmController {
         fileName: fileName,
       );
     } finally {
-      _isLoadingModel = false;
+      if (loadGeneration == _modelLoadGeneration) {
+        _isLoadingModel = false;
+      }
     }
   }
 
   /// Loads a VRM model from a local file.
   Future<void> loadModelFromFile(io.File file) async {
+    final loadGeneration = ++_modelLoadGeneration;
     _isLoadingModel = true;
     try {
       await _sendHostedResourceCommand(
@@ -86,7 +91,9 @@ class VrmController {
         fileName: p.basename(file.path),
       );
     } finally {
-      _isLoadingModel = false;
+      if (loadGeneration == _modelLoadGeneration) {
+        _isLoadingModel = false;
+      }
     }
   }
 
@@ -98,6 +105,7 @@ class VrmController {
     Uint8List bytes, {
     required String fileName,
   }) async {
+    final loadGeneration = ++_modelLoadGeneration;
     _isLoadingModel = true;
     try {
       await _sendHostedResourceCommand(
@@ -106,7 +114,9 @@ class VrmController {
         fileName: fileName,
       );
     } finally {
-      _isLoadingModel = false;
+      if (loadGeneration == _modelLoadGeneration) {
+        _isLoadingModel = false;
+      }
     }
   }
 
@@ -114,6 +124,7 @@ class VrmController {
   ///
   /// Prefer [loadModelFromFile] or [loadModelFromBytes] for authenticated URLs.
   Future<void> loadModelFromUrl(String url) async {
+    final loadGeneration = ++_modelLoadGeneration;
     _isLoadingModel = true;
     try {
       await _bridge.sendCommand('loadModelFromUrl', {
@@ -121,12 +132,34 @@ class VrmController {
         'fileName': Uri.parse(url).pathSegments.lastOrNull ?? 'avatar.vrm',
       });
     } finally {
-      _isLoadingModel = false;
+      if (loadGeneration == _modelLoadGeneration) {
+        _isLoadingModel = false;
+      }
     }
   }
 
+  /// Cancels the active model transfer or parse operation.
+  ///
+  /// The previously displayed avatar remains active. The canceled load Future
+  /// completes with `VrmRuntimeException(code: 'canceled')`.
+  Future<void> cancelModelLoad() async {
+    _modelLoadGeneration += 1;
+    _isLoadingModel = false;
+    await _bridge.sendCommand('cancelModelLoad');
+  }
+
+  /// Returns the diagnostic report for the current avatar.
+  Future<VrmModelReport> getModelReport() async {
+    final result = await _bridge.requestCommand('getModelReport');
+    return VrmModelReport.fromJson(result);
+  }
+
   /// Unloads the model and releases its GPU resources.
-  Future<void> unloadModel() => _bridge.sendCommand('unloadModel');
+  Future<void> unloadModel() async {
+    _modelLoadGeneration += 1;
+    _isLoadingModel = false;
+    await _bridge.sendCommand('unloadModel');
+  }
 
   /// Disposes this controller and its event streams.
   Future<void> dispose() => _bridge.dispose();
@@ -307,7 +340,12 @@ class VrmController {
     await _bridge.sendCommand('resumeAnimation', {'speed': speed});
   }
 
-  /// Stops current animation action clip.
+  /// Cancels an animation transfer without stopping the current action.
+  Future<void> cancelAnimationLoad() {
+    return _bridge.sendCommand('cancelAnimationLoad');
+  }
+
+  /// Stops the current action and cancels an in-flight animation load.
   Future<void> stopAnimation() async {
     await _bridge.sendCommand('stopAnimation');
   }
@@ -698,6 +736,10 @@ class VrmController {
       .eventStream
       .where((e) => e is VrmModelLoadProgressEvent)
       .cast<VrmModelLoadProgressEvent>();
+
+  Stream<VrmModelReportEvent> get onModelReport => _bridge.eventStream
+      .where((event) => event is VrmModelReportEvent)
+      .cast<VrmModelReportEvent>();
 
   Stream<VrmModelUnloadedEvent> get onModelUnloaded => _bridge.eventStream
       .where((e) => e is VrmModelUnloadedEvent)

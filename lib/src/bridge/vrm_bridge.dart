@@ -133,6 +133,10 @@ final class _VrmBridge {
             total: (payload['total'] as num?)?.toInt() ?? 0,
           ),
         );
+      case 'onModelReport':
+        _eventController.add(
+          VrmModelReportEvent(report: VrmModelReport.fromJson(payload)),
+        );
       case 'onModelUnloaded':
         _eventController.add(VrmModelUnloadedEvent());
       case 'onAnimationStarted':

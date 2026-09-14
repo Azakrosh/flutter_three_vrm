@@ -19,4 +19,6 @@
 - Add graphics presets, adaptive resolution, performance telemetry, and WebGL context recovery.
 - Move all runtime events to versioned protocol envelopes and remove legacy message entry points.
 - Replace the legacy example with a focused app demonstrating the production API.
+- Add abortable, race-safe model and animation loading while retaining the current avatar until replacement succeeds.
+- Add typed model diagnostics for geometry, textures, rig complexity, and source size.
 - Add strict analysis, unit tests, Android/Windows CI, MIT license, and updated documentation.

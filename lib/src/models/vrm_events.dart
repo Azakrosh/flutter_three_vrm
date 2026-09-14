@@ -1,5 +1,6 @@
 import 'vrm_expression.dart';
 import 'vrm_graphics.dart';
+import 'vrm_model_report.dart';
 
 /// Base event class emitted by the VRM controller.
 abstract class VrmEvent {
@@ -29,6 +30,13 @@ class VrmModelLoadProgressEvent extends VrmEvent {
     required this.loaded,
     required this.total,
   });
+}
+
+/// Emitted after the runtime has inspected a newly loaded VRM model.
+class VrmModelReportEvent extends VrmEvent {
+  VrmModelReportEvent({required this.report});
+
+  final VrmModelReport report;
 }
 
 /// Emitted when the current VRM model is unloaded from the scene.

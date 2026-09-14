@@ -58,6 +58,16 @@ class _AvatarDemoPageState extends State<AvatarDemoPage> {
         }),
       )
       ..add(
+        _controller.onModelReport.listen((event) {
+          final report = event.report;
+          _update(() {
+            _status =
+                '${report.name}: ${report.triangles} triangles, '
+                '${report.textures} textures, ${report.humanoidBones} bones';
+          });
+        }),
+      )
+      ..add(
         _controller.onModelUnloaded.listen((_) {
           _update(() {
             _modelLoaded = false;

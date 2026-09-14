@@ -55,6 +55,11 @@ class VrmRunner {
 
     this.currentVrm = null;
     this.mixer = null;
+    this.modelReport = null;
+    this.modelLoadAbortController = null;
+    this.animationLoadAbortController = null;
+    this.modelLoadGeneration = 0;
+    this.animationLoadGeneration = 0;
 
     // Вместо устаревшего THREE.Clock используем нативный performance.now()
     this.lastTime = performance.now();
@@ -462,11 +467,22 @@ class VrmRunner {
       case 'loadModelFromUrl':
         await this.loadModelFromUrl(payload.url);
         break;
+      case 'cancelModelLoad':
+        this.cancelModelLoad();
+        break;
+      case 'getModelReport':
+        if (!this.modelReport) throw new Error('Load a VRM model before requesting its report.');
+        return this.modelReport;
       case 'unloadModel':
+        this.cancelModelLoad();
+        this.cancelAnimationLoad();
         this.unloadModel();
         break;
       case 'playAnimationFromUrl':
         await this.playAnimationFromUrl(payload.url, payload.options);
+        break;
+      case 'cancelAnimationLoad':
+        this.cancelAnimationLoad();
         break;
       case 'pauseAnimation':
         this.isAnimationPaused = true;
@@ -483,6 +499,7 @@ class VrmRunner {
         this.resumeRendering();
         break;
       case 'stopAnimation':
+        this.cancelAnimationLoad();
         if (this.mixer) {
           this.mixer.stopAllAction();
         }
@@ -683,15 +700,16 @@ class VrmRunner {
   }
 
   async loadModelFromUrl(url) {
+    this.cancelModelLoad();
+    const generation = ++this.modelLoadGeneration;
+    const abortController = new AbortController();
+    this.modelLoadAbortController = abortController;
     this._lastLoadPercent = -1;
-    this.unloadModel();
 
     try {
       const loader = new GLTFLoader();
       loader.register((parser) => new VRMLoaderPlugin(parser));
-      const gltf = await loader.loadAsync(url, (progress) => {
-        const loaded = Number(progress.loaded || 0);
-        const total = Number(progress.total || 0);
+      const resource = await this.fetchResource(url, abortController.signal, (loaded, total) => {
         if (total <= 0) return;
         const percent = Math.round((loaded / total) * 100);
         if (percent !== this._lastLoadPercent) {
@@ -699,17 +717,84 @@ class VrmRunner {
           this.notifyFlutter('onModelLoadProgress', { percent, loaded, total });
         }
       });
-      this._setupLoadedVrm(gltf);
+      const gltf = await loader.parseAsync(resource.data, new URL('.', url).href);
+      if (abortController.signal.aborted || generation !== this.modelLoadGeneration) {
+        VRMUtils.deepDispose(gltf.scene);
+        throw this.createCanceledError('Model loading was canceled.');
+      }
+      this._setupLoadedVrm(gltf, resource.byteLength);
     } catch (error) {
       this._lastLoadPercent = -1;
+      if (abortController.signal.aborted || error?.name === 'AbortError' || error?.code === 'canceled') {
+        throw this.createCanceledError('Model loading was canceled.');
+      }
       this.notifyFlutter('onError', {
         message: error instanceof Error ? error.message : String(error),
       });
       throw error;
+    } finally {
+      if (this.modelLoadAbortController === abortController) {
+        this.modelLoadAbortController = null;
+      }
     }
   }
 
-  _setupLoadedVrm(gltf) {
+  cancelModelLoad() {
+    if (this.modelLoadAbortController) this.modelLoadAbortController.abort();
+    this.modelLoadAbortController = null;
+    this.modelLoadGeneration += 1;
+  }
+
+  cancelAnimationLoad() {
+    if (this.animationLoadAbortController) this.animationLoadAbortController.abort();
+    this.animationLoadAbortController = null;
+    this.animationLoadGeneration += 1;
+  }
+
+  createCanceledError(message) {
+    const error = new Error(message);
+    error.code = 'canceled';
+    return error;
+  }
+
+  async fetchResource(url, signal, onProgress) {
+    const response = await fetch(url, { signal, credentials: 'omit' });
+    if (!response.ok) {
+      throw new Error(`Resource request failed with HTTP ${response.status}.`);
+    }
+    const declaredLength = Number(response.headers.get('content-length') || 0);
+    if (!response.body) {
+      const data = await response.arrayBuffer();
+      onProgress?.(data.byteLength, data.byteLength);
+      return { data, byteLength: data.byteLength, contentType: response.headers.get('content-type') || '' };
+    }
+
+    const reader = response.body.getReader();
+    let capacity = declaredLength > 0 ? declaredLength : 1024 * 1024;
+    let bytes = new Uint8Array(capacity);
+    let loaded = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (loaded + value.length > capacity) {
+        capacity = Math.max(capacity * 2, loaded + value.length);
+        const expanded = new Uint8Array(capacity);
+        expanded.set(bytes.subarray(0, loaded));
+        bytes = expanded;
+      }
+      bytes.set(value, loaded);
+      loaded += value.length;
+      onProgress?.(loaded, declaredLength);
+    }
+    const data = loaded === bytes.byteLength ? bytes.buffer : bytes.buffer.slice(0, loaded);
+    return {
+      data,
+      byteLength: loaded,
+      contentType: response.headers.get('content-type') || '',
+    };
+  }
+
+  _setupLoadedVrm(gltf, sourceBytes) {
     const vrm = gltf.userData.vrm;
     if (!vrm) {
       throw new Error('Failed to parse a VRM model from the glTF container.');
@@ -771,6 +856,7 @@ class VrmRunner {
       console.warn("Could not calculate exact VRM height from bones, using default 1.6m", e);
     }
     this.modelBoundingHeight = dynamicHeight;
+    this.modelReport = this.createModelReport(vrm, sourceBytes, dynamicHeight);
 
     this.frameAvatar(0);
 
@@ -788,9 +874,65 @@ class VrmRunner {
       name: vrm.meta?.name || 'VRM Model',
       version: vrm.meta?.metaVersion || '1.0'
     });
+    this.notifyFlutter('onModelReport', this.modelReport);
   }
 
+  createModelReport(vrm, sourceBytes, height) {
+    const geometries = new Set();
+    const materials = new Set();
+    const textures = new Set();
+    let meshes = 0;
+    let skinnedMeshes = 0;
+    let vertices = 0;
+    let triangles = 0;
+    let morphTargets = 0;
+    let maxTextureWidth = 0;
+    let maxTextureHeight = 0;
 
+    vrm.scene.traverse((object) => {
+      if (!object.isMesh) return;
+      meshes += 1;
+      if (object.isSkinnedMesh) skinnedMeshes += 1;
+      const geometry = object.geometry;
+      if (geometry && !geometries.has(geometry)) {
+        geometries.add(geometry);
+        const vertexCount = geometry.attributes?.position?.count || 0;
+        vertices += vertexCount;
+        triangles += geometry.index ? geometry.index.count / 3 : vertexCount / 3;
+        morphTargets += geometry.morphAttributes?.position?.length || 0;
+      }
+      const objectMaterials = Array.isArray(object.material) ? object.material : [object.material];
+      objectMaterials.filter(Boolean).forEach((material) => {
+        materials.add(material);
+        Object.values(material).forEach((value) => {
+          if (!value?.isTexture || textures.has(value)) return;
+          textures.add(value);
+          const image = value.image;
+          maxTextureWidth = Math.max(maxTextureWidth, Number(image?.width || 0));
+          maxTextureHeight = Math.max(maxTextureHeight, Number(image?.height || 0));
+        });
+      });
+    });
+
+    return {
+      name: vrm.meta?.name || 'VRM Model',
+      vrmVersion: vrm.meta?.metaVersion || '1.0',
+      sourceBytes,
+      height,
+      meshes,
+      skinnedMeshes,
+      geometries: geometries.size,
+      materials: materials.size,
+      textures: textures.size,
+      maxTextureWidth,
+      maxTextureHeight,
+      vertices,
+      triangles: Math.round(triangles),
+      morphTargets,
+      humanoidBones: Object.keys(vrm.humanoid?.normalizedHumanBones || {}).length,
+      springBoneJoints: vrm.springBoneManager?.joints?.length || this._cachedSpringBoneManager?.joints?.length || 0,
+    };
+  }
 
   unloadModel() {
     if (this.currentVrm) {
@@ -822,6 +964,7 @@ class VrmRunner {
       this.currentVrm = null;
       this.mixer = null;
       this.currentAction = null;
+      this.modelReport = null;
 
       // Сбрасываем переменные аддитивного поворота, чтобы при загрузке новой модели голова не принимала ошибочную позу
       this.baseBonesSaved = false;
@@ -855,20 +998,38 @@ class VrmRunner {
     if (!this.currentVrm || !this.mixer) {
       throw new Error('Load a VRM model before playing an animation.');
     }
+    this.cancelAnimationLoad();
+    const generation = ++this.animationLoadGeneration;
+    const abortController = new AbortController();
+    this.animationLoadAbortController = abortController;
     const loader = new GLTFLoader();
     loader.register((parser) => new VRMAnimationLoaderPlugin(parser));
+
     try {
-      const gltf = await loader.loadAsync(url);
+      const resource = await this.fetchResource(url, abortController.signal);
+      const isJson = resource.contentType.includes('json') || new URL(url).pathname.toLowerCase().endsWith('.gltf');
+      const input = isJson ? new TextDecoder().decode(resource.data) : resource.data;
+      const gltf = await loader.parseAsync(input, new URL('.', url).href);
       try {
+        if (abortController.signal.aborted || generation !== this.animationLoadGeneration) {
+          throw this.createCanceledError('Animation loading was canceled.');
+        }
         this._playLoadedAnimation(gltf, options);
       } finally {
         if (gltf.scene) VRMUtils.deepDispose(gltf.scene);
       }
     } catch (error) {
+      if (abortController.signal.aborted || error?.name === 'AbortError' || error?.code === 'canceled') {
+        throw this.createCanceledError('Animation loading was canceled.');
+      }
       this.notifyFlutter('onError', {
         message: error instanceof Error ? error.message : String(error),
       });
       throw error;
+    } finally {
+      if (this.animationLoadAbortController === abortController) {
+        this.animationLoadAbortController = null;
+      }
     }
   }
 
