@@ -650,8 +650,8 @@ class VrmController {
   // --- Camera & Scene ---
 
   /// Selects constrained avatar controls or unrestricted orbit controls.
-  void setCameraMode(VrmCameraMode mode) {
-    _sendCommand('setCameraMode', {
+  Future<void> setCameraMode(VrmCameraMode mode) {
+    return _bridge.sendCommand('setCameraMode', {
       'mode': switch (mode) {
         VrmCameraMode.constrained => 'constrained',
         VrmCameraMode.free => 'free',
@@ -674,6 +674,20 @@ class VrmController {
   Future<void> setTransform(VrmTransform transform) async {
     await _bridge.sendCommand('setTransform', {'transform': transform.toMap()});
     _lastKnownCameraTransform = transform;
+    _cameraTransformRevision += 1;
+  }
+
+  /// Clears custom pan/zoom and frames the current avatar again.
+  Future<void> resetCamera({
+    Duration duration = const Duration(milliseconds: 500),
+  }) async {
+    if (duration.isNegative) {
+      throw ArgumentError.value(duration, 'duration', 'Must not be negative.');
+    }
+    await _bridge.sendCommand('resetCamera', {
+      'durationMs': duration.inMilliseconds,
+    });
+    _lastKnownCameraTransform = null;
     _cameraTransformRevision += 1;
   }
 

@@ -2,7 +2,10 @@ import 'dart:convert';
 
 /// Serializable pan and zoom state of the avatar camera.
 final class VrmTransform {
-  const VrmTransform({required this.x, required this.y, required this.zoom});
+  const VrmTransform({required this.x, required this.y, required this.zoom})
+    : assert(x > double.negativeInfinity && x < double.infinity),
+      assert(y > double.negativeInfinity && y < double.infinity),
+      assert(zoom > 0 && zoom < double.infinity);
 
   final double x;
   final double y;
@@ -12,9 +15,9 @@ final class VrmTransform {
 
   factory VrmTransform.fromMap(Map<String, dynamic> map) {
     return VrmTransform(
-      x: _asDouble(map['x']),
-      y: _asDouble(map['y']),
-      zoom: _asDouble(map['zoom']),
+      x: _finiteDouble(map['x'], 'x'),
+      y: _finiteDouble(map['y'], 'y'),
+      zoom: _finiteDouble(map['zoom'], 'zoom', positive: true),
     );
   }
 
@@ -28,7 +31,31 @@ final class VrmTransform {
     return VrmTransform.fromMap(decoded);
   }
 
-  static double _asDouble(Object? value) => value is num ? value.toDouble() : 0;
+  static double _finiteDouble(
+    Object? value,
+    String name, {
+    bool positive = false,
+  }) {
+    if (value case final num number when number.isFinite) {
+      final result = number.toDouble();
+      if (!positive || result > 0) return result;
+    }
+    throw FormatException(
+      positive
+          ? 'VRM transform $name must be a positive finite number.'
+          : 'VRM transform $name must be a finite number.',
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is VrmTransform &&
+      other.x == x &&
+      other.y == y &&
+      other.zoom == zoom;
+
+  @override
+  int get hashCode => Object.hash(x, y, zoom);
 
   @override
   String toString() => 'VrmTransform(x: $x, y: $y, zoom: $zoom)';

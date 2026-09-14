@@ -136,16 +136,19 @@ VrmView(
 ## Камера
 
 ```dart
-controller.setCameraMode(VrmCameraMode.constrained);
+await controller.setCameraMode(VrmCameraMode.constrained);
 
 final saved = await controller.getTransform();
 await controller.setTransform(saved);
+await controller.resetCamera(); // Повторное автоматическое кадрирование.
 ```
 
 `VrmTransform` содержит `x`, `y` и `zoom` и подходит для хранения в настройках приложения.
 Пользовательские pan/zoom и состояние, явно заданное через `setTransform()`,
 автоматически восстанавливаются после reload runtime. Обычное автокадрирование
 новой модели не считается пользовательским состоянием и не переопределяется.
+`VrmCameraMode.free` включает полноценные orbit rotate/pan/zoom, тогда как
+`constrained` оставляет фронтальный avatar-safe pan/zoom с ограниченной дистанцией.
 
 ## Анимации и выражения
 

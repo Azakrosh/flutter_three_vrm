@@ -332,7 +332,7 @@ class VrmRunner {
   }
 
   onPointerMove(e) {
-    if (!this.isDragging || !e.isPrimary) return;
+    if (!this.isDragging || !e.isPrimary || this.cameraMode !== 'constrained') return;
 
     const deltaX = e.clientX - this.dragStartPoint.x;
     const deltaY = e.clientY - this.dragStartPoint.y;
@@ -635,6 +635,9 @@ class VrmRunner {
         break;
       case 'setCameraMode':
         this.setCameraMode(payload.mode);
+        break;
+      case 'resetCamera':
+        this.resetCamera(payload.durationMs);
         break;
       case 'getTransform':
         return this.getAvatarTransform();
@@ -1372,7 +1375,7 @@ class VrmRunner {
       this.camera.position.copy(this.targetCameraPos);
       this.controls.target.copy(this.targetCameraTarget);
       this.controls.enabled = true;
-      this.setupCharacterCreatorControls();
+      this.applyCameraMode();
     } else {
       this.isCameraAnimating = true;
       this.cameraAnimDuration = durationMs / 1000.0;
@@ -1387,16 +1390,38 @@ class VrmRunner {
    * @param {string} mode Режим камеры
    */
   setCameraMode(mode) {
-    this.cameraMode = mode;
-    if (mode === 'constrained') {
-      this.controls.enabled = true;
-      this.setupCharacterCreatorControls();
-    } else if (mode === 'free') {
-      this.controls.enabled = true;
-      this.controls.enablePan = true;
-      this.controls.minPolarAngle = 0;
-      this.controls.maxPolarAngle = Math.PI;
+    if (mode !== 'constrained' && mode !== 'free') {
+      throw new TypeError(`Unknown camera mode: ${mode}`);
     }
+    this.cameraMode = mode;
+    this.applyCameraMode();
+  }
+
+  applyCameraMode() {
+    this.controls.enabled = true;
+    if (this.cameraMode === 'constrained') {
+      this.setupCharacterCreatorControls();
+    } else {
+      this.controls.enablePan = true;
+      this.controls.enableRotate = true;
+      this.controls.enableZoom = true;
+      this.controls.minPolarAngle = 0.01;
+      this.controls.maxPolarAngle = Math.PI - 0.01;
+      this.controls.minAzimuthAngle = -Infinity;
+      this.controls.maxAzimuthAngle = Infinity;
+      this.controls.enableDamping = true;
+      this.controls.dampingFactor = 0.08;
+    }
+    this.controls.update();
+  }
+
+  resetCamera(durationMs = 500) {
+    const duration = Number(durationMs);
+    if (!Number.isFinite(duration) || duration < 0) {
+      throw new TypeError('Camera reset duration must be a non-negative number.');
+    }
+    this.hasCustomCameraTransform = false;
+    this.frameAvatar(duration, false);
   }
 
   setLighting(config) {
@@ -1708,7 +1733,7 @@ class VrmRunner {
     this.controls.addEventListener('end', () => {
       if (this.cameraMode === 'constrained') this.notifyCameraChanged(true);
     });
-    this.setupCharacterCreatorControls();
+    this.applyCameraMode();
 
     // Перепривязываем события к новому Canvas
     this.attachPointerEvents();
@@ -2126,12 +2151,14 @@ class VrmRunner {
       this.camera.position.copy(this.targetCameraPos);
       this.controls.target.copy(this.targetCameraTarget);
       this.controls.enabled = true;
-      this.setupCharacterCreatorControls();
+      this.applyCameraMode();
     }
   }
 
   getAvatarTransform() {
-    if (!this.currentVrm) return { x: 0, y: 0, zoom: 0 };
+    if (!this.currentVrm) {
+      throw new Error('A VRM model must be loaded before reading camera state.');
+    }
 
     const target = this.targetCameraTarget;
     return {
@@ -2142,6 +2169,7 @@ class VrmRunner {
   }
 
   notifyCameraChanged(userInitiated) {
+    if (!this.currentVrm) return;
     this.notifyFlutter('onCameraChanged', {
       ...this.getAvatarTransform(),
       userInitiated: Boolean(userInitiated),

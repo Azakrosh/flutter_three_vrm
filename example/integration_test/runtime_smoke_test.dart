@@ -28,6 +28,11 @@ void main() {
     expect(report.triangles, greaterThan(0));
     expect(report.humanoidBones, greaterThan(0));
 
+    await controller.setCameraMode(VrmCameraMode.free);
+    await controller.setCameraMode(VrmCameraMode.constrained);
+    await controller.resetCamera(duration: Duration.zero);
+    expect((await controller.getTransform()).zoom, greaterThan(0));
+
     const expectedTransform = VrmTransform(x: 0.2, y: -0.1, zoom: 1.4);
     await controller.setTransform(expectedTransform);
 

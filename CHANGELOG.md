@@ -3,6 +3,7 @@
 ## 0.2.0-dev.1
 
 - Preserve user camera pan/zoom across runtime recovery and emit reliable user-initiated camera change events.
+- Fix free-orbit camera controls, isolate constrained pan gestures, add camera reframing, and strictly validate serialized transforms.
 
 - Raise the minimum versions to Dart 3.12 and Flutter 3.44.
 - Add dedicated Android and Windows WebView adapters.
