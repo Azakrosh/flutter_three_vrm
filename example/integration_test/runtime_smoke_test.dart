@@ -33,6 +33,27 @@ void main() {
     await controller.resetCamera(duration: Duration.zero);
     expect((await controller.getTransform()).zoom, greaterThan(0));
 
+    for (var index = 0; index < 300; index += 1) {
+      controller.setLipSyncAmplitude((index % 100) / 100);
+      controller.setLookAtTarget(Offset(index / 300, 1.4));
+    }
+    await controller.cancelSpeech();
+
+    await controller.beginSpeech(startDelay: Duration.zero);
+    await controller.appendSpeechVisemes(<VisemeFrame>[
+      const VisemeFrame(
+        viseme: VrmViseme.aa,
+        timestamp: Duration.zero,
+        duration: Duration(milliseconds: 30),
+      ),
+      const VisemeFrame(
+        viseme: VrmViseme.sil,
+        timestamp: Duration(milliseconds: 30),
+        duration: Duration.zero,
+      ),
+    ]);
+    await controller.finishSpeech(const Duration(milliseconds: 30));
+
     const expectedTransform = VrmTransform(x: 0.2, y: -0.1, zoom: 1.4);
     await controller.setTransform(expectedTransform);
 

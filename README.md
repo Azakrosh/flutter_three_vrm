@@ -312,12 +312,20 @@ VrmView(
 
 ```dart
 controller.setLipSyncAmplitude(0.65);
-controller.beginSpeech(startDelay: const Duration(milliseconds: 180));
-controller.appendSpeechVisemes(frames);
-controller.finishSpeech(audioDuration);
+await controller.beginSpeech(
+  startDelay: const Duration(milliseconds: 180),
+);
+await controller.appendSpeechVisemes(frames);
+await controller.finishSpeech(audioDuration);
 ```
 
 Для потокового TTS передавайте небольшие порции timeline заранее. Авторизационные токены сервера нельзя передавать в JavaScript/WebView; защищённую загрузку следует выполнять Flutter-клиентом, а затем вызывать `loadModelFromFile()` (предпочтительно для больших файлов) или `loadModelFromBytes()`.
+
+`setLipSyncAmplitude()`, прямой `setViseme()` и `setLookAtTarget()` используют
+latest-value backpressure: в WebView одновременно отправляется не более одного
+значения каждого типа, а накопившиеся устаревшие samples заменяются самым новым.
+Команды `beginSpeech()` / `appendSpeechVisemes()` / `finishSpeech()` остаются
+упорядоченными и не теряют timeline-кадры.
 
 ## Сборка web-runtime
 

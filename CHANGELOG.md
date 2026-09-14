@@ -4,6 +4,9 @@
 
 - Preserve user camera pan/zoom across runtime recovery and emit reliable user-initiated camera change events.
 - Fix free-orbit camera controls, isolate constrained pan gestures, add camera reframing, and strictly validate serialized transforms.
+- Bound realtime amplitude, direct-viseme, and LookAt bridge traffic with latest-value backpressure while preserving ordered speech timelines.
+- Make speech timeline operations awaitable and isolate them from stale direct amplitude or viseme updates.
+- Validate realtime samples and speech timeline frames before they cross the Flutter/WebView boundary.
 
 - Raise the minimum versions to Dart 3.12 and Flutter 3.44.
 - Add dedicated Android and Windows WebView adapters.

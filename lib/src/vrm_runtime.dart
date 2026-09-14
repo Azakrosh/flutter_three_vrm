@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 
 import 'bridge/local_server.dart';
+import 'bridge/latest_value_dispatcher.dart';
 import 'content/vrm_content_host.dart';
 import 'models/vrm_animation_options.dart';
 import 'models/vrm_camera_mode.dart';

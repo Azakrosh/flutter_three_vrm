@@ -11,6 +11,8 @@ final class _VrmBridge {
       StreamController<VrmEvent>.broadcast();
   final Map<String, _PendingCommand> _pending = <String, _PendingCommand>{};
   final Set<String> _ignoredResponseIds = <String>{};
+  final Map<String, LatestValueDispatcher<Map<String, dynamic>>>
+  _latestDispatchers = <String, LatestValueDispatcher<Map<String, dynamic>>>{};
 
   Object? _transportOwner;
   VrmJavaScriptRunner? _runJavaScript;
@@ -38,6 +40,7 @@ final class _VrmBridge {
       throw StateError('VrmController has already been disposed.');
     }
     if (_transportOwner != null && !identical(_transportOwner, owner)) {
+      _clearLatestCommands();
       _failPending(
         StateError('The VrmController was attached to another VrmView.'),
       );
@@ -56,6 +59,7 @@ final class _VrmBridge {
     _runJavaScript = null;
     _reloadRuntime = null;
     _runtimeReady = false;
+    _clearLatestCommands();
     _failPending(
       StateError('VrmView was detached before a command completed.'),
     );
@@ -239,6 +243,34 @@ final class _VrmBridge {
     await requestCommand(action, payload);
   }
 
+  /// Sends realtime state with one in-flight command per channel.
+  ///
+  /// While a command is awaiting its WebView response, repeated updates replace
+  /// the queued value instead of growing the pending-command map.
+  void sendLatestCommand({
+    required String channel,
+    required String action,
+    required Map<String, dynamic> payload,
+  }) {
+    if (_disposed) {
+      throw StateError('VrmController has already been disposed.');
+    }
+    if (!_runtimeReady) return;
+
+    final dispatcher = _latestDispatchers.putIfAbsent(
+      channel,
+      () => LatestValueDispatcher<Map<String, dynamic>>(
+        dispatch: (value) => sendCommand(action, value),
+        onError: reportAsyncError,
+      ),
+    );
+    dispatcher.add(Map<String, dynamic>.unmodifiable(payload));
+  }
+
+  void clearLatestCommand(String channel) {
+    _latestDispatchers[channel]?.clear();
+  }
+
   Future<void> reloadRuntime() async {
     final reload = _reloadRuntime;
     if (reload == null) {
@@ -250,6 +282,7 @@ final class _VrmBridge {
 
   void markRuntimeUnavailable(Object error) {
     _runtimeReady = false;
+    _clearLatestCommands();
     _failPending(error);
   }
 
@@ -260,6 +293,11 @@ final class _VrmBridge {
     final runner = _runJavaScript;
     if (runner == null) {
       throw StateError('VrmView is not attached to this controller.');
+    }
+    if (!_runtimeReady) {
+      throw StateError(
+        'VRM runtime is not ready. Wait for VrmController.waitUntilReady().',
+      );
     }
 
     final id = '${DateTime.now().microsecondsSinceEpoch}-${_nextCommandId++}';
@@ -314,6 +352,12 @@ final class _VrmBridge {
     }
   }
 
+  void _clearLatestCommands() {
+    for (final dispatcher in _latestDispatchers.values) {
+      dispatcher.clear();
+    }
+  }
+
   Future<void> dispose() async {
     if (_disposed) {
       return;
@@ -323,6 +367,10 @@ final class _VrmBridge {
     _runJavaScript = null;
     _reloadRuntime = null;
     _runtimeReady = false;
+    for (final dispatcher in _latestDispatchers.values) {
+      dispatcher.close();
+    }
+    _latestDispatchers.clear();
     _failPending(StateError('VrmController was disposed.'));
     await _eventController.close();
   }

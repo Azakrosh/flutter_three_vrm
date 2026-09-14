@@ -544,6 +544,9 @@ class VrmController {
     Duration duration = const Duration(milliseconds: 250),
     bool disableAutoBlink = false,
   }) {
+    if ((layer ?? expression.defaultLayer) == ExpressionLayer.mouth) {
+      _clearDirectSpeechInputs();
+    }
     _sendCommand('setExpression', {
       'expression': expression.name,
       'layer': (layer ?? expression.defaultLayer).name,
@@ -555,11 +558,15 @@ class VrmController {
 
   /// Clears active expression from a layer.
   void clearExpressionLayer(ExpressionLayer layer) {
+    if (layer == ExpressionLayer.mouth) {
+      _clearDirectSpeechInputs();
+    }
     _sendCommand('clearExpressionLayer', {'layer': layer.name});
   }
 
   /// Clears all active facial expressions, blendshapes, and visemes.
   void clearAllExpressions() {
+    _clearDirectSpeechInputs();
     _sendCommand('clearAllExpressions');
   }
 
@@ -572,50 +579,121 @@ class VrmController {
 
   /// Sets real-time audio volume amplitude (0.0 to 1.0) for smooth speech mouth opening.
   void setLipSyncAmplitude(double amplitude) {
-    _sendCommand('setLipSyncAmplitude', {
-      'amplitude': amplitude.clamp(0.0, 1.0),
-    });
+    if (!amplitude.isFinite) {
+      throw ArgumentError.value(amplitude, 'amplitude', 'Must be finite.');
+    }
+    _bridge
+      ..clearLatestCommand('directViseme')
+      ..sendLatestCommand(
+        channel: 'lipSyncAmplitude',
+        action: 'setLipSyncAmplitude',
+        payload: {'amplitude': amplitude.clamp(0.0, 1.0)},
+      );
   }
 
-  /// Sets specific ElevenLabs viseme (AA, IH, OU, EE, OH).
+  /// Sets the latest direct viseme state without queueing stale bridge updates.
   void setViseme(VrmViseme viseme, {double weight = 1.0}) {
-    _sendCommand('setViseme', {'viseme': viseme.name, 'weight': weight});
+    if (!weight.isFinite) {
+      throw ArgumentError.value(weight, 'weight', 'Must be finite.');
+    }
+    _bridge
+      ..clearLatestCommand('lipSyncAmplitude')
+      ..sendLatestCommand(
+        channel: 'directViseme',
+        action: 'setViseme',
+        payload: {'viseme': viseme.name, 'weight': weight.clamp(0.0, 1.0)},
+      );
   }
 
   /// Enqueues a list of timed speech viseme frames for TTS playback.
-  void enqueueSpeechVisemes(List<VisemeFrame> frames) {
+  Future<void> enqueueSpeechVisemes(List<VisemeFrame> frames) {
+    _validateVisemeFrames(frames);
     final sortedFrames = List<VisemeFrame>.from(frames)..sort();
-
-    _sendCommand('enqueueSpeechVisemes', {
+    _clearDirectSpeechInputs();
+    return _bridge.sendCommand('enqueueSpeechVisemes', {
       'frames': sortedFrames.map((f) => f.toJson()).toList(),
     });
   }
 
   /// Starts a streaming speech timeline. Subsequent frame batches use
   /// timestamps relative to the same clock and do not replace older batches.
-  void beginSpeech({Duration startDelay = const Duration(milliseconds: 180)}) {
-    _sendCommand('beginSpeech', {'startDelayMs': startDelay.inMilliseconds});
+  Future<void> beginSpeech({
+    Duration startDelay = const Duration(milliseconds: 180),
+  }) {
+    if (startDelay.isNegative) {
+      throw ArgumentError.value(
+        startDelay,
+        'startDelay',
+        'Must not be negative.',
+      );
+    }
+    _clearDirectSpeechInputs();
+    return _bridge.sendCommand('beginSpeech', {
+      'startDelayMs': startDelay.inMilliseconds,
+    });
   }
 
   /// Appends timed frames to the active streaming speech timeline.
-  void appendSpeechVisemes(List<VisemeFrame> frames) {
-    if (frames.isEmpty) return;
+  Future<void> appendSpeechVisemes(List<VisemeFrame> frames) {
+    if (frames.isEmpty) return Future<void>.value();
+    _validateVisemeFrames(frames);
     final sortedFrames = List<VisemeFrame>.from(frames)..sort();
-    _sendCommand('appendSpeechVisemes', {
+    return _bridge.sendCommand('appendSpeechVisemes', {
       'frames': sortedFrames.map((f) => f.toJson()).toList(),
     });
   }
 
   /// Marks a streaming speech timeline as complete.
-  void finishSpeech(Duration audioDuration) {
-    _sendCommand('finishSpeech', {
+  Future<void> finishSpeech(Duration audioDuration) {
+    if (audioDuration.isNegative) {
+      throw ArgumentError.value(
+        audioDuration,
+        'audioDuration',
+        'Must not be negative.',
+      );
+    }
+    return _bridge.sendCommand('finishSpeech', {
       'audioDurationMs': audioDuration.inMilliseconds,
     });
   }
 
   /// Cancels queued speech and closes only the mouth expression layer.
-  void cancelSpeech() {
-    _sendCommand('cancelSpeech');
+  Future<void> cancelSpeech() {
+    _clearDirectSpeechInputs();
+    return _bridge.sendCommand('cancelSpeech');
+  }
+
+  void _clearDirectSpeechInputs() {
+    _bridge
+      ..clearLatestCommand('lipSyncAmplitude')
+      ..clearLatestCommand('directViseme');
+  }
+
+  void _validateVisemeFrames(List<VisemeFrame> frames) {
+    for (var index = 0; index < frames.length; index += 1) {
+      final frame = frames[index];
+      if (!frame.weight.isFinite || frame.weight < 0 || frame.weight > 1) {
+        throw ArgumentError.value(
+          frame.weight,
+          'frames[$index].weight',
+          'Must be a finite value from 0 to 1.',
+        );
+      }
+      if (frame.timestamp.isNegative) {
+        throw ArgumentError.value(
+          frame.timestamp,
+          'frames[$index].timestamp',
+          'Must not be negative.',
+        );
+      }
+      if (frame.duration.isNegative) {
+        throw ArgumentError.value(
+          frame.duration,
+          'frames[$index].duration',
+          'Must not be negative.',
+        );
+      }
+    }
   }
 
   // --- LookAt, Touch & Auto-Blink ---
@@ -632,10 +710,18 @@ class VrmController {
 
   /// Sets 3D LookAt target point on screen.
   void setLookAtTarget(Offset screenPosition) {
-    _sendCommand('setLookAtTarget', {
-      'x': screenPosition.dx,
-      'y': screenPosition.dy,
-    });
+    if (!screenPosition.dx.isFinite || !screenPosition.dy.isFinite) {
+      throw ArgumentError.value(
+        screenPosition,
+        'screenPosition',
+        'Coordinates must be finite.',
+      );
+    }
+    _bridge.sendLatestCommand(
+      channel: 'lookAtTarget',
+      action: 'setLookAtTarget',
+      payload: {'x': screenPosition.dx, 'y': screenPosition.dy},
+    );
   }
 
   /// Configures LookAt dead zone X range (default 0.35) and gaze hold duration (default 1.8s).
