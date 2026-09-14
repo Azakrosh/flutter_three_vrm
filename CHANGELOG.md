@@ -10,6 +10,9 @@
 - Preserve the Flutter lifecycle render-pause state across runtime recovery and suppress expected lifecycle/reload races.
 - Release VRM geometry, skeletons, materials, and textures exactly once through `VRMUtils.deepDispose`, including models with disabled spring-bone physics.
 - Reset saved camera framing when an avatar is explicitly unloaded while continuing to preserve it across runtime-only reloads.
+- Deterministically tear down animation frames, fetches, DOM listeners, controls, models, and WebGL contexts when a runtime page or `VrmView` is destroyed.
+- Exercise renderer recreation and explicit `VrmView` disposal in the physical-device runtime smoke test.
+- Check the standalone JavaScript runner syntax in CI and run the full runtime smoke test in the Windows job.
 
 - Raise the minimum versions to Dart 3.12 and Flutter 3.44.
 - Add dedicated Android and Windows WebView adapters.

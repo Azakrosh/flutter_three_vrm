@@ -343,9 +343,9 @@ corepack pnpm build
 
 ## Статус roadmap
 
-До стабильного релиза запланированы интеграционные smoke-тесты на физических Android/Windows устройствах.
+Расширенный runtime smoke-тест пройден на физическом Android 16 устройстве и автоматически запускается в Windows CI. До стабильного релиза остаётся подтвердить его на отдельном физическом Windows-устройстве.
 
-Android runtime smoke-тест находится в `example/integration_test/runtime_smoke_test.dart` и проверяет initialization, health payload, загрузку модели и ручное восстановление:
+Runtime smoke-тест находится в `example/integration_test/runtime_smoke_test.dart` и проверяет initialization, health payload, загрузку и выгрузку модели, lifecycle pause/resume, пересоздание renderer, повторные reload, восстановление камеры и явный dispose `VrmView`:
 
 ```bash
 cd example

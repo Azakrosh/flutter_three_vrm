@@ -190,6 +190,25 @@ class VrmRunner {
       reason: 'initialized',
     };
     this._contextLost = false;
+    this._isRenderingPaused = false;
+    this._animationFrameId = null;
+    this._isDisposed = false;
+    this._pointerEventCanvas = null;
+    this._rendererEventCanvas = null;
+    this._onWindowResize = () => this.onWindowResize();
+    this._onPointerDown = (event) => this.onPointerDown(event);
+    this._onPointerMove = (event) => this.onPointerMove(event);
+    this._onPointerUp = (event) => this.onPointerUp(event);
+    this._onControlsStart = () => {
+      this.hasCustomCameraTransform = true;
+    };
+    this._onControlsEnd = () => {
+      if (this.cameraMode === 'constrained') this.notifyCameraChanged(true);
+    };
+    this._onWebGlContextLost = (event) => this.onWebGlContextLost(event);
+    this._onWebGlContextRestored = () => this.onWebGlContextRestored();
+    this._onPageHide = () => this.dispose();
+    this._disposeRuntime = () => this.dispose();
 
     this.initScene();
     this.initEvents();
@@ -245,12 +264,7 @@ class VrmRunner {
     // Орбитальный контроллер вращения модели (OrbitControls)
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.target.set(0, 0.95, 0); // Фокус 'upperBody'
-    this.controls.addEventListener('start', () => {
-      this.hasCustomCameraTransform = true;
-    });
-    this.controls.addEventListener('end', () => {
-      if (this.cameraMode === 'constrained') this.notifyCameraChanged(true);
-    });
+    this.attachControlsEvents();
     this.setupCharacterCreatorControls();
 
     // Источники света: рассеянный (Ambient), прямой (Directional) и контурный (Rim)
@@ -299,23 +313,36 @@ class VrmRunner {
   }
 
   initEvents() {
-    window.addEventListener('resize', () => this.onWindowResize());
+    window.addEventListener('resize', this._onWindowResize);
+    window.addEventListener('pagehide', this._onPageHide);
     this.attachPointerEvents();
 
-
-    window.flutterVrmDispatch = async (commandJson) => {
+    this._flutterDispatch = async (commandJson) => {
       let id = 'invalid-command';
       try {
         const command = parseCommand(commandJson);
         id = command.id;
         const result = await this.handleFlutterCommand(command.action, command.payload ?? {});
-        postFlutterMessage(success(id, result ?? null));
+        if (!this._isDisposed) postFlutterMessage(success(id, result ?? null));
       } catch (error) {
         const code = typeof error?.code === 'string' ? error.code : 'runtimeError';
         const message = error instanceof Error ? error.message : String(error);
-        postFlutterMessage(failure(id, code, message));
+        if (!this._isDisposed) postFlutterMessage(failure(id, code, message));
       }
     };
+    window.flutterVrmDispatch = this._flutterDispatch;
+    window.flutterVrmDispose = this._disposeRuntime;
+  }
+
+  attachControlsEvents() {
+    this.controls.addEventListener('start', this._onControlsStart);
+    this.controls.addEventListener('end', this._onControlsEnd);
+  }
+
+  detachControlsEvents() {
+    if (!this.controls) return;
+    this.controls.removeEventListener('start', this._onControlsStart);
+    this.controls.removeEventListener('end', this._onControlsEnd);
   }
 
   onPointerDown(e) {
@@ -387,11 +414,23 @@ class VrmRunner {
   }
 
   attachPointerEvents() {
+    this.detachPointerEvents();
     const domElement = this.renderer.domElement;
-    domElement.addEventListener('pointerdown', (e) => this.onPointerDown(e));
-    domElement.addEventListener('pointermove', (e) => this.onPointerMove(e));
-    domElement.addEventListener('pointerup', (e) => this.onPointerUp(e));
-    domElement.addEventListener('pointercancel', (e) => this.onPointerUp(e));
+    this._pointerEventCanvas = domElement;
+    domElement.addEventListener('pointerdown', this._onPointerDown);
+    domElement.addEventListener('pointermove', this._onPointerMove);
+    domElement.addEventListener('pointerup', this._onPointerUp);
+    domElement.addEventListener('pointercancel', this._onPointerUp);
+  }
+
+  detachPointerEvents() {
+    const domElement = this._pointerEventCanvas;
+    if (!domElement) return;
+    domElement.removeEventListener('pointerdown', this._onPointerDown);
+    domElement.removeEventListener('pointermove', this._onPointerMove);
+    domElement.removeEventListener('pointerup', this._onPointerUp);
+    domElement.removeEventListener('pointercancel', this._onPointerUp);
+    this._pointerEventCanvas = null;
   }
 
   onWindowResize() {
@@ -1660,35 +1699,56 @@ class VrmRunner {
   }
 
   attachRendererContextEvents() {
+    this.detachRendererContextEvents();
     const canvas = this.renderer.domElement;
-    canvas.addEventListener('webglcontextlost', (event) => {
-      event.preventDefault();
-      this._contextLost = true;
-      this.notifyFlutter('onWebGLContextChanged', { state: 'lost' });
+    this._rendererEventCanvas = canvas;
+    canvas.addEventListener('webglcontextlost', this._onWebGlContextLost);
+    canvas.addEventListener('webglcontextrestored', this._onWebGlContextRestored);
+  }
+
+  detachRendererContextEvents() {
+    const canvas = this._rendererEventCanvas;
+    if (!canvas) return;
+    canvas.removeEventListener('webglcontextlost', this._onWebGlContextLost);
+    canvas.removeEventListener('webglcontextrestored', this._onWebGlContextRestored);
+    this._rendererEventCanvas = null;
+  }
+
+  onWebGlContextLost(event) {
+    event.preventDefault();
+    this._contextLost = true;
+    this.notifyFlutter('onWebGLContextChanged', { state: 'lost' });
+  }
+
+  onWebGlContextRestored() {
+    this._contextLost = false;
+    this.lastTime = performance.now();
+    this.lastFrameTime = 0;
+    this.performanceWindowStart = this.lastTime;
+    this.performanceFrameCount = 0;
+    this.scene.traverse((child) => {
+      if (!child.isMesh || !child.material) return;
+      const materials = Array.isArray(child.material) ? child.material : [child.material];
+      materials.forEach((material) => { material.needsUpdate = true; });
     });
-    canvas.addEventListener('webglcontextrestored', () => {
-      this._contextLost = false;
-      this.lastTime = performance.now();
-      this.lastFrameTime = 0;
-      this.performanceWindowStart = this.lastTime;
-      this.performanceFrameCount = 0;
-      this.scene.traverse((child) => {
-        if (!child.isMesh || !child.material) return;
-        const materials = Array.isArray(child.material) ? child.material : [child.material];
-        materials.forEach((material) => { material.needsUpdate = true; });
-      });
-      this.notifyFlutter('onWebGLContextChanged', { state: 'restored' });
-    });
+    this.notifyFlutter('onWebGLContextChanged', { state: 'restored' });
   }
 
   _recreateRenderer() {
-    if (!this.renderer) return;
+    if (!this.renderer || this._isDisposed) return;
 
     const shadowsEnabled = this.renderer.shadowMap.enabled;
     const pixelRatio = this.renderer.getPixelRatio();
+    const oldCanvas = this.renderer.domElement;
+    const oldTarget = this.controls.target.clone();
 
+    this.detachPointerEvents();
+    this.detachRendererContextEvents();
+    this.detachControlsEvents();
+    this.controls.dispose();
     this.renderer.dispose();
-    this.container.removeChild(this.renderer.domElement);
+    this.renderer.forceContextLoss();
+    if (oldCanvas.parentNode === this.container) this.container.removeChild(oldCanvas);
 
     this.renderer = new THREE.WebGLRenderer({
       alpha: true,
@@ -1705,17 +1765,9 @@ class VrmRunner {
     this.container.appendChild(this.renderer.domElement);
     this.attachRendererContextEvents();
 
-    const oldTarget = this.controls.target.clone();
-    this.controls.dispose();
-
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.target.copy(oldTarget);
-    this.controls.addEventListener('start', () => {
-      this.hasCustomCameraTransform = true;
-    });
-    this.controls.addEventListener('end', () => {
-      if (this.cameraMode === 'constrained') this.notifyCameraChanged(true);
-    });
+    this.attachControlsEvents();
     this.applyCameraMode();
 
     // Перепривязываем события к новому Canvas
@@ -1733,6 +1785,43 @@ class VrmRunner {
     });
 
     this.renderer.clear();
+  }
+
+  dispose() {
+    if (this._isDisposed) return;
+    this._isDisposed = true;
+    this.pauseRendering();
+    this.cancelModelLoad();
+    this.cancelAnimationLoad();
+
+    window.removeEventListener('resize', this._onWindowResize);
+    window.removeEventListener('pagehide', this._onPageHide);
+    if (window.flutterVrmDispatch === this._flutterDispatch) {
+      delete window.flutterVrmDispatch;
+    }
+    if (window.flutterVrmDispose === this._disposeRuntime) {
+      delete window.flutterVrmDispose;
+    }
+
+    if (this.currentVrm) this.unloadModel();
+    this.detachPointerEvents();
+    this.detachRendererContextEvents();
+    this.detachControlsEvents();
+
+    if (this.controls) {
+      this.controls.dispose();
+      this.controls = null;
+    }
+    if (this.renderer) {
+      const canvas = this.renderer.domElement;
+      this.renderer.dispose();
+      this.renderer.forceContextLoss();
+      if (canvas.parentNode === this.container) this.container.removeChild(canvas);
+      this.renderer = null;
+    }
+    if (this.scene) this.scene.clear();
+    this.scene = null;
+    this.camera = null;
   }
 
   pauseRendering() {
@@ -1755,7 +1844,7 @@ class VrmRunner {
   }
 
   animate() {
-    if (this._isRenderingPaused) return;
+    if (this._isRenderingPaused || this._isDisposed) return;
     this._animationFrameId = requestAnimationFrame(() => this.animate());
 
     const now = performance.now();
@@ -2189,6 +2278,7 @@ class VrmRunner {
   }
 
   notifyFlutter(eventName, payload) {
+    if (this._isDisposed) return;
     postFlutterMessage(protocolEvent(eventName, payload));
   }
 }

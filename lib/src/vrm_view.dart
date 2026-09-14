@@ -447,6 +447,7 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    final shouldDisposeRuntime = _transportAttached && _isRuntimeReady;
     _isDisposed = true;
     WidgetsBinding.instance.removeObserver(this);
 
@@ -465,9 +466,20 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
       widget.controller._detachContentHost(contentHost);
       unawaited(contentHost.close());
     }
-    unawaited(_webView.dispose());
+    unawaited(_disposeRuntimeAndWebView(shouldDisposeRuntime));
 
     super.dispose();
+  }
+
+  Future<void> _disposeRuntimeAndWebView(bool disposeRuntime) async {
+    if (disposeRuntime) {
+      try {
+        await _webView.runJavaScript('window.flutterVrmDispose?.();');
+      } on Object {
+        // The native WebView may already have destroyed the document.
+      }
+    }
+    await _webView.dispose();
   }
 
   @override

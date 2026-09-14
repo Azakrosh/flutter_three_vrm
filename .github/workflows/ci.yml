@@ -34,6 +34,7 @@ jobs:
       - name: Check and build web runtime
         working-directory: web
         run: |
+          node --check ../assets/web/js/vrm_runner.js
           pnpm typecheck
           pnpm test
           pnpm build
@@ -64,3 +65,6 @@ jobs:
       - name: Build Windows example
         working-directory: example
         run: flutter build windows --debug
+      - name: Run Windows runtime smoke test
+        working-directory: example
+        run: flutter test integration_test/runtime_smoke_test.dart -d windows

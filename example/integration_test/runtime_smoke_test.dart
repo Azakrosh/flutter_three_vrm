@@ -29,6 +29,11 @@ void main() {
     expect(report.triangles, greaterThan(0));
     expect(report.humanoidBones, greaterThan(0));
 
+    await controller.setGraphicsPreset(VrmGraphicsPreset.performance);
+    expect((await controller.getRuntimeHealth()).contextLost, isFalse);
+    await controller.setGraphicsPreset(VrmGraphicsPreset.balanced);
+    expect((await controller.getRuntimeHealth()).contextLost, isFalse);
+
     await controller.setCameraMode(VrmCameraMode.free);
     await controller.setCameraMode(VrmCameraMode.constrained);
     await controller.resetCamera(duration: Duration.zero);
@@ -102,6 +107,11 @@ void main() {
       expect(cycleTransform.y, closeTo(expectedTransform.y, 0.001));
       expect(cycleTransform.zoom, closeTo(expectedTransform.zoom, 0.001));
     }
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+    expect(tester.takeException(), isNull);
   });
 }
 
