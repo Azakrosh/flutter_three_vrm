@@ -14,6 +14,9 @@ class VrmController {
   /// Whether the currently attached runtime contains an avatar.
   bool get isModelLoaded => _isModelLoaded;
 
+  /// Whether the JavaScript runtime completed protocol initialization.
+  bool get isRuntimeReady => _bridge.isRuntimeReady;
+
   void _attachContentHost(VrmContentHost contentHost) {
     _contentHost = contentHost;
   }
@@ -169,6 +172,35 @@ class VrmController {
   Future<VrmModelReport> getModelReport() async {
     final result = await _bridge.requestCommand('getModelReport');
     return VrmModelReport.fromJson(result);
+  }
+
+  /// Waits for the attached runtime to become ready for commands.
+  Future<void> waitUntilReady({
+    Duration timeout = const Duration(seconds: 20),
+  }) async {
+    if (_bridge.isRuntimeReady) return;
+    await onStateChanged
+        .firstWhere((event) => event.state == 'initialized')
+        .timeout(timeout);
+  }
+
+  /// Returns runtime versions, WebGL limits, and current engine state.
+  Future<VrmRuntimeHealth> getRuntimeHealth() async {
+    final result = await _bridge.requestCommand('getRuntimeHealth');
+    final health = VrmRuntimeHealth.fromJson(result);
+    _isModelLoaded = health.modelLoaded;
+    return health;
+  }
+
+  /// Reloads the embedded runtime. [VrmView.onCreated] runs again afterwards.
+  Future<void> reloadRuntime() async {
+    _isModelLoaded = false;
+    await _bridge.reloadRuntime();
+  }
+
+  void _markRuntimeUnavailable(Object error) {
+    _isModelLoaded = false;
+    _bridge.markRuntimeUnavailable(error);
   }
 
   void _publishModelAssessment(VrmModelAssessment assessment) {

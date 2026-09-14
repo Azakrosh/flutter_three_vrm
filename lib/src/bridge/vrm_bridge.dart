@@ -1,6 +1,7 @@
 part of '../vrm_runtime.dart';
 
 typedef VrmJavaScriptRunner = Future<void> Function(String source);
+typedef VrmRuntimeReloader = Future<void> Function();
 
 final class _VrmBridge {
   static const int _protocolVersion = 1;
@@ -11,10 +12,13 @@ final class _VrmBridge {
 
   Object? _transportOwner;
   VrmJavaScriptRunner? _runJavaScript;
+  VrmRuntimeReloader? _reloadRuntime;
   int _nextCommandId = 0;
   bool _disposed = false;
+  bool _runtimeReady = false;
 
   Stream<VrmEvent> get eventStream => _eventController.stream;
+  bool get isRuntimeReady => _runtimeReady;
 
   void publishEvent(VrmEvent event) {
     if (!_disposed) {
@@ -25,6 +29,8 @@ final class _VrmBridge {
   void attachTransport({
     required Object owner,
     required VrmJavaScriptRunner runJavaScript,
+    required VrmRuntimeReloader reloadRuntime,
+    required bool runtimeReady,
   }) {
     if (_disposed) {
       throw StateError('VrmController has already been disposed.');
@@ -36,6 +42,8 @@ final class _VrmBridge {
     }
     _transportOwner = owner;
     _runJavaScript = runJavaScript;
+    _reloadRuntime = reloadRuntime;
+    _runtimeReady = runtimeReady;
   }
 
   void detachTransport(Object owner) {
@@ -44,6 +52,8 @@ final class _VrmBridge {
     }
     _transportOwner = null;
     _runJavaScript = null;
+    _reloadRuntime = null;
+    _runtimeReady = false;
     _failPending(
       StateError('VrmView was detached before a command completed.'),
     );
@@ -177,6 +187,9 @@ final class _VrmBridge {
           ),
         );
       case 'onStateChanged':
+        if (payload['state'] == 'initialized') {
+          _runtimeReady = true;
+        }
         _eventController.add(
           VrmStateChangedEvent(state: payload['state'] as String? ?? ''),
         );
@@ -218,6 +231,20 @@ final class _VrmBridge {
     Map<String, dynamic>? payload,
   ]) async {
     await requestCommand(action, payload);
+  }
+
+  Future<void> reloadRuntime() async {
+    final reload = _reloadRuntime;
+    if (reload == null) {
+      throw StateError('VrmView is not attached to this controller.');
+    }
+    markRuntimeUnavailable(StateError('VRM runtime is reloading.'));
+    await reload();
+  }
+
+  void markRuntimeUnavailable(Object error) {
+    _runtimeReady = false;
+    _failPending(error);
   }
 
   Future<Object?> requestCommand(
@@ -284,6 +311,8 @@ final class _VrmBridge {
     _disposed = true;
     _transportOwner = null;
     _runJavaScript = null;
+    _reloadRuntime = null;
+    _runtimeReady = false;
     _failPending(StateError('VrmController was disposed.'));
     await _eventController.close();
   }

@@ -12,6 +12,7 @@ const {
   event: protocolEvent,
   failure,
   getNormalizedPose,
+  getRuntimeInfo,
   parseCommand,
   resetNormalizedPose,
   setNormalizedPose,
@@ -473,6 +474,8 @@ class VrmRunner {
       case 'getModelReport':
         if (!this.modelReport) throw new Error('Load a VRM model before requesting its report.');
         return this.modelReport;
+      case 'getRuntimeHealth':
+        return this.getRuntimeHealth();
       case 'unloadModel':
         this.cancelModelLoad();
         this.cancelAnimationLoad();
@@ -937,6 +940,23 @@ class VrmRunner {
       morphTargets,
       humanoidBones: Object.keys(vrm.humanoid?.normalizedHumanBones || {}).length,
       springBoneJoints: vrm.springBoneManager?.joints?.length || this._cachedSpringBoneManager?.joints?.length || 0,
+    };
+  }
+
+  getRuntimeHealth() {
+    const runtimeInfo = getRuntimeInfo();
+    const capabilities = this.renderer?.capabilities;
+    return {
+      ...runtimeInfo,
+      webGlVersion: capabilities?.isWebGL2 ? 2 : 1,
+      maxTextureSize: capabilities?.maxTextureSize || 0,
+      maxTextures: capabilities?.maxTextures || 0,
+      maxVertexTextures: capabilities?.maxVertexTextures || 0,
+      modelLoaded: Boolean(this.currentVrm),
+      animationActive: Boolean(this.currentAction),
+      animationPaused: Boolean(this.isAnimationPaused),
+      renderingPaused: Boolean(this._isRenderingPaused),
+      contextLost: Boolean(this._contextLost),
     };
   }
 

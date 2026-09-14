@@ -133,6 +133,11 @@ class _AvatarDemoPageState extends State<AvatarDemoPage> {
 
   Future<void> _initialize(VrmController controller) {
     return _run(() async {
+      final health = await controller.getRuntimeHealth();
+      debugPrint(
+        'VRM runtime ${health.runtimeVersion}, three r${health.threeRevision}, '
+        'WebGL ${health.webGlVersion}',
+      );
       await controller.loadModel('assets/vrm/', 'sample_0.vrm');
       await controller.playAnimation(
         'assets/vrma/',

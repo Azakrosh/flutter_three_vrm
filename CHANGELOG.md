@@ -23,4 +23,5 @@
 - Add typed model diagnostics for geometry, textures, rig complexity, and source size.
 - Add configurable model-complexity assessments, decoded texture memory estimates, and proactive adaptive-resolution caps without rejecting assets.
 - Add versioned animation-queue snapshots, automatic replay after model/runtime recreation, and a typed queue error stream.
+- Add runtime readiness waiting, typed Three/WebGL health diagnostics, manual reload, and bounded main-frame recovery.
 - Add strict analysis, unit tests, Android/Windows CI, MIT license, and updated documentation.

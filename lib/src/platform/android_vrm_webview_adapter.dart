@@ -42,7 +42,7 @@ final class AndroidVrmWebViewAdapter implements VrmWebViewAdapter {
     await _controller.setNavigationDelegate(
       NavigationDelegate(
         onWebResourceError: (error) {
-          if (!_disposed && error.isForMainFrame != false) {
+          if (!_disposed && error.isForMainFrame == true) {
             _errors.add(error.description);
           }
         },

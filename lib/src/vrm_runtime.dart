@@ -21,6 +21,7 @@ import 'models/vrm_mood.dart';
 import 'models/vrm_model_report.dart';
 import 'models/vrm_model_performance.dart';
 import 'models/vrm_pose.dart';
+import 'models/vrm_runtime_health.dart';
 import 'models/vrm_transform.dart';
 import 'models/vrm_wind.dart';
 import 'platform/create_vrm_webview_adapter.dart';

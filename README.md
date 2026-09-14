@@ -95,6 +95,44 @@ class _AvatarScreenState extends State<AvatarScreen> {
 
 Вызывайте методы загрузки только после `onCreated`.
 
+## Runtime health и восстановление
+
+`onCreated` вызывается только после инициализации command protocol; callback может возвращать `Future`, и `VrmView` дождётся его завершения. Для внешней orchestration доступен отдельный readiness API:
+
+```dart
+await controller.waitUntilReady();
+final health = await controller.getRuntimeHealth();
+
+debugPrint(
+  'runtime=${health.runtimeVersion}, '
+  'three=r${health.threeRevision}, '
+  'WebGL ${health.webGlVersion}, '
+  'maxTexture=${health.maxTextureSize}',
+);
+```
+
+`VrmRuntimeHealth` также сообщает версии protocol/three-vrm, наличие модели и анимации, pause render loop и потерю WebGL context. Это предназначено для диагностики и integration smoke-тестов, а не для доступа к низкоуровневому renderer.
+
+При ошибке главного документа `VrmView` выполняет не более двух попыток восстановления с exponential backoff. Ошибки текстур и других дочерних ресурсов не перезапускают весь runtime. Политику можно изменить или отключить:
+
+```dart
+VrmView(
+  controller: controller,
+  recoveryPolicy: const VrmRuntimeRecoveryPolicy(
+    enabled: true,
+    maxAttempts: 3,
+    baseDelay: Duration(milliseconds: 500),
+    maxDelay: Duration(seconds: 4),
+  ),
+  onCreated: (controller) async {
+    // Вызывается снова после успешного восстановления runtime.
+    await controller.loadModelFromFile(await obtainAuthenticatedModel());
+  },
+);
+```
+
+Для ручного восстановления вызовите `await controller.reloadRuntime()`, а затем `await controller.waitUntilReady()`. Незавершённые команды завершаются ошибкой сразу при начале reload и не остаются ждать timeout.
+
 ## Камера
 
 ```dart
@@ -290,6 +328,13 @@ corepack pnpm build
 ## Статус roadmap
 
 До стабильного релиза запланированы интеграционные smoke-тесты на физических Android/Windows устройствах.
+
+Android runtime smoke-тест находится в `example/integration_test/runtime_smoke_test.dart` и проверяет initialization, health payload, загрузку модели и ручное восстановление:
+
+```bash
+cd example
+flutter test integration_test/runtime_smoke_test.dart -d <android-device-id>
+```
 
 ## Лицензия
 

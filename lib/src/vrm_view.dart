@@ -13,10 +13,11 @@ class VrmView extends StatefulWidget {
     this.graphicsPreset = VrmGraphicsPreset.balanced,
     this.adaptiveQuality = const VrmAdaptiveQualitySettings(),
     this.modelPerformancePolicy = const VrmModelPerformancePolicy(),
+    this.recoveryPolicy = const VrmRuntimeRecoveryPolicy(),
   });
 
   final VrmController controller;
-  final void Function(VrmController controller)? onCreated;
+  final FutureOr<void> Function(VrmController controller)? onCreated;
   final String? initialModelFolder;
   final String? initialModelFile;
   final Color backgroundColor;
@@ -30,6 +31,9 @@ class VrmView extends StatefulWidget {
 
   /// Advisory model analysis and proactive render-resolution policy.
   final VrmModelPerformancePolicy modelPerformancePolicy;
+
+  /// Bounded retry policy for failures of the main runtime document.
+  final VrmRuntimeRecoveryPolicy recoveryPolicy;
 
   @override
   State<VrmView> createState() => _VrmViewState();
@@ -46,6 +50,9 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
   bool _isDisposed = false;
   String? _errorMessage;
   VrmModelAssessment? _modelAssessment;
+  int _recoveryAttempts = 0;
+  bool _recoveryInProgress = false;
+  bool _recoveryRequested = false;
 
   Color get _effectiveBackground =>
       widget.transparent ? Colors.transparent : widget.backgroundColor;
@@ -55,11 +62,7 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _webView = createVrmWebViewAdapter(backgroundColor: _effectiveBackground);
-    _subscriptions.add(
-      _webView.errors.listen(
-        (message) => _showError('WebView resource error: $message'),
-      ),
-    );
+    _subscriptions.add(_webView.errors.listen(_handleRuntimeResourceError));
     _bindController(widget.controller);
     unawaited(_initialize());
   }
@@ -68,6 +71,7 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
   void didUpdateWidget(covariant VrmView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!identical(oldWidget.controller, widget.controller)) {
+      final hadModel = oldWidget.controller.isModelLoaded;
       oldWidget.controller._bridge.detachTransport(_webView);
       final contentHost = _contentHost;
       if (contentHost != null) {
@@ -78,7 +82,7 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
         unawaited(subscription.cancel());
       }
       _controllerSubscriptions.clear();
-      _modelAssessment = null;
+      widget.controller._isModelLoaded = hadModel;
       _bindController(widget.controller);
       if (_transportAttached) {
         _attachTransport(widget.controller);
@@ -149,6 +153,8 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
     controller._bridge.attachTransport(
       owner: _webView,
       runJavaScript: _webView.runJavaScript,
+      reloadRuntime: _reloadRuntimePage,
+      runtimeReady: _isRuntimeReady,
     );
   }
 
@@ -200,22 +206,97 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
       _isRuntimeReady = true;
       _errorMessage = null;
     });
+    _recoveryAttempts = 0;
+    _recoveryInProgress = false;
+    _recoveryRequested = false;
 
-    await _applyGraphicsConfiguration();
-    widget.controller.setBackground(
-      color: _effectiveBackground,
-      transparent: widget.transparent,
+    try {
+      await _applyGraphicsConfiguration();
+      widget.controller.setBackground(
+        color: _effectiveBackground,
+        transparent: widget.transparent,
+      );
+
+      final folder = widget.initialModelFolder;
+      final file = widget.initialModelFile;
+      if (folder != null && file != null) {
+        await widget.controller.loadModel(folder, file);
+      }
+
+      if (mounted) {
+        await widget.onCreated?.call(widget.controller);
+      }
+    } on Object catch (error, stackTrace) {
+      widget.controller._bridge.reportAsyncError(error, stackTrace);
+      _showError('Failed to configure restored VRM runtime: $error');
+    }
+  }
+
+  void _handleRuntimeResourceError(String message) {
+    final error = StateError('WebView runtime resource error: $message');
+    widget.controller._markRuntimeUnavailable(error);
+    if (mounted && !_isDisposed) {
+      setState(() {
+        _isRuntimeReady = false;
+        _modelAssessment = null;
+        _errorMessage = message;
+      });
+    }
+    if (_recoveryInProgress) {
+      _recoveryRequested = true;
+      return;
+    }
+    unawaited(_scheduleRuntimeRecovery());
+  }
+
+  Future<void> _scheduleRuntimeRecovery() async {
+    final policy = widget.recoveryPolicy;
+    if (_isDisposed ||
+        !policy.enabled ||
+        _recoveryInProgress ||
+        _recoveryAttempts >= policy.maxAttempts) {
+      return;
+    }
+    _recoveryInProgress = true;
+    _recoveryRequested = false;
+    _recoveryAttempts += 1;
+    try {
+      await Future<void>.delayed(policy.delayForAttempt(_recoveryAttempts));
+      if (!_isDisposed) {
+        await _reloadRuntimePage();
+      }
+    } on Object catch (error, stackTrace) {
+      _recoveryRequested = true;
+      widget.controller._bridge.reportAsyncError(error, stackTrace);
+      _showError('Failed to recover VRM runtime: $error');
+    } finally {
+      _recoveryInProgress = false;
+      if (_recoveryRequested && !_isDisposed) {
+        _recoveryRequested = false;
+        unawaited(_scheduleRuntimeRecovery());
+      }
+    }
+  }
+
+  Future<void> _reloadRuntimePage() async {
+    if (_isDisposed) {
+      throw StateError('VrmView has already been disposed.');
+    }
+    final contentHost = _contentHost;
+    if (contentHost == null || !contentHost.isStarted) {
+      throw StateError('VRM runtime content host is not available.');
+    }
+    widget.controller._markRuntimeUnavailable(
+      StateError('VRM runtime is reloading.'),
     );
-
-    final folder = widget.initialModelFolder;
-    final file = widget.initialModelFile;
-    if (folder != null && file != null) {
-      await widget.controller.loadModel(folder, file);
-    }
-
     if (mounted) {
-      widget.onCreated?.call(widget.controller);
+      setState(() {
+        _isRuntimeReady = false;
+        _modelAssessment = null;
+        _errorMessage = null;
+      });
     }
+    await _webView.load(contentHost.runtimeUri);
   }
 
   Future<void> _applyGraphicsConfiguration() async {
