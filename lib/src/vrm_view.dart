@@ -12,6 +12,7 @@ class VrmView extends StatefulWidget {
     this.transparent = false,
     this.graphicsPreset = VrmGraphicsPreset.balanced,
     this.adaptiveQuality = const VrmAdaptiveQualitySettings(),
+    this.modelPerformancePolicy = const VrmModelPerformancePolicy(),
   });
 
   final VrmController controller;
@@ -27,6 +28,9 @@ class VrmView extends StatefulWidget {
   /// Automatic render-resolution policy applied after [graphicsPreset].
   final VrmAdaptiveQualitySettings adaptiveQuality;
 
+  /// Advisory model analysis and proactive render-resolution policy.
+  final VrmModelPerformancePolicy modelPerformancePolicy;
+
   @override
   State<VrmView> createState() => _VrmViewState();
 }
@@ -41,6 +45,7 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
   bool _isRuntimeReady = false;
   bool _isDisposed = false;
   String? _errorMessage;
+  VrmModelAssessment? _modelAssessment;
 
   Color get _effectiveBackground =>
       widget.transparent ? Colors.transparent : widget.backgroundColor;
@@ -73,6 +78,7 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
         unawaited(subscription.cancel());
       }
       _controllerSubscriptions.clear();
+      _modelAssessment = null;
       _bindController(widget.controller);
       if (_transportAttached) {
         _attachTransport(widget.controller);
@@ -80,7 +86,13 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
     }
     if (_isRuntimeReady &&
         (oldWidget.graphicsPreset != widget.graphicsPreset ||
-            oldWidget.adaptiveQuality != widget.adaptiveQuality)) {
+            oldWidget.adaptiveQuality != widget.adaptiveQuality ||
+            oldWidget.modelPerformancePolicy !=
+                widget.modelPerformancePolicy)) {
+      final report = _modelAssessment?.report;
+      if (report != null) {
+        _assessModel(report);
+      }
       unawaited(_applyGraphicsConfiguration());
     }
     if (_isRuntimeReady &&
@@ -107,6 +119,19 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
           if (!_isRuntimeReady) {
             _showError(event.message);
           }
+        }),
+      )
+      ..add(
+        controller.onModelReport.listen((event) {
+          _assessModel(event.report);
+          unawaited(_applyAdaptiveQuality());
+        }),
+      )
+      ..add(
+        controller.onModelUnloaded.listen((_) {
+          if (_modelAssessment == null) return;
+          _modelAssessment = null;
+          unawaited(_applyAdaptiveQuality());
         }),
       )
       ..add(
@@ -196,11 +221,33 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
   Future<void> _applyGraphicsConfiguration() async {
     try {
       await widget.controller.setGraphicsPreset(widget.graphicsPreset);
-      await widget.controller.setAdaptiveQuality(widget.adaptiveQuality);
+      await _applyAdaptiveQuality();
     } on Object catch (error, stackTrace) {
       debugPrint('Failed to configure VRM graphics: $error\n$stackTrace');
       _showError('Failed to configure VRM graphics: $error');
     }
+  }
+
+  void _assessModel(VrmModelReport report) {
+    try {
+      final assessment = widget.modelPerformancePolicy.assess(report);
+      _modelAssessment = assessment;
+      widget.controller._publishModelAssessment(assessment);
+    } on Object catch (error, stackTrace) {
+      _modelAssessment = null;
+      widget.controller._bridge.reportAsyncError(error, stackTrace);
+    }
+  }
+
+  Future<void> _applyAdaptiveQuality() {
+    final assessment = _modelAssessment;
+    final settings = assessment == null
+        ? widget.adaptiveQuality
+        : widget.modelPerformancePolicy.applyTo(
+            widget.adaptiveQuality,
+            assessment,
+          );
+    return widget.controller.setAdaptiveQuality(settings);
   }
 
   void _showError(String message) {

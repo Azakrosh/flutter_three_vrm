@@ -888,6 +888,7 @@ class VrmRunner {
     let morphTargets = 0;
     let maxTextureWidth = 0;
     let maxTextureHeight = 0;
+    let texturePixels = 0;
 
     vrm.scene.traverse((object) => {
       if (!object.isMesh) return;
@@ -908,8 +909,11 @@ class VrmRunner {
           if (!value?.isTexture || textures.has(value)) return;
           textures.add(value);
           const image = value.image;
-          maxTextureWidth = Math.max(maxTextureWidth, Number(image?.width || 0));
-          maxTextureHeight = Math.max(maxTextureHeight, Number(image?.height || 0));
+          const width = Number(image?.width || 0);
+          const height = Number(image?.height || 0);
+          maxTextureWidth = Math.max(maxTextureWidth, width);
+          maxTextureHeight = Math.max(maxTextureHeight, height);
+          texturePixels += width * height;
         });
       });
     });
@@ -924,6 +928,8 @@ class VrmRunner {
       geometries: geometries.size,
       materials: materials.size,
       textures: textures.size,
+      texturePixels: Math.round(texturePixels),
+      estimatedTextureMemoryBytes: Math.round(texturePixels * 4 * 4 / 3),
       maxTextureWidth,
       maxTextureHeight,
       vertices,

@@ -19,6 +19,7 @@ import 'models/vrm_graphics.dart';
 import 'models/vrm_lip_sync_data.dart';
 import 'models/vrm_mood.dart';
 import 'models/vrm_model_report.dart';
+import 'models/vrm_model_performance.dart';
 import 'models/vrm_pose.dart';
 import 'models/vrm_transform.dart';
 import 'models/vrm_wind.dart';

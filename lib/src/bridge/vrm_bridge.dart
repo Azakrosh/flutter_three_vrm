@@ -16,6 +16,12 @@ final class _VrmBridge {
 
   Stream<VrmEvent> get eventStream => _eventController.stream;
 
+  void publishEvent(VrmEvent event) {
+    if (!_disposed) {
+      _eventController.add(event);
+    }
+  }
+
   void attachTransport({
     required Object owner,
     required VrmJavaScriptRunner runJavaScript,

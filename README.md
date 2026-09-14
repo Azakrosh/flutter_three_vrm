@@ -205,9 +205,32 @@ controller.onPerformance.listen((event) {
   final stats = event.snapshot;
   debugPrint('${stats.fps} FPS, ${stats.triangles} triangles');
 });
+
+controller.onModelAssessment.listen((event) {
+  final assessment = event.assessment;
+  debugPrint(
+    '${assessment.complexity.name}: '
+    '${assessment.warnings.map((warning) => warning.metric.name).join(', ')}',
+  );
+});
 ```
 
 Доступны профили `performance` (30 FPS, pixel ratio 1.0), `balanced` и `quality`. `setGraphicsSettings()` оставлен для точного ручного управления. Автоматическая политика изменяет только render resolution и не отключает spring-bone physics без решения приложения.
+
+`VrmModelPerformancePolicy` дополнительно анализирует размер файла, полигоны, количество и суммарную площадь текстур, morph targets и spring bones. Она не запрещает загрузку моделей. По умолчанию модель получает класс `standard`, `elevated` или `high`; для двух последних классов верхняя граница adaptive pixel ratio заранее снижается до 1.25 или 1.0. Все пороги и оба значения можно переопределить:
+
+```dart
+VrmView(
+  controller: controller,
+  modelPerformancePolicy: const VrmModelPerformancePolicy(
+    autoTunePixelRatio: true,
+    elevatedMaxPixelRatio: 1.25,
+    highMaxPixelRatio: 1,
+  ),
+);
+```
+
+Чтобы получать только предупреждения без автоматической настройки, установите `autoTunePixelRatio: false`. При выключенном `VrmAdaptiveQualitySettings.enabled` политика также не меняет render resolution.
 
 При потере WebGL-контекста runtime приостанавливает обновление сцены, а после восстановления повторно компилирует материалы и продолжает render loop. Состояние доступно через `onWebGlContextChanged`.
 ## Lip sync
@@ -237,7 +260,7 @@ corepack pnpm build
 
 ## Статус roadmap
 
-До стабильного релиза запланированы: политика предупреждений по диагностическому отчёту модели, восстановление очереди после смены приложения, а также интеграционные smoke-тесты на физических Android/Windows устройствах.
+До стабильного релиза запланированы: восстановление очереди после смены приложения, а также интеграционные smoke-тесты на физических Android/Windows устройствах.
 
 ## Лицензия
 

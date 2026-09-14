@@ -13,6 +13,8 @@ void main() {
       'geometries': 5,
       'materials': 7,
       'textures': 8,
+      'texturePixels': 33554432,
+      'estimatedTextureMemoryBytes': 178956971,
       'maxTextureWidth': 4096,
       'maxTextureHeight': 4096,
       'vertices': 85000,
@@ -26,6 +28,8 @@ void main() {
     expect(report.sourceBytes, 1048576);
     expect(report.triangles, 120000);
     expect(report.maxTextureWidth, 4096);
+    expect(report.texturePixels, 33554432);
+    expect(report.estimatedTextureMemoryBytes, 178956971);
     expect(report.springBoneJoints, 24);
   });
 

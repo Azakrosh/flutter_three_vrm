@@ -21,4 +21,5 @@
 - Replace the legacy example with a focused app demonstrating the production API.
 - Add abortable, race-safe model and animation loading while retaining the current avatar until replacement succeeds.
 - Add typed model diagnostics for geometry, textures, rig complexity, and source size.
+- Add configurable model-complexity assessments, decoded texture memory estimates, and proactive adaptive-resolution caps without rejecting assets.
 - Add strict analysis, unit tests, Android/Windows CI, MIT license, and updated documentation.

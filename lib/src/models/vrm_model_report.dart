@@ -10,6 +10,8 @@ final class VrmModelReport {
     required this.geometries,
     required this.materials,
     required this.textures,
+    required this.texturePixels,
+    required this.estimatedTextureMemoryBytes,
     required this.maxTextureWidth,
     required this.maxTextureHeight,
     required this.vertices,
@@ -28,6 +30,13 @@ final class VrmModelReport {
   final int geometries;
   final int materials;
   final int textures;
+
+  /// Sum of decoded texture width multiplied by height.
+  final int texturePixels;
+
+  /// Approximate upper bound for RGBA GPU allocation with a full mip chain.
+  final int estimatedTextureMemoryBytes;
+
   final int maxTextureWidth;
   final int maxTextureHeight;
   final int vertices;
@@ -62,6 +71,8 @@ final class VrmModelReport {
       geometries: integer('geometries'),
       materials: integer('materials'),
       textures: integer('textures'),
+      texturePixels: integer('texturePixels'),
+      estimatedTextureMemoryBytes: integer('estimatedTextureMemoryBytes'),
       maxTextureWidth: integer('maxTextureWidth'),
       maxTextureHeight: integer('maxTextureHeight'),
       vertices: integer('vertices'),

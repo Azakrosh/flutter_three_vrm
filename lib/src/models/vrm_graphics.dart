@@ -28,6 +28,18 @@ final class VrmAdaptiveQualitySettings {
     'maxPixelRatio': maxPixelRatio,
   };
 
+  VrmAdaptiveQualitySettings copyWith({
+    bool? enabled,
+    int? targetFps,
+    double? minPixelRatio,
+    double? maxPixelRatio,
+  }) => VrmAdaptiveQualitySettings(
+    enabled: enabled ?? this.enabled,
+    targetFps: targetFps ?? this.targetFps,
+    minPixelRatio: minPixelRatio ?? this.minPixelRatio,
+    maxPixelRatio: maxPixelRatio ?? this.maxPixelRatio,
+  );
+
   @override
   bool operator ==(Object other) =>
       other is VrmAdaptiveQualitySettings &&

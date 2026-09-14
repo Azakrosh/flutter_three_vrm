@@ -1,6 +1,7 @@
 import 'vrm_expression.dart';
 import 'vrm_graphics.dart';
 import 'vrm_model_report.dart';
+import 'vrm_model_performance.dart';
 
 /// Base event class emitted by the VRM controller.
 abstract class VrmEvent {
@@ -37,6 +38,13 @@ class VrmModelReportEvent extends VrmEvent {
   VrmModelReportEvent({required this.report});
 
   final VrmModelReport report;
+}
+
+/// Emitted after the active model performance policy evaluates a report.
+class VrmModelAssessmentEvent extends VrmEvent {
+  VrmModelAssessmentEvent({required this.assessment});
+
+  final VrmModelAssessment assessment;
 }
 
 /// Emitted when the current VRM model is unloaded from the scene.

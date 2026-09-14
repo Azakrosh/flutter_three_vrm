@@ -37,6 +37,7 @@ class _AvatarDemoPageState extends State<AvatarDemoPage> {
 
   VrmGraphicsPreset _graphicsPreset = VrmGraphicsPreset.balanced;
   VrmPerformanceSnapshot? _performance;
+  VrmModelAssessment? _modelAssessment;
   VrmTransform? _savedTransform;
   String _status = 'Инициализация VRM runtime…';
   bool _modelLoaded = false;
@@ -68,9 +69,15 @@ class _AvatarDemoPageState extends State<AvatarDemoPage> {
         }),
       )
       ..add(
+        _controller.onModelAssessment.listen((event) {
+          _update(() => _modelAssessment = event.assessment);
+        }),
+      )
+      ..add(
         _controller.onModelUnloaded.listen((_) {
           _update(() {
             _modelLoaded = false;
+            _modelAssessment = null;
             _status = 'Аватар выгружен';
           });
         }),
@@ -211,8 +218,9 @@ class _AvatarDemoPageState extends State<AvatarDemoPage> {
           Positioned.fill(
             child: VrmView(
               controller: _controller,
-              graphicsPreset: VrmGraphicsPreset.balanced,
-              adaptiveQuality: const VrmAdaptiveQualitySettings(
+              graphicsPreset: _graphicsPreset,
+              adaptiveQuality: VrmAdaptiveQualitySettings(
+                enabled: _adaptiveQuality,
                 targetFps: 55,
                 minPixelRatio: 0.75,
                 maxPixelRatio: 1.5,
@@ -231,6 +239,7 @@ class _AvatarDemoPageState extends State<AvatarDemoPage> {
                     busy: _busy,
                     modelLoaded: _modelLoaded,
                     performance: _performance,
+                    modelAssessment: _modelAssessment,
                   ),
                   const Spacer(),
                   _ControlPanel(
@@ -278,12 +287,14 @@ class _StatusBar extends StatelessWidget {
     required this.busy,
     required this.modelLoaded,
     required this.performance,
+    required this.modelAssessment,
   });
 
   final String status;
   final bool busy;
   final bool modelLoaded;
   final VrmPerformanceSnapshot? performance;
+  final VrmModelAssessment? modelAssessment;
 
   @override
   Widget build(BuildContext context) {
@@ -316,6 +327,13 @@ class _StatusBar extends StatelessWidget {
                 '${stats.triangles ~/ 1000}k △',
                 style: Theme.of(context).textTheme.labelMedium,
               ),
+            if (modelAssessment case final assessment?) ...[
+              const SizedBox(width: 8),
+              Chip(
+                visualDensity: VisualDensity.compact,
+                label: Text(assessment.complexity.name),
+              ),
+            ],
           ],
         ),
       ),

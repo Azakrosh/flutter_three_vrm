@@ -9,6 +9,7 @@ export 'src/models/vrm_exception.dart';
 export 'src/models/vrm_wind.dart';
 export 'src/models/vrm_mood.dart';
 export 'src/models/vrm_model_report.dart';
+export 'src/models/vrm_model_performance.dart';
 export 'src/models/vrm_pose.dart';
 export 'src/models/vrm_transform.dart';
 export 'src/animation_queue/vrm_animation_queue.dart';

@@ -154,6 +154,10 @@ class VrmController {
     return VrmModelReport.fromJson(result);
   }
 
+  void _publishModelAssessment(VrmModelAssessment assessment) {
+    _bridge.publishEvent(VrmModelAssessmentEvent(assessment: assessment));
+  }
+
   /// Unloads the model and releases its GPU resources.
   Future<void> unloadModel() async {
     _modelLoadGeneration += 1;
@@ -740,6 +744,11 @@ class VrmController {
   Stream<VrmModelReportEvent> get onModelReport => _bridge.eventStream
       .where((event) => event is VrmModelReportEvent)
       .cast<VrmModelReportEvent>();
+
+  /// Model complexity assessments produced by the attached [VrmView].
+  Stream<VrmModelAssessmentEvent> get onModelAssessment => _bridge.eventStream
+      .where((event) => event is VrmModelAssessmentEvent)
+      .cast<VrmModelAssessmentEvent>();
 
   Stream<VrmModelUnloadedEvent> get onModelUnloaded => _bridge.eventStream
       .where((e) => e is VrmModelUnloadedEvent)
