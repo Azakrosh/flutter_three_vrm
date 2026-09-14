@@ -22,4 +22,5 @@
 - Add abortable, race-safe model and animation loading while retaining the current avatar until replacement succeeds.
 - Add typed model diagnostics for geometry, textures, rig complexity, and source size.
 - Add configurable model-complexity assessments, decoded texture memory estimates, and proactive adaptive-resolution caps without rejecting assets.
+- Add versioned animation-queue snapshots, automatic replay after model/runtime recreation, and a typed queue error stream.
 - Add strict analysis, unit tests, Android/Windows CI, MIT license, and updated documentation.

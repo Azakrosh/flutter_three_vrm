@@ -123,6 +123,35 @@ controller.setExpression(
 );
 ```
 
+### Очередь и восстановление
+
+`VrmAnimationQueue` сохраняет точный порядок воспроизведения, текущий индекс, состояние паузы и активный interrupt:
+
+```dart
+final queue = VrmAnimationQueue(
+  controller: controller,
+  folderPath: 'assets/vrma/',
+  fileNames: const ['idle_01.vrma', 'idle_02.vrma'],
+  random: true,
+);
+
+queue.onError.listen((event) {
+  debugPrint('${event.operation}: ${event.error}');
+});
+
+final json = queue.snapshot().toJson();
+
+// После восстановления состояния приложения:
+queue.restore(
+  VrmAnimationQueueSnapshot.fromJson(json),
+  resumePlayback: true,
+);
+```
+
+Если runtime или WebView был создан заново, очередь автоматически перезапустит текущую анимацию после следующего `onModelLoaded`. Саму модель следует повторно загрузить в `VrmView.onCreated`: для authenticated API это позволяет Flutter-клиенту безопасно обновить токен и не заставляет пакет удерживать большие byte buffers в памяти.
+
+Обычный переход приложения в background не перезапускает очередь: render loop приостанавливается и продолжает работу с того же места после `resumed`.
+
 ## Pose API
 
 Pose API работает с нормализованным humanoid-скелетом three-vrm. Позу можно получить, сохранить, применить к совместимому VRM-аватару или сбросить:
@@ -260,7 +289,7 @@ corepack pnpm build
 
 ## Статус roadmap
 
-До стабильного релиза запланированы: восстановление очереди после смены приложения, а также интеграционные smoke-тесты на физических Android/Windows устройствах.
+До стабильного релиза запланированы интеграционные smoke-тесты на физических Android/Windows устройствах.
 
 ## Лицензия
 

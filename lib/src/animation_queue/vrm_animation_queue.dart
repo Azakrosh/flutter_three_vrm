@@ -3,7 +3,23 @@ import 'dart:math';
 
 import '../vrm_runtime.dart';
 import '../models/vrm_events.dart';
+import 'vrm_animation_queue_snapshot.dart';
 import 'vrm_animation_queue_state.dart';
+
+/// Asynchronous playback failure reported by [VrmAnimationQueue].
+final class VrmAnimationQueueError {
+  const VrmAnimationQueueError({
+    required this.operation,
+    required this.fileName,
+    required this.error,
+    required this.stackTrace,
+  });
+
+  final String operation;
+  final String? fileName;
+  final Object error;
+  final StackTrace stackTrace;
+}
 
 /// Manages a queue of VRMA animations with sequential or random playback,
 /// optional looping, and support for priority interrupts.
@@ -43,9 +59,17 @@ class VrmAnimationQueue {
   VrmAnimationQueueState _state = VrmAnimationQueueState.stopped;
   bool _pauseAfterInterrupt = false;
   StreamSubscription<VrmAnimationFinishedEvent>? _subscription;
+  StreamSubscription<VrmModelLoadedEvent>? _modelLoadedSubscription;
+  String? _interruptFolderPath;
+  String? _interruptFileName;
+  double? _interruptSpeed;
+  int _operationGeneration = 0;
+  bool _disposed = false;
 
   final StreamController<VrmAnimationQueueState> _stateController =
       StreamController<VrmAnimationQueueState>.broadcast();
+  final StreamController<VrmAnimationQueueError> _errorController =
+      StreamController<VrmAnimationQueueError>.broadcast();
 
   /// Creates an animation queue.
   ///
@@ -94,11 +118,63 @@ class VrmAnimationQueue {
   /// Emits whenever the queue state changes.
   Stream<VrmAnimationQueueState> get onStateChanged => _stateController.stream;
 
+  /// Reports loading or playback failures that occurred in fire-and-forget
+  /// queue operations.
+  Stream<VrmAnimationQueueError> get onError => _errorController.stream;
+
+  /// Captures the exact order and playback position for persistence.
+  VrmAnimationQueueSnapshot snapshot() => VrmAnimationQueueSnapshot(
+    state: _state,
+    playOrder: _playOrder,
+    currentIndex: _currentIndex,
+    pauseAfterInterrupt: _pauseAfterInterrupt,
+    interruptFolderPath: _interruptFolderPath,
+    interruptFileName: _interruptFileName,
+    interruptSpeed: _interruptSpeed,
+  );
+
+  /// Restores a snapshot created for a queue with the same [fileNames].
+  ///
+  /// When a model is already loaded, active playback is restarted immediately.
+  /// Otherwise it is restarted after the controller reports the next model.
+  void restore(
+    VrmAnimationQueueSnapshot snapshot, {
+    bool resumePlayback = true,
+  }) {
+    _ensureNotDisposed();
+    if (snapshot.playOrder.length != _playOrder.length) {
+      throw ArgumentError.value(
+        snapshot.playOrder.length,
+        'snapshot',
+        'Snapshot queue length does not match this queue.',
+      );
+    }
+    for (var index = 0; index < _playOrder.length; index += 1) {
+      _playOrder[index] = snapshot.playOrder[index];
+    }
+    _currentIndex = snapshot.currentIndex;
+    _pauseAfterInterrupt = snapshot.pauseAfterInterrupt;
+    _interruptFolderPath = snapshot.interruptFolderPath;
+    _interruptFileName = snapshot.interruptFileName;
+    _interruptSpeed = snapshot.interruptSpeed;
+
+    if (snapshot.state == VrmAnimationQueueState.stopped) {
+      _cancelSubscription();
+    } else {
+      _ensureSubscription();
+    }
+    _setState(snapshot.state);
+    if (resumePlayback && _controller.isModelLoaded) {
+      _restoreCurrentPlayback();
+    }
+  }
+
   /// Starts playing the queue from the beginning.
   ///
   /// If the queue is [VrmAnimationQueueState.paused], acts as [resume].
   /// If already [VrmAnimationQueueState.playing], restarts from the beginning.
   void start() {
+    _ensureNotDisposed();
     if (_fileNames.isEmpty) return;
 
     if (_state == VrmAnimationQueueState.paused) {
@@ -108,6 +184,7 @@ class VrmAnimationQueue {
 
     _ensureSubscription();
     _currentIndex = 0;
+    _clearInterrupt();
     _generatePlayOrder();
     _setState(VrmAnimationQueueState.playing);
     _playCurrentTrack();
@@ -119,6 +196,7 @@ class VrmAnimationQueue {
   /// If called during an [interrupt], the queue will pause after
   /// the priority animation finishes instead of resuming.
   void pause() {
+    _ensureNotDisposed();
     if (_state == VrmAnimationQueueState.playing) {
       _setState(VrmAnimationQueueState.paused);
     } else if (_state == VrmAnimationQueueState.interrupted) {
@@ -128,6 +206,7 @@ class VrmAnimationQueue {
 
   /// Resumes a paused queue — plays the next track in the order.
   void resume() {
+    _ensureNotDisposed();
     if (_state == VrmAnimationQueueState.paused) {
       _setState(VrmAnimationQueueState.playing);
       _advanceToNext();
@@ -139,13 +218,16 @@ class VrmAnimationQueue {
   /// Calls [VrmController.stopAnimation] to immediately halt playback
   /// and reset the model to its default pose.
   void stop() {
+    _ensureNotDisposed();
+    _operationGeneration += 1;
     _cancelSubscription();
     _currentIndex = 0;
     _pauseAfterInterrupt = false;
+    _clearInterrupt();
     if (_state != VrmAnimationQueueState.stopped) {
       _setState(VrmAnimationQueueState.stopped);
     }
-    unawaited(_controller.stopAnimation());
+    _runOperation('stop', null, _controller.stopAnimation);
   }
 
   /// Interrupts the queue with a priority animation.
@@ -160,24 +242,25 @@ class VrmAnimationQueue {
     required String fileName,
     double? speed,
   }) {
+    _ensureNotDisposed();
     if (_state == VrmAnimationQueueState.stopped) return;
 
     _ensureSubscription();
+    _interruptFolderPath = folderPath;
+    _interruptFileName = fileName;
+    _interruptSpeed = speed ?? _speed;
     _setState(VrmAnimationQueueState.interrupted);
-    unawaited(
-      _controller.playAnimation(
-        folderPath,
-        fileName,
-        loop: false,
-        speed: speed ?? _speed,
-      ),
-    );
+    _playInterrupt();
   }
 
   /// Releases resources. Must be called when the queue is no longer needed.
   void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    _operationGeneration += 1;
     _cancelSubscription();
     unawaited(_stateController.close());
+    unawaited(_errorController.close());
   }
 
   // ---------------------------------------------------------------------------
@@ -186,12 +269,31 @@ class VrmAnimationQueue {
 
   void _playCurrentTrack() {
     final fileName = _fileNames[_playOrder[_currentIndex]];
-    unawaited(
-      _controller.playAnimation(
+    _runOperation(
+      'play',
+      fileName,
+      () => _controller.playAnimation(
         _folderPath,
         fileName,
         loop: false,
         speed: _speed,
+        fadeDuration: _fadeDuration,
+      ),
+    );
+  }
+
+  void _playInterrupt() {
+    final folderPath = _interruptFolderPath;
+    final fileName = _interruptFileName;
+    if (folderPath == null || fileName == null) return;
+    _runOperation(
+      'interrupt',
+      fileName,
+      () => _controller.playAnimation(
+        folderPath,
+        fileName,
+        loop: false,
+        speed: _interruptSpeed ?? _speed,
         fadeDuration: _fadeDuration,
       ),
     );
@@ -207,7 +309,7 @@ class VrmAnimationQueue {
       } else {
         _cancelSubscription();
         _setState(VrmAnimationQueueState.stopped);
-        unawaited(_controller.stopAnimation());
+        _runOperation('stop', null, _controller.stopAnimation);
         return;
       }
     }
@@ -255,6 +357,7 @@ class VrmAnimationQueue {
         break;
       case VrmAnimationQueueState.interrupted:
         // Priority animation finished
+        _clearInterrupt();
         if (_pauseAfterInterrupt) {
           _pauseAfterInterrupt = false;
           _setState(VrmAnimationQueueState.paused);
@@ -274,16 +377,72 @@ class VrmAnimationQueue {
     _subscription ??= _controller.onAnimationFinished.listen(
       _onAnimationFinished,
     );
+    _modelLoadedSubscription ??= _controller.onModelLoaded.listen((_) {
+      if (_state == VrmAnimationQueueState.playing ||
+          _state == VrmAnimationQueueState.interrupted) {
+        _restoreCurrentPlayback();
+      }
+    });
   }
 
   void _cancelSubscription() {
     unawaited(_subscription?.cancel());
     _subscription = null;
+    unawaited(_modelLoadedSubscription?.cancel());
+    _modelLoadedSubscription = null;
   }
 
   void _setState(VrmAnimationQueueState newState) {
     if (_state == newState) return;
     _state = newState;
     _stateController.add(newState);
+  }
+
+  void _restoreCurrentPlayback() {
+    switch (_state) {
+      case VrmAnimationQueueState.playing:
+        _playCurrentTrack();
+      case VrmAnimationQueueState.interrupted:
+        _playInterrupt();
+      case VrmAnimationQueueState.paused:
+      case VrmAnimationQueueState.stopped:
+        break;
+    }
+  }
+
+  void _clearInterrupt() {
+    _interruptFolderPath = null;
+    _interruptFileName = null;
+    _interruptSpeed = null;
+  }
+
+  void _runOperation(
+    String operation,
+    String? fileName,
+    Future<void> Function() callback,
+  ) {
+    final generation = ++_operationGeneration;
+    unawaited(() async {
+      try {
+        await callback();
+      } on Object catch (error, stackTrace) {
+        if (!_disposed && generation == _operationGeneration) {
+          _errorController.add(
+            VrmAnimationQueueError(
+              operation: operation,
+              fileName: fileName,
+              error: error,
+              stackTrace: stackTrace,
+            ),
+          );
+        }
+      }
+    }());
+  }
+
+  void _ensureNotDisposed() {
+    if (_disposed) {
+      throw StateError('VrmAnimationQueue has already been disposed.');
+    }
   }
 }

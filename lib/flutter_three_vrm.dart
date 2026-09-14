@@ -14,3 +14,4 @@ export 'src/models/vrm_pose.dart';
 export 'src/models/vrm_transform.dart';
 export 'src/animation_queue/vrm_animation_queue.dart';
 export 'src/animation_queue/vrm_animation_queue_state.dart';
+export 'src/animation_queue/vrm_animation_queue_snapshot.dart';

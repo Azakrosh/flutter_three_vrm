@@ -4,11 +4,15 @@ part of 'vrm_runtime.dart';
 class VrmController {
   final _VrmBridge _bridge = _VrmBridge();
   bool _isLoadingModel = false;
+  bool _isModelLoaded = false;
   int _modelLoadGeneration = 0;
   VrmContentHost? _contentHost;
 
   /// True while a model is being transferred and parsed by the runtime.
   bool get isLoadingModel => _isLoadingModel;
+
+  /// Whether the currently attached runtime contains an avatar.
+  bool get isModelLoaded => _isModelLoaded;
 
   void _attachContentHost(VrmContentHost contentHost) {
     _contentHost = contentHost;
@@ -17,6 +21,7 @@ class VrmController {
   void _detachContentHost(VrmContentHost contentHost) {
     if (identical(_contentHost, contentHost)) {
       _contentHost = null;
+      _isModelLoaded = false;
     }
   }
 
@@ -73,6 +78,9 @@ class VrmController {
         action: 'loadModelFromUrl',
         fileName: fileName,
       );
+      if (loadGeneration == _modelLoadGeneration) {
+        _isModelLoaded = true;
+      }
     } finally {
       if (loadGeneration == _modelLoadGeneration) {
         _isLoadingModel = false;
@@ -90,6 +98,9 @@ class VrmController {
         action: 'loadModelFromUrl',
         fileName: p.basename(file.path),
       );
+      if (loadGeneration == _modelLoadGeneration) {
+        _isModelLoaded = true;
+      }
     } finally {
       if (loadGeneration == _modelLoadGeneration) {
         _isLoadingModel = false;
@@ -113,6 +124,9 @@ class VrmController {
         action: 'loadModelFromUrl',
         fileName: fileName,
       );
+      if (loadGeneration == _modelLoadGeneration) {
+        _isModelLoaded = true;
+      }
     } finally {
       if (loadGeneration == _modelLoadGeneration) {
         _isLoadingModel = false;
@@ -131,6 +145,9 @@ class VrmController {
         'url': url,
         'fileName': Uri.parse(url).pathSegments.lastOrNull ?? 'avatar.vrm',
       });
+      if (loadGeneration == _modelLoadGeneration) {
+        _isModelLoaded = true;
+      }
     } finally {
       if (loadGeneration == _modelLoadGeneration) {
         _isLoadingModel = false;
@@ -163,10 +180,14 @@ class VrmController {
     _modelLoadGeneration += 1;
     _isLoadingModel = false;
     await _bridge.sendCommand('unloadModel');
+    _isModelLoaded = false;
   }
 
   /// Disposes this controller and its event streams.
-  Future<void> dispose() => _bridge.dispose();
+  Future<void> dispose() async {
+    _isModelLoaded = false;
+    await _bridge.dispose();
+  }
 
   /// Pauses the WebGL render loop.
   Future<void> pauseRendering() => _bridge.sendCommand('pauseRendering');
