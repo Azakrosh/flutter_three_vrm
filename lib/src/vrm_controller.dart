@@ -644,18 +644,35 @@ class VrmController {
     });
   }
 
-  /// Sets the pixel ratio for WebGL rendering. Lower values (e.g. 1.0) increase performance on mobile.
+  /// Sets the pixel ratio for WebGL rendering.
   @Deprecated('Use setGraphicsSettings(pixelRatio: value) instead')
-  void setRenderQuality(double pixelRatio) {
-    setGraphicsSettings(pixelRatio: pixelRatio);
+  Future<void> setRenderQuality(double pixelRatio) {
+    return setGraphicsSettings(pixelRatio: pixelRatio);
   }
 
-  /// Sets advanced graphics and performance settings.
-  /// [pixelRatio] adjusts render resolution (e.g., 1.0 or 2.0).
-  /// [antialias] toggles MSAA (true/false).
-  /// [enablePhysics] toggles SpringBone hair/cloth simulation (true/false).
-  /// [fpsCap] sets an explicit FPS limit (0 for unlimited/Vsync).
-  void setGraphicsSettings({
+  /// Applies a curated renderer profile.
+  Future<void> setGraphicsPreset(VrmGraphicsPreset preset) {
+    return _bridge.sendCommand('setGraphicsPreset', {'preset': preset.name});
+  }
+
+  /// Enables or configures automatic render-resolution adaptation.
+  Future<void> setAdaptiveQuality(VrmAdaptiveQualitySettings settings) {
+    return _bridge.sendCommand('setAdaptiveQuality', {
+      'settings': settings.toJson(),
+    });
+  }
+
+  /// Returns the latest renderer workload measurement.
+  Future<VrmPerformanceSnapshot> getPerformanceSnapshot() async {
+    final result = await _bridge.requestCommand('getPerformanceSnapshot');
+    return VrmPerformanceSnapshot.fromJson(result);
+  }
+
+  /// Sets individual graphics and performance controls.
+  ///
+  /// [fpsCap] accepts 0 for display-vsync or 1–120. [pixelRatio] is clamped
+  /// by the runtime to 0.5–3.0 as a protection against accidental GPU loads.
+  Future<void> setGraphicsSettings({
     double? pixelRatio,
     bool? antialias,
     bool? enablePhysics,
@@ -667,9 +684,8 @@ class VrmController {
     if (enablePhysics != null) settings['enablePhysics'] = enablePhysics;
     if (fpsCap != null) settings['fpsCap'] = fpsCap;
 
-    _sendCommand('setGraphicsSettings', {'settings': settings});
+    return _bridge.sendCommand('setGraphicsSettings', {'settings': settings});
   }
-
   // --- Event Stream Getters ---
 
   Stream<VrmModelLoadedEvent> get onModelLoaded => _bridge.eventStream
@@ -712,6 +728,14 @@ class VrmController {
   Stream<VrmStateChangedEvent> get onStateChanged => _bridge.eventStream
       .where((e) => e is VrmStateChangedEvent)
       .cast<VrmStateChangedEvent>();
+
+  Stream<VrmPerformanceEvent> get onPerformance => _bridge.eventStream
+      .where((event) => event is VrmPerformanceEvent)
+      .cast<VrmPerformanceEvent>();
+
+  Stream<VrmWebGlContextEvent> get onWebGlContextChanged => _bridge.eventStream
+      .where((event) => event is VrmWebGlContextEvent)
+      .cast<VrmWebGlContextEvent>();
 
   Stream<VrmCameraChangedEvent> get onCameraChanged => _bridge.eventStream
       .where((e) => e is VrmCameraChangedEvent)

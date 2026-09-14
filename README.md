@@ -169,6 +169,30 @@ await controller.playAnimationFromBytesBundle(
 ```
 
 Bundle доступен только внутри текущей loopback-сессии, не раскрывает файловые пути или API-токены и освобождается целиком после парсинга.
+## Производительность Android
+
+По умолчанию `VrmView` использует balanced-профиль, ограничение 60 FPS и адаптирует pixel ratio в диапазоне 0.75–1.5. Политика реагирует только на устойчивое изменение частоты кадров и использует cooldown между переключениями.
+
+```dart
+VrmView(
+  controller: controller,
+  graphicsPreset: VrmGraphicsPreset.balanced,
+  adaptiveQuality: const VrmAdaptiveQualitySettings(
+    targetFps: 55,
+    minPixelRatio: 0.75,
+    maxPixelRatio: 1.5,
+  ),
+);
+
+controller.onPerformance.listen((event) {
+  final stats = event.snapshot;
+  debugPrint('${stats.fps} FPS, ${stats.triangles} triangles');
+});
+```
+
+Доступны профили `performance` (30 FPS, pixel ratio 1.0), `balanced` и `quality`. `setGraphicsSettings()` оставлен для точного ручного управления. Автоматическая политика изменяет только render resolution и не отключает spring-bone physics без решения приложения.
+
+При потере WebGL-контекста runtime приостанавливает обновление сцены, а после восстановления повторно компилирует материалы и продолжает render loop. Состояние доступно через `onWebGlContextChanged`.
 ## Lip sync
 
 Аудио воспроизводит Flutter-приложение. Пакет получает только амплитуду или временную шкалу визем:
@@ -196,7 +220,7 @@ corepack pnpm build
 
 ## Статус roadmap
 
-До стабильного релиза запланированы: адаптивные quality tiers и автоматическое управление нагрузкой Android, диагностические события WebGL/GPU, cancellation для долгих загрузок, восстановление контекста WebGL и интеграционные smoke-тесты на физических Android/Windows устройствах.
+До стабильного релиза запланированы: cancellation для долгих загрузок, валидация и диагностический отчёт по модели, восстановление очереди после смены приложения, а также интеграционные smoke-тесты на физических Android/Windows устройствах.
 
 ## Лицензия
 

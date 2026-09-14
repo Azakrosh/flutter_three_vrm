@@ -15,6 +15,7 @@ import 'models/vrm_camera_mode.dart';
 import 'models/vrm_events.dart';
 import 'models/vrm_exception.dart';
 import 'models/vrm_expression.dart';
+import 'models/vrm_graphics.dart';
 import 'models/vrm_lip_sync_data.dart';
 import 'models/vrm_mood.dart';
 import 'models/vrm_pose.dart';

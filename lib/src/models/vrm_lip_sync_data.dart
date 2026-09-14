@@ -64,11 +64,11 @@ class VisemeFrame implements Comparable<VisemeFrame> {
 
   /// Serializes the frame to a JSON map.
   Map<String, dynamic> toJson() => {
-        'viseme': viseme.name,
-        'weight': weight,
-        'timestampMs': timestamp.inMilliseconds,
-        'durationMs': duration.inMilliseconds,
-      };
+    'viseme': viseme.name,
+    'weight': weight,
+    'timestampMs': timestamp.inMilliseconds,
+    'durationMs': duration.inMilliseconds,
+  };
 
   @override
   int compareTo(VisemeFrame other) {

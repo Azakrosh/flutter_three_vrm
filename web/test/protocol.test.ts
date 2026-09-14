@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   ProtocolError,
+  event,
   failure,
   parseCommand,
   protocolVersion,
@@ -45,5 +46,11 @@ describe("bridge protocol", () => {
   it("creates typed success and failure envelopes", () => {
     expect(success("1", { ready: true }).ok).toBe(true);
     expect(failure("2", "failed", "Failure").ok).toBe(false);
+    expect(event("onStateChanged", { state: "ready" })).toEqual({
+      version: protocolVersion,
+      type: "event",
+      event: "onStateChanged",
+      payload: { state: "ready" },
+    });
   });
 });

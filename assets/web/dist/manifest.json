@@ -1,7 +1,7 @@
 {
   "runtimeVersion": "0.2.0-dev.1",
   "protocolVersion": 1,
-  "sha256": "88bef66d8bad875efc27b6c7dc7d2bb235ddfb7276ecf69742c0ebedae0559d7",
+  "sha256": "984d8df545491c3cfb6e0a5a5b04231e5811b91d60ee3c570a3e1dcb0d8908eb",
   "dependencies": {
     "@pixiv/three-vrm": "3.5.5",
     "@pixiv/three-vrm-animation": "3.5.5",

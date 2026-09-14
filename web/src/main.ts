@@ -37,6 +37,12 @@ export {
 } from "./humanoid-animation";
 
 export {
+  AdaptiveQualityController,
+  type AdaptiveQualityConfig,
+  type QualityAdjustment,
+} from "./performance";
+
+export {
   GLTFLoader,
   OrbitControls,
   THREE,

@@ -1,4 +1,5 @@
 const {
+  AdaptiveQualityController,
   GLTFLoader,
   OrbitControls,
   THREE,
@@ -8,6 +9,7 @@ const {
   VRMUtils,
   createVRMAnimationClip,
   createHumanoidAnimationClip,
+  event: protocolEvent,
   failure,
   getNormalizedPose,
   parseCommand,
@@ -162,6 +164,24 @@ class VrmRunner {
     this.enablePhysics = true;
     this.fpsCap = 60;
     this.lastFrameTime = 0;
+    this.adaptiveQuality = new AdaptiveQualityController();
+    this.performanceWindowStart = performance.now();
+    this.performanceFrameCount = 0;
+    this.lastPerformanceReport = 0;
+    this.performanceSnapshot = {
+      fps: 0,
+      frameTimeMs: 0,
+      pixelRatio: Math.min(window.devicePixelRatio, 1.5),
+      fpsCap: this.fpsCap,
+      physicsEnabled: this.enablePhysics,
+      adaptiveQualityEnabled: this.adaptiveQuality.config.enabled,
+      drawCalls: 0,
+      triangles: 0,
+      geometries: 0,
+      textures: 0,
+      reason: 'initialized',
+    };
+    this._contextLost = false;
 
     this.initScene();
     this.initEvents();
@@ -212,6 +232,7 @@ class VrmRunner {
     this.renderer.shadowMap.enabled = false;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.container.appendChild(this.renderer.domElement);
+    this.attachRendererContextEvents();
 
     // Орбитальный контроллер вращения модели (OrbitControls)
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
@@ -617,6 +638,14 @@ class VrmRunner {
       case 'setGraphicsSettings':
         this.setGraphicsSettings(payload.settings);
         break;
+      case 'setGraphicsPreset':
+        this.setGraphicsPreset(payload.preset);
+        break;
+      case 'setAdaptiveQuality':
+        this.setAdaptiveQuality(payload.settings);
+        break;
+      case 'getPerformanceSnapshot':
+        return this.getPerformanceSnapshot();
       case 'setRenderQuality':
         this.setRenderQuality(payload.pixelRatio);
         break;
@@ -1347,6 +1376,115 @@ class VrmRunner {
     }
   }
 
+  setGraphicsPreset(preset) {
+    switch (preset) {
+      case 'performance':
+        this.setShadows(false);
+        this.setGraphicsSettings({ pixelRatio: 1, antialias: false, enablePhysics: true, fpsCap: 30 });
+        break;
+      case 'balanced':
+        this.setShadows(false);
+        this.setGraphicsSettings({ pixelRatio: 1.5, antialias: true, enablePhysics: true, fpsCap: 60 });
+        break;
+      case 'quality':
+        this.setShadows(true);
+        this.setGraphicsSettings({
+          pixelRatio: Math.min(window.devicePixelRatio, 2),
+          antialias: true,
+          enablePhysics: true,
+          fpsCap: 60,
+        });
+        break;
+      default:
+        throw new TypeError(`Unknown graphics preset: ${preset}.`);
+    }
+    if (this.adaptiveQuality.config.enabled) {
+      this.setAdaptiveQuality(this.adaptiveQuality.config);
+    }
+  }
+
+  setAdaptiveQuality(settings) {
+    const config = this.adaptiveQuality.configure(settings);
+    const ratio = THREE.MathUtils.clamp(
+      this.renderer.getPixelRatio(),
+      config.minPixelRatio,
+      config.maxPixelRatio,
+    );
+    this.renderer.setPixelRatio(ratio);
+    this.renderer.setSize(window.innerWidth, window.innerHeight, false);
+    this.performanceSnapshot = this.getPerformanceSnapshot('configurationChanged');
+  }
+
+  getPerformanceSnapshot(reason = this.performanceSnapshot?.reason ?? 'sample') {
+    const renderInfo = this.renderer?.info;
+    return {
+      fps: this.performanceSnapshot?.fps ?? 0,
+      frameTimeMs: this.performanceSnapshot?.frameTimeMs ?? 0,
+      pixelRatio: this.renderer?.getPixelRatio() ?? 0,
+      fpsCap: this.fpsCap,
+      physicsEnabled: this.enablePhysics,
+      adaptiveQualityEnabled: this.adaptiveQuality.config.enabled,
+      drawCalls: renderInfo?.render.calls ?? 0,
+      triangles: renderInfo?.render.triangles ?? 0,
+      geometries: renderInfo?.memory.geometries ?? 0,
+      textures: renderInfo?.memory.textures ?? 0,
+      reason,
+    };
+  }
+
+  recordPerformance(now) {
+    this.performanceFrameCount += 1;
+    const windowDuration = now - this.performanceWindowStart;
+    if (windowDuration < 1000) return;
+
+    const fps = this.performanceFrameCount * 1000 / windowDuration;
+    const frameTimeMs = windowDuration / this.performanceFrameCount;
+    const adjustment = this.adaptiveQuality.evaluate(
+      fps,
+      this.renderer.getPixelRatio(),
+      this.fpsCap,
+      now,
+    );
+    if (adjustment) {
+      this.renderer.setPixelRatio(adjustment.pixelRatio);
+      this.renderer.setSize(window.innerWidth, window.innerHeight, false);
+    }
+
+    this.performanceSnapshot = {
+      ...this.getPerformanceSnapshot(adjustment?.reason ?? 'sample'),
+      fps,
+      frameTimeMs,
+    };
+    if (adjustment || now - this.lastPerformanceReport >= 2000) {
+      this.notifyFlutter('onPerformance', this.performanceSnapshot);
+      this.lastPerformanceReport = now;
+    }
+    this.performanceFrameCount = 0;
+    this.performanceWindowStart = now;
+  }
+
+  attachRendererContextEvents() {
+    const canvas = this.renderer.domElement;
+    canvas.addEventListener('webglcontextlost', (event) => {
+      event.preventDefault();
+      this._contextLost = true;
+      this.notifyFlutter('onWebGLContextChanged', { state: 'lost' });
+    });
+    canvas.addEventListener('webglcontextrestored', () => {
+      this._contextLost = false;
+      this.lastTime = performance.now();
+      this.lastFrameTime = 0;
+      this.performanceWindowStart = this.lastTime;
+      this.performanceFrameCount = 0;
+      this.scene.traverse((child) => {
+        if (!child.isMesh || !child.material) return;
+        const materials = Array.isArray(child.material) ? child.material : [child.material];
+        materials.forEach((material) => { material.needsUpdate = true; });
+      });
+      this.notifyFlutter('onWebGLContextChanged', { state: 'restored' });
+    });
+  }
+
   _recreateRenderer() {
     if (!this.renderer) return;
 
@@ -1369,6 +1507,7 @@ class VrmRunner {
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
     this.container.appendChild(this.renderer.domElement);
+    this.attachRendererContextEvents();
 
     const oldTarget = this.controls.target.clone();
     this.controls.dispose();
@@ -1408,7 +1547,10 @@ class VrmRunner {
   resumeRendering() {
     if (this._isRenderingPaused) {
       this._isRenderingPaused = false;
-      this.lastTime = performance.now(); // Сброс таймера при возобновлении
+      this.lastTime = performance.now();
+      this.lastFrameTime = 0;
+      this.performanceWindowStart = this.lastTime;
+      this.performanceFrameCount = 0;
       this.animate();
     }
   }
@@ -1418,10 +1560,11 @@ class VrmRunner {
     this._animationFrameId = requestAnimationFrame(() => this.animate());
 
     const now = performance.now();
+    if (this._contextLost) return;
     if (this.fpsCap > 0) {
       const frameInterval = 1000 / this.fpsCap;
       const elapsedSinceFrame = now - this.lastFrameTime;
-      if (this.lastFrameTime > 0 && elapsedSinceFrame < frameInterval) return;
+      if (this.lastFrameTime > 0 && elapsedSinceFrame < frameInterval * 0.9) return;
       this.lastFrameTime = now - (elapsedSinceFrame % frameInterval);
     }
 
@@ -1534,6 +1677,7 @@ class VrmRunner {
 
     this.controls.update();
     this.renderer.render(this.scene, this.camera);
+    this.recordPerformance(now);
   }
 
   updateLipSyncQueue() {
@@ -1835,8 +1979,8 @@ class VrmRunner {
     }
   }
 
-  notifyFlutter(event, payload) {
-    postFlutterMessage({ event, payload });
+  notifyFlutter(eventName, payload) {
+    postFlutterMessage(protocolEvent(eventName, payload));
   }
 }
 

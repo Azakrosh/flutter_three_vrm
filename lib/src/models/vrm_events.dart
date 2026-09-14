@@ -1,4 +1,5 @@
 import 'vrm_expression.dart';
+import 'vrm_graphics.dart';
 
 /// Base event class emitted by the VRM controller.
 abstract class VrmEvent {
@@ -79,6 +80,20 @@ class VrmCameraChangedEvent extends VrmEvent {
   final double? zoom;
 
   VrmCameraChangedEvent({this.x, this.y, this.zoom});
+}
+
+/// Periodic renderer workload telemetry and adaptive-quality changes.
+class VrmPerformanceEvent extends VrmEvent {
+  VrmPerformanceEvent({required this.snapshot});
+
+  final VrmPerformanceSnapshot snapshot;
+}
+
+/// Emitted when Android or Windows loses or restores its WebGL context.
+class VrmWebGlContextEvent extends VrmEvent {
+  VrmWebGlContextEvent({required this.state});
+
+  final VrmWebGlContextState state;
 }
 
 /// Emitted when user taps or clicks on the 3D view.

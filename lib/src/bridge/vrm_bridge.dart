@@ -57,7 +57,11 @@ final class _VrmBridge {
         _handleResponse(decodedValue);
         return;
       }
-      _handleLegacyEvent(decodedValue);
+      if (decodedValue['type'] == 'event') {
+        _handleEvent(decodedValue);
+        return;
+      }
+      throw const FormatException('Unknown VRM bridge message type.');
     } on Object catch (error, stackTrace) {
       debugPrint('Invalid VRM runtime message: $error\n$stackTrace');
     }
@@ -98,7 +102,12 @@ final class _VrmBridge {
     );
   }
 
-  void _handleLegacyEvent(Map<String, dynamic> decoded) {
+  void _handleEvent(Map<String, dynamic> decoded) {
+    if (decoded['version'] != _protocolVersion) {
+      throw FormatException(
+        'Unsupported VRM protocol version: ${decoded['version']}.',
+      );
+    }
     final event = decoded['event'];
     if (event is! String) {
       throw const FormatException('Bridge event name is missing.');
@@ -169,6 +178,19 @@ final class _VrmBridge {
             zoom: (payload['zoom'] as num?)?.toDouble(),
           ),
         );
+      case 'onPerformance':
+        _eventController.add(
+          VrmPerformanceEvent(
+            snapshot: VrmPerformanceSnapshot.fromJson(payload),
+          ),
+        );
+      case 'onWebGLContextChanged':
+        final state = switch (payload['state']) {
+          'lost' => VrmWebGlContextState.lost,
+          'restored' => VrmWebGlContextState.restored,
+          _ => throw const FormatException('Unknown WebGL context state.'),
+        };
+        _eventController.add(VrmWebGlContextEvent(state: state));
       case 'onTap':
         _eventController.add(
           VrmTapEvent(

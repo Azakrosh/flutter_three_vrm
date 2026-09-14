@@ -102,7 +102,10 @@ class VrmMood {
   static const happy = VrmMood(
     expression: VrmExpression.happy,
     expressionWeight: 1.0,
-    wind: VrmMoodWind(type: VrmWindType.light, direction: VrmWindDirection.right),
+    wind: VrmMoodWind(
+      type: VrmWindType.light,
+      direction: VrmWindDirection.right,
+    ),
     autoSaccades: true,
   );
 
@@ -122,7 +125,10 @@ class VrmMood {
     expressionWeight: 0.3,
     browExpression: VrmExpression.angry,
     browWeight: 1.0,
-    wind: VrmMoodWind(type: VrmWindType.strong, direction: VrmWindDirection.front),
+    wind: VrmMoodWind(
+      type: VrmWindType.strong,
+      direction: VrmWindDirection.front,
+    ),
     physics: VrmMoodPhysics(stiffness: 1.5),
     autoSaccades: true,
   );
@@ -138,7 +144,10 @@ class VrmMood {
   static const surprised = VrmMood(
     expression: VrmExpression.surprised,
     expressionWeight: 1.0,
-    wind: VrmMoodWind(type: VrmWindType.light, direction: VrmWindDirection.front),
+    wind: VrmMoodWind(
+      type: VrmWindType.light,
+      direction: VrmWindDirection.front,
+    ),
     physics: VrmMoodPhysics(gravity: 0.5),
     autoSaccades: true,
   );
@@ -147,7 +156,10 @@ class VrmMood {
   static const relaxed = VrmMood(
     expression: VrmExpression.relaxed,
     expressionWeight: 0.8,
-    wind: VrmMoodWind(type: VrmWindType.light, direction: VrmWindDirection.right),
+    wind: VrmMoodWind(
+      type: VrmWindType.light,
+      direction: VrmWindDirection.right,
+    ),
     physics: VrmMoodPhysics(stiffness: 0.7),
     autoSaccades: true,
   );

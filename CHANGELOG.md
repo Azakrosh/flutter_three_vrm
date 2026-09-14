@@ -16,4 +16,7 @@
 - Add rest-pose-aware Mixamo-style GLB/glTF retargeting, named clip selection, and configurable root motion.
 - Add protected multi-file resource bundles for glTF files with external buffers or textures.
 - Make the renderer FPS cap effective and use mobile-safe 60 FPS / 1.5 pixel-ratio defaults.
+- Add graphics presets, adaptive resolution, performance telemetry, and WebGL context recovery.
+- Move all runtime events to versioned protocol envelopes and remove legacy message entry points.
+- Replace the legacy example with a focused app demonstrating the production API.
 - Add strict analysis, unit tests, Android/Windows CI, MIT license, and updated documentation.

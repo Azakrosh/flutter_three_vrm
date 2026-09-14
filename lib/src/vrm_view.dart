@@ -10,6 +10,8 @@ class VrmView extends StatefulWidget {
     this.initialModelFile,
     this.backgroundColor = const Color(0xFF1E1E2C),
     this.transparent = false,
+    this.graphicsPreset = VrmGraphicsPreset.balanced,
+    this.adaptiveQuality = const VrmAdaptiveQualitySettings(),
   });
 
   final VrmController controller;
@@ -18,6 +20,12 @@ class VrmView extends StatefulWidget {
   final String? initialModelFile;
   final Color backgroundColor;
   final bool transparent;
+
+  /// Renderer profile applied before [onCreated] and initial model loading.
+  final VrmGraphicsPreset graphicsPreset;
+
+  /// Automatic render-resolution policy applied after [graphicsPreset].
+  final VrmAdaptiveQualitySettings adaptiveQuality;
 
   @override
   State<VrmView> createState() => _VrmViewState();
@@ -69,6 +77,19 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
       if (_transportAttached) {
         _attachTransport(widget.controller);
       }
+    }
+    if (_isRuntimeReady &&
+        (oldWidget.graphicsPreset != widget.graphicsPreset ||
+            oldWidget.adaptiveQuality != widget.adaptiveQuality)) {
+      unawaited(_applyGraphicsConfiguration());
+    }
+    if (_isRuntimeReady &&
+        (oldWidget.backgroundColor != widget.backgroundColor ||
+            oldWidget.transparent != widget.transparent)) {
+      widget.controller.setBackground(
+        color: _effectiveBackground,
+        transparent: widget.transparent,
+      );
     }
   }
 
@@ -155,6 +176,7 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
       _errorMessage = null;
     });
 
+    await _applyGraphicsConfiguration();
     widget.controller.setBackground(
       color: _effectiveBackground,
       transparent: widget.transparent,
@@ -168,6 +190,16 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
 
     if (mounted) {
       widget.onCreated?.call(widget.controller);
+    }
+  }
+
+  Future<void> _applyGraphicsConfiguration() async {
+    try {
+      await widget.controller.setGraphicsPreset(widget.graphicsPreset);
+      await widget.controller.setAdaptiveQuality(widget.adaptiveQuality);
+    } on Object catch (error, stackTrace) {
+      debugPrint('Failed to configure VRM graphics: $error\n$stackTrace');
+      _showError('Failed to configure VRM graphics: $error');
     }
   }
 
