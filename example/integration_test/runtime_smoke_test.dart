@@ -28,6 +28,9 @@ void main() {
     expect(report.triangles, greaterThan(0));
     expect(report.humanoidBones, greaterThan(0));
 
+    const expectedTransform = VrmTransform(x: 0.2, y: -0.1, zoom: 1.4);
+    await controller.setTransform(expectedTransform);
+
     await controller.reloadRuntime();
     await controller.waitUntilReady(timeout: const Duration(seconds: 30));
     await _waitForModel(tester, controller);
@@ -35,6 +38,11 @@ void main() {
     final restoredHealth = await controller.getRuntimeHealth();
     expect(restoredHealth.modelLoaded, isTrue);
     expect(restoredHealth.contextLost, isFalse);
+
+    final restoredTransform = await controller.getTransform();
+    expect(restoredTransform.x, closeTo(expectedTransform.x, 0.001));
+    expect(restoredTransform.y, closeTo(expectedTransform.y, 0.001));
+    expect(restoredTransform.zoom, closeTo(expectedTransform.zoom, 0.001));
   });
 }
 

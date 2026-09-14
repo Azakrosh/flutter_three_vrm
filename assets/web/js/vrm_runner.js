@@ -246,6 +246,9 @@ class VrmRunner {
     this.controls.addEventListener('start', () => {
       this.hasCustomCameraTransform = true;
     });
+    this.controls.addEventListener('end', () => {
+      if (this.cameraMode === 'constrained') this.notifyCameraChanged(true);
+    });
     this.setupCharacterCreatorControls();
 
     // Источники света: рассеянный (Ambient), прямой (Directional) и контурный (Rim)
@@ -375,6 +378,8 @@ class VrmRunner {
       const dist = Math.hypot(e.clientX - this.dragStartPoint.x, e.clientY - this.dragStartPoint.y);
       if (dist < 10) {
         this.handleScreenTap(e.clientX, e.clientY);
+      } else if (this.cameraMode === 'constrained') {
+        this.notifyCameraChanged(true);
       }
     }
   }
@@ -1374,11 +1379,7 @@ class VrmRunner {
       this.cameraAnimStartTime = this.elapsedTime || 0;
     }
 
-    this.notifyFlutter('onCameraChanged', {
-      x: -this.targetCameraTarget.x,
-      y: 0.95 - this.targetCameraTarget.y,
-      zoom: this.controls.getDistance(),
-    });
+    this.notifyCameraChanged(false);
   }
 
   /**
@@ -1703,6 +1704,9 @@ class VrmRunner {
     this.controls.target.copy(oldTarget);
     this.controls.addEventListener('start', () => {
       this.hasCustomCameraTransform = true;
+    });
+    this.controls.addEventListener('end', () => {
+      if (this.cameraMode === 'constrained') this.notifyCameraChanged(true);
     });
     this.setupCharacterCreatorControls();
 
@@ -2135,6 +2139,13 @@ class VrmRunner {
       y: 0.95 - target.y,
       zoom: this.controls.getDistance(),
     };
+  }
+
+  notifyCameraChanged(userInitiated) {
+    this.notifyFlutter('onCameraChanged', {
+      ...this.getAvatarTransform(),
+      userInitiated: Boolean(userInitiated),
+    });
   }
 
   setAvatarTransform(data) {

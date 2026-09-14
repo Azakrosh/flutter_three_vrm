@@ -57,6 +57,10 @@ void main() {
           response.headers.value('cross-origin-resource-policy'),
           'same-origin',
         );
+        expect(
+          response.headers.value('content-security-policy'),
+          contains("frame-ancestors 'none'"),
+        );
       },
     );
 

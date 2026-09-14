@@ -6,9 +6,11 @@ typedef VrmRuntimeReloader = Future<void> Function();
 final class _VrmBridge {
   static const int _protocolVersion = 1;
   static const Duration _commandTimeout = Duration(minutes: 2);
+  static const int _maxIgnoredResponseIds = 256;
   final StreamController<VrmEvent> _eventController =
       StreamController<VrmEvent>.broadcast();
   final Map<String, _PendingCommand> _pending = <String, _PendingCommand>{};
+  final Set<String> _ignoredResponseIds = <String>{};
 
   Object? _transportOwner;
   VrmJavaScriptRunner? _runJavaScript;
@@ -95,6 +97,9 @@ final class _VrmBridge {
     }
     final pending = _pending.remove(id);
     if (pending == null) {
+      if (_ignoredResponseIds.remove(id)) {
+        return;
+      }
       debugPrint('Ignoring response for unknown VRM command: $id');
       return;
     }
@@ -199,6 +204,7 @@ final class _VrmBridge {
             x: (payload['x'] as num?)?.toDouble(),
             y: (payload['y'] as num?)?.toDouble(),
             zoom: (payload['zoom'] as num?)?.toDouble(),
+            userInitiated: payload['userInitiated'] == true,
           ),
         );
       case 'onPerformance':
@@ -296,6 +302,10 @@ final class _VrmBridge {
   }
 
   void _failPending(Object error) {
+    _ignoredResponseIds.addAll(_pending.keys);
+    while (_ignoredResponseIds.length > _maxIgnoredResponseIds) {
+      _ignoredResponseIds.remove(_ignoredResponseIds.first);
+    }
     final pendingCommands = _pending.values.toList(growable: false);
     _pending.clear();
     for (final pending in pendingCommands) {

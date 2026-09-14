@@ -3,10 +3,36 @@ part of 'vrm_runtime.dart';
 /// Primary controller for loading, animating, and interacting with one VRM model.
 class VrmController {
   final _VrmBridge _bridge = _VrmBridge();
+  late final StreamSubscription<VrmEvent> _stateSubscription;
   bool _isLoadingModel = false;
   bool _isModelLoaded = false;
   int _modelLoadGeneration = 0;
+  VrmTransform? _lastKnownCameraTransform;
+  int _cameraTransformRevision = 0;
   VrmContentHost? _contentHost;
+
+  VrmController() {
+    _stateSubscription = _bridge.eventStream.listen((event) {
+      switch (event) {
+        case VrmModelLoadedEvent():
+          _isModelLoaded = true;
+        case VrmModelUnloadedEvent():
+          _isModelLoaded = false;
+        case VrmCameraChangedEvent(
+          :final x,
+          :final y,
+          :final zoom,
+          :final userInitiated,
+        ):
+          if (userInitiated && x != null && y != null && zoom != null) {
+            _lastKnownCameraTransform = VrmTransform(x: x, y: y, zoom: zoom);
+            _cameraTransformRevision += 1;
+          }
+        default:
+          break;
+      }
+    });
+  }
 
   /// True while a model is being transferred and parsed by the runtime.
   bool get isLoadingModel => _isLoadingModel;
@@ -218,6 +244,7 @@ class VrmController {
   /// Disposes this controller and its event streams.
   Future<void> dispose() async {
     _isModelLoaded = false;
+    await _stateSubscription.cancel();
     await _bridge.dispose();
   }
 
@@ -638,14 +665,16 @@ class VrmController {
     if (result is! Map<String, dynamic>) {
       throw const FormatException('VRM transform response must be an object.');
     }
-    return VrmTransform.fromMap(result);
+    final transform = VrmTransform.fromMap(result);
+    _lastKnownCameraTransform = transform;
+    return transform;
   }
 
   /// Restores a previously saved pan and zoom state of the avatar.
-  Future<void> setTransform(VrmTransform transform) {
-    return _bridge.sendCommand('setTransform', {
-      'transform': transform.toMap(),
-    });
+  Future<void> setTransform(VrmTransform transform) async {
+    await _bridge.sendCommand('setTransform', {'transform': transform.toMap()});
+    _lastKnownCameraTransform = transform;
+    _cameraTransformRevision += 1;
   }
 
   String _colorToHex(Color color) {

@@ -53,6 +53,9 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
   int _recoveryAttempts = 0;
   bool _recoveryInProgress = false;
   bool _recoveryRequested = false;
+  VrmTransform? _pendingCameraRestore;
+  int? _pendingCameraRevision;
+  bool _cameraRestoreInProgress = false;
 
   Color get _effectiveBackground =>
       widget.transparent ? Colors.transparent : widget.backgroundColor;
@@ -71,6 +74,9 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
   void didUpdateWidget(covariant VrmView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!identical(oldWidget.controller, widget.controller)) {
+      _pendingCameraRestore = null;
+      _pendingCameraRevision = null;
+      _cameraRestoreInProgress = false;
       final hadModel = oldWidget.controller.isModelLoaded;
       oldWidget.controller._bridge.detachTransport(_webView);
       final contentHost = _contentHost;
@@ -123,6 +129,18 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
           if (!_isRuntimeReady) {
             _showError(event.message);
           }
+        }),
+      )
+      ..add(
+        controller.onModelLoaded.listen((_) {
+          unawaited(
+            _restoreCameraAfterRecovery().catchError((
+              Object error,
+              StackTrace stackTrace,
+            ) {
+              controller._bridge.reportAsyncError(error, stackTrace);
+            }),
+          );
         }),
       )
       ..add(
@@ -226,6 +244,7 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
       if (mounted) {
         await widget.onCreated?.call(widget.controller);
       }
+      await _restoreCameraAfterRecovery();
     } on Object catch (error, stackTrace) {
       widget.controller._bridge.reportAsyncError(error, stackTrace);
       _showError('Failed to configure restored VRM runtime: $error');
@@ -286,6 +305,8 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
     if (contentHost == null || !contentHost.isStarted) {
       throw StateError('VRM runtime content host is not available.');
     }
+    _pendingCameraRestore ??= widget.controller._lastKnownCameraTransform;
+    _pendingCameraRevision ??= widget.controller._cameraTransformRevision;
     widget.controller._markRuntimeUnavailable(
       StateError('VRM runtime is reloading.'),
     );
@@ -297,6 +318,32 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
       });
     }
     await _webView.load(contentHost.runtimeUri);
+  }
+
+  Future<void> _restoreCameraAfterRecovery() async {
+    final transform = _pendingCameraRestore;
+    final revision = _pendingCameraRevision;
+    if (transform == null ||
+        revision == null ||
+        _cameraRestoreInProgress ||
+        !widget.controller.isModelLoaded) {
+      return;
+    }
+
+    if (widget.controller._cameraTransformRevision != revision) {
+      _pendingCameraRestore = null;
+      _pendingCameraRevision = null;
+      return;
+    }
+
+    _cameraRestoreInProgress = true;
+    try {
+      await widget.controller.setTransform(transform);
+      _pendingCameraRestore = null;
+      _pendingCameraRevision = null;
+    } finally {
+      _cameraRestoreInProgress = false;
+    }
   }
 
   Future<void> _applyGraphicsConfiguration() async {

@@ -2,6 +2,8 @@
 
 ## 0.2.0-dev.1
 
+- Preserve user camera pan/zoom across runtime recovery and emit reliable user-initiated camera change events.
+
 - Raise the minimum versions to Dart 3.12 and Flutter 3.44.
 - Add dedicated Android and Windows WebView adapters.
 - Upgrade to `webview_flutter 4.14.1` and `webview_flutter_windows 1.2.0`.

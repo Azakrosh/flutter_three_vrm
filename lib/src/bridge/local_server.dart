@@ -226,6 +226,17 @@ final class LocalAssetsServer implements VrmContentHost {
     response.headers
       ..set('X-Content-Type-Options', 'nosniff')
       ..set('Cross-Origin-Resource-Policy', 'same-origin')
+      ..set(
+        'Content-Security-Policy',
+        "default-src 'self' blob: data:; "
+            "script-src 'self'; "
+            "style-src 'self'; "
+            "img-src 'self' blob: data: http: https:; "
+            "connect-src 'self' blob: data: http: https:; "
+            "object-src 'none'; "
+            "base-uri 'none'; "
+            "frame-ancestors 'none'",
+      )
       ..set(HttpHeaders.cacheControlHeader, 'no-store');
 
     try {

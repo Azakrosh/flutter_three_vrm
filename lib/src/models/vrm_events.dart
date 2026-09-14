@@ -94,8 +94,14 @@ class VrmCameraChangedEvent extends VrmEvent {
   final double? x;
   final double? y;
   final double? zoom;
+  final bool userInitiated;
 
-  VrmCameraChangedEvent({this.x, this.y, this.zoom});
+  VrmCameraChangedEvent({
+    this.x,
+    this.y,
+    this.zoom,
+    this.userInitiated = false,
+  });
 }
 
 /// Periodic renderer workload telemetry and adaptive-quality changes.
