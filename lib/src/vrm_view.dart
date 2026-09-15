@@ -14,6 +14,8 @@ class VrmView extends StatefulWidget {
     this.adaptiveQuality = const VrmAdaptiveQualitySettings(),
     this.modelPerformancePolicy = const VrmModelPerformancePolicy(),
     this.recoveryPolicy = const VrmRuntimeRecoveryPolicy(),
+    this.renderingEnabled = true,
+    this.lifecyclePolicy = VrmRenderLifecyclePolicy.platformDefault,
   });
 
   final VrmController controller;
@@ -22,6 +24,12 @@ class VrmView extends StatefulWidget {
   final String? initialModelFile;
   final Color backgroundColor;
   final bool transparent;
+
+  /// Whether the WebGL render loop may run when allowed by [lifecyclePolicy].
+  final bool renderingEnabled;
+
+  /// Determines which application lifecycle states pause the render loop.
+  final VrmRenderLifecyclePolicy lifecyclePolicy;
 
   /// Renderer profile applied before [onCreated] and initial model loading.
   final VrmGraphicsPreset graphicsPreset;
@@ -41,6 +49,7 @@ class VrmView extends StatefulWidget {
 
 class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
   late final VrmWebViewAdapter _webView;
+  late final VrmRenderLifecycleCoordinator _lifecycleCoordinator;
   final List<StreamSubscription<dynamic>> _subscriptions = [];
   final List<StreamSubscription<dynamic>> _controllerSubscriptions = [];
 
@@ -48,7 +57,6 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
   bool _transportAttached = false;
   bool _isRuntimeReady = false;
   bool _isDisposed = false;
-  AppLifecycleState? _lifecycleState;
   int _runtimeGeneration = 0;
   String? _errorMessage;
   VrmModelAssessment? _modelAssessment;
@@ -66,7 +74,18 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _lifecycleState = WidgetsBinding.instance.lifecycleState;
+    _lifecycleCoordinator = VrmRenderLifecycleCoordinator(
+      platform: defaultTargetPlatform,
+      initialLifecycleState: WidgetsBinding.instance.lifecycleState,
+      renderingEnabled: widget.renderingEnabled,
+      policy: widget.lifecyclePolicy,
+      dispatch: (paused) => widget.controller._setRenderingPaused(paused),
+      onError: (error, stackTrace) {
+        if (_isRuntimeReady && !_isDisposed) {
+          widget.controller._bridge.reportAsyncError(error, stackTrace);
+        }
+      },
+    );
     _webView = createVrmWebViewAdapter(backgroundColor: _effectiveBackground);
     _subscriptions.add(_webView.errors.listen(_handleRuntimeResourceError));
     _bindController(widget.controller);
@@ -76,7 +95,15 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
   @override
   void didUpdateWidget(covariant VrmView oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.renderingEnabled != widget.renderingEnabled ||
+        oldWidget.lifecyclePolicy != widget.lifecyclePolicy) {
+      _lifecycleCoordinator.updateConfiguration(
+        renderingEnabled: widget.renderingEnabled,
+        policy: widget.lifecyclePolicy,
+      );
+    }
     if (!identical(oldWidget.controller, widget.controller)) {
+      _lifecycleCoordinator.detachRuntime();
       _pendingCameraRestore = null;
       _pendingCameraRevision = null;
       _cameraRestoreInProgress = false;
@@ -95,6 +122,9 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
       _bindController(widget.controller);
       if (_transportAttached) {
         _attachTransport(widget.controller);
+      }
+      if (_isRuntimeReady) {
+        unawaited(_lifecycleCoordinator.attachRuntime());
       }
     }
     if (_isRuntimeReady &&
@@ -233,6 +263,10 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
     _recoveryRequested = false;
 
     try {
+      await _lifecycleCoordinator.attachRuntime();
+      if (!_isCurrentRuntime(runtimeGeneration)) {
+        return;
+      }
       await _applyGraphicsConfiguration();
       if (!_isCurrentRuntime(runtimeGeneration)) {
         return;
@@ -261,7 +295,6 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
       if (!_isCurrentRuntime(runtimeGeneration)) {
         return;
       }
-      await _applyLifecycleRenderingState();
     } on Object catch (error, stackTrace) {
       if (!_isCurrentRuntime(runtimeGeneration)) {
         return;
@@ -281,6 +314,7 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
   void _handleRuntimeResourceError(String message) {
     final error = StateError('WebView runtime resource error: $message');
     _runtimeGeneration += 1;
+    _lifecycleCoordinator.detachRuntime();
     widget.controller._markRuntimeUnavailable(error);
     if (mounted && !_isDisposed) {
       setState(() {
@@ -336,6 +370,7 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
     _pendingCameraRestore ??= widget.controller._lastKnownCameraTransform;
     _pendingCameraRevision ??= widget.controller._cameraTransformRevision;
     _runtimeGeneration += 1;
+    _lifecycleCoordinator.detachRuntime();
     widget.controller._markRuntimeUnavailable(
       StateError('VRM runtime is reloading.'),
     );
@@ -416,39 +451,14 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    _lifecycleState = state;
-    if (!_isRuntimeReady || _isDisposed) {
-      return;
-    }
-    unawaited(_applyLifecycleRenderingStateSafely());
-  }
-
-  bool get _shouldPauseRendering {
-    final state = _lifecycleState;
-    return state != null && state != AppLifecycleState.resumed;
-  }
-
-  Future<void> _applyLifecycleRenderingState() {
-    return _shouldPauseRendering
-        ? widget.controller.pauseRendering()
-        : widget.controller.resumeRendering();
-  }
-
-  Future<void> _applyLifecycleRenderingStateSafely() async {
-    try {
-      await _applyLifecycleRenderingState();
-    } on Object catch (error, stackTrace) {
-      // A concurrent runtime reload invalidates lifecycle commands by design.
-      if (_isRuntimeReady && !_isDisposed) {
-        widget.controller._bridge.reportAsyncError(error, stackTrace);
-      }
-    }
+    _lifecycleCoordinator.updateLifecycleState(state);
   }
 
   @override
   void dispose() {
     final shouldDisposeRuntime = _transportAttached && _isRuntimeReady;
     _isDisposed = true;
+    _lifecycleCoordinator.dispose();
     WidgetsBinding.instance.removeObserver(this);
 
     for (final subscription in [

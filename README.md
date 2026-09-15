@@ -133,7 +133,17 @@ VrmView(
 
 Для ручного восстановления вызовите `await controller.reloadRuntime()`, а затем `await controller.waitUntilReady()`. Незавершённые команды завершаются ошибкой сразу при начале reload и не остаются ждать timeout.
 
-`VrmView` автоматически останавливает render loop в состояниях `inactive`, `hidden`, `paused` и `detached`. Состояние паузы сохраняется при автоматическом или ручном восстановлении runtime; после `resumed` рендеринг возобновляется. Дополнительно вызывать `pauseRendering()` и `resumeRendering()` для lifecycle приложения не требуется.
+Управление render loop зависит от платформы. С политикой `platformDefault` Android ставит renderer на паузу при потере фокуса, а Windows продолжает рендеринг видимого окна в состоянии `inactive`. Это позволяет аватару работать при переключении фокуса между Flutter и WebView2 или другим окном. Скрытое, свёрнутое, paused или detached приложение приостанавливает renderer на обеих платформах.
+
+```dart
+VrmView(
+  controller: controller,
+  renderingEnabled: true,
+  lifecyclePolicy: VrmRenderLifecyclePolicy.platformDefault,
+)
+```
+
+`pauseWhenHidden` сохраняет рендеринг любого видимого окна, а `pauseWhenUnfocused` включает строгую паузу при потере фокуса. Для явной паузы перестройте `VrmView` с `renderingEnabled: false`. Lifecycle управляет только WebGL render loop и не останавливает Flutter-аудио, AI API, чат или bridge. Выбранное состояние автоматически восстанавливается после reload runtime.
 
 ## Камера
 

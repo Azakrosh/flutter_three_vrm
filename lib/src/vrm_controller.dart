@@ -250,11 +250,8 @@ class VrmController {
     await _bridge.dispose();
   }
 
-  /// Pauses the WebGL render loop.
-  Future<void> pauseRendering() => _bridge.sendCommand('pauseRendering');
-
-  /// Resumes the WebGL render loop.
-  Future<void> resumeRendering() => _bridge.sendCommand('resumeRendering');
+  Future<void> _setRenderingPaused(bool paused) =>
+      _bridge.sendCommand(paused ? 'pauseRendering' : 'resumeRendering');
 
   // --- Animation control ---
 

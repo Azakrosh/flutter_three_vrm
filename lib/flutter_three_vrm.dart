@@ -13,6 +13,7 @@ export 'src/models/vrm_model_performance.dart';
 export 'src/models/vrm_pose.dart';
 export 'src/models/vrm_runtime_health.dart';
 export 'src/models/vrm_transform.dart';
+export 'src/models/vrm_render_lifecycle_policy.dart';
 export 'src/animation_queue/vrm_animation_queue.dart';
 export 'src/animation_queue/vrm_animation_queue_state.dart';
 export 'src/animation_queue/vrm_animation_queue_snapshot.dart';

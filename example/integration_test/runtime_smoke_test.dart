@@ -1,4 +1,5 @@
 import 'package:example/main.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_three_vrm/flutter_three_vrm.dart';
@@ -63,13 +64,19 @@ void main() {
     const expectedTransform = VrmTransform(x: 0.2, y: -0.1, zoom: 1.4);
     await controller.setTransform(expectedTransform);
 
-    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
-    await _waitForRenderingState(tester, controller, paused: true);
+    final isWindows = defaultTargetPlatform == TargetPlatform.windows;
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await _waitForRenderingState(tester, controller, paused: !isWindows);
+
+    if (!isWindows) {
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+      await _waitForRenderingState(tester, controller, paused: true);
+    }
 
     await controller.reloadRuntime();
     await controller.waitUntilReady(timeout: const Duration(seconds: 30));
     await _waitForModel(tester, controller);
-    await _waitForRenderingState(tester, controller, paused: true);
+    await _waitForRenderingState(tester, controller, paused: !isWindows);
 
     final restoredHealth = await controller.getRuntimeHealth();
     expect(restoredHealth.modelLoaded, isTrue);

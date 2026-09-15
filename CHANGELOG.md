@@ -13,6 +13,10 @@
 - Deterministically tear down animation frames, fetches, DOM listeners, controls, models, and WebGL contexts when a runtime page or `VrmView` is destroyed.
 - Exercise renderer recreation and explicit `VrmView` disposal in the physical-device runtime smoke test.
 - Check the standalone JavaScript runner syntax in CI and run the full runtime smoke test in the Windows job.
+- Add platform-aware render lifecycle policies: Windows keeps visible unfocused avatars alive while Android retains focus-sensitive power saving.
+- Replace imperative render-loop pause/resume calls with declarative `VrmView.renderingEnabled` and serialized latest-state synchronization.
+- Verify Windows runtime reload while inactive remains animated, while Android retains inactive/hidden pause coverage.
+- Make the example control panel height-adaptive across lifecycle-driven window metric changes.
 
 - Raise the minimum versions to Dart 3.12 and Flutter 3.44.
 - Add dedicated Android and Windows WebView adapters.

@@ -231,6 +231,7 @@ class _AvatarDemoPageState extends State<AvatarDemoPage> {
                 maxPixelRatio: 1.5,
               ),
               backgroundColor: const Color(0xFF171823),
+              lifecyclePolicy: VrmRenderLifecyclePolicy.platformDefault,
               onCreated: _initialize,
             ),
           ),
@@ -246,34 +247,38 @@ class _AvatarDemoPageState extends State<AvatarDemoPage> {
                     performance: _performance,
                     modelAssessment: _modelAssessment,
                   ),
-                  const Spacer(),
-                  _ControlPanel(
-                    graphicsPreset: _graphicsPreset,
-                    adaptiveQuality: _adaptiveQuality,
-                    animationPaused: _animationPaused,
-                    amplitude: _amplitude,
-                    hasSavedCamera: _savedTransform != null,
-                    onLoadModel: _loadModel,
-                    onPlayAnimation: _play,
-                    onToggleAnimation: _toggleAnimation,
-                    onApplyPose: _applyHeadPose,
-                    onResetPose: () => _run(_controller.resetPose),
-                    onPresetChanged: _setGraphicsPreset,
-                    onAdaptiveChanged: _setAdaptiveQuality,
-                    onSaveCamera: _saveCamera,
-                    onRestoreCamera: () {
-                      final transform = _savedTransform;
-                      if (transform != null) {
-                        _run(() => _controller.setTransform(transform));
-                      }
-                    },
-                    onAmplitudeChanged: (value) {
-                      setState(() => _amplitude = value);
-                      _controller.setLipSyncAmplitude(value);
-                    },
-                    onHappy: () => _controller.setExpression(
-                      VrmExpression.happy,
-                      weight: 0.8,
+                  Expanded(
+                    child: Align(
+                      alignment: Alignment.bottomCenter,
+                      child: _ControlPanel(
+                        graphicsPreset: _graphicsPreset,
+                        adaptiveQuality: _adaptiveQuality,
+                        animationPaused: _animationPaused,
+                        amplitude: _amplitude,
+                        hasSavedCamera: _savedTransform != null,
+                        onLoadModel: _loadModel,
+                        onPlayAnimation: _play,
+                        onToggleAnimation: _toggleAnimation,
+                        onApplyPose: _applyHeadPose,
+                        onResetPose: () => _run(_controller.resetPose),
+                        onPresetChanged: _setGraphicsPreset,
+                        onAdaptiveChanged: _setAdaptiveQuality,
+                        onSaveCamera: _saveCamera,
+                        onRestoreCamera: () {
+                          final transform = _savedTransform;
+                          if (transform != null) {
+                            _run(() => _controller.setTransform(transform));
+                          }
+                        },
+                        onAmplitudeChanged: (value) {
+                          setState(() => _amplitude = value);
+                          _controller.setLipSyncAmplitude(value);
+                        },
+                        onHappy: () => _controller.setExpression(
+                          VrmExpression.happy,
+                          weight: 0.8,
+                        ),
+                      ),
                     ),
                   ),
                 ],
