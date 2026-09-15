@@ -30,6 +30,12 @@ void main() {
     expect(report.triangles, greaterThan(0));
     expect(report.humanoidBones, greaterThan(0));
 
+    await controller.setBackground(
+      color: const Color(0xFF171823),
+      imageAssetPath: 'assets/images/backgrounds/bg_0.jpg',
+    );
+    await controller.setBackground(color: const Color(0xFF171823));
+
     await controller.setGraphicsPreset(VrmGraphicsPreset.performance);
     expect((await controller.getRuntimeHealth()).contextLost, isFalse);
     await controller.setGraphicsPreset(VrmGraphicsPreset.balanced);

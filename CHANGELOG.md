@@ -17,6 +17,8 @@
 - Replace imperative render-loop pause/resume calls with declarative `VrmView.renderingEnabled` and serialized latest-state synchronization.
 - Verify Windows runtime reload while inactive remains animated, while Android retains inactive/hidden pause coverage.
 - Make the example control panel height-adaptive across lifecycle-driven window metric changes.
+- Make asset, file, and authenticated-byte backgrounds awaitable and release their temporary loopback URLs after copying them into WebView-owned Blobs.
+- Cancel stale background transfers and revoke replaced Blob URLs during background changes and runtime disposal.
 
 - Raise the minimum versions to Dart 3.12 and Flutter 3.44.
 - Add dedicated Android and Windows WebView adapters.

@@ -80,6 +80,7 @@ class VrmController {
     required Uri Function(VrmContentHost host) expose,
     required String action,
     required String fileName,
+    String urlField = 'url',
     Map<String, dynamic>? payload,
   }) async {
     final host = _requiredContentHost;
@@ -87,7 +88,7 @@ class VrmController {
     try {
       await _bridge.sendCommand(action, <String, dynamic>{
         ...?payload,
-        'url': uri.toString(),
+        urlField: uri.toString(),
         'fileName': fileName,
       });
     } finally {
@@ -842,29 +843,85 @@ class VrmController {
     _sendCommand('stopWind');
   }
 
-  /// Configures scene background (color and optional image).
-  /// If [imageAssetPath] is provided, it loads the image from Flutter assets.
-  /// If [imageUrl] is provided, it loads the image from a direct web URL.
-  void setBackground({
+  /// Configures the scene background with a color or an optional image.
+  ///
+  /// Asset images are copied into a WebView-owned Blob before the temporary
+  /// local-server URL is released. Public [imageUrl] values are used directly.
+  /// Provide at most one image source.
+  Future<void> setBackground({
     required Color color,
     bool transparent = false,
     String? imageAssetPath,
     String? imageUrl,
-  }) {
-    String? finalImageUrl = imageUrl;
-
-    // Convert asset path to local server URL to bypass CORS
-    if (imageAssetPath != null) {
-      finalImageUrl = _requiredContentHost
-          .exposeAsset(imageAssetPath)
-          .toString();
+  }) async {
+    if (imageAssetPath != null && imageUrl != null) {
+      throw ArgumentError(
+        'Provide either imageAssetPath or imageUrl, not both.',
+      );
     }
 
-    _sendCommand('setBackground', {
+    final payload = <String, dynamic>{
       'color': _colorToHex(color),
       'transparent': transparent,
-      'imageUrl': ?finalImageUrl,
+    };
+    if (imageAssetPath != null) {
+      await _sendHostedResourceCommand(
+        expose: (host) => host.exposeAsset(imageAssetPath),
+        action: 'setBackground',
+        fileName: p.basename(imageAssetPath),
+        urlField: 'imageUrl',
+        payload: {...payload, 'hostedImage': true},
+      );
+      return;
+    }
+
+    await _bridge.sendCommand('setBackground', {
+      ...payload,
+      'imageUrl': ?imageUrl,
+      'hostedImage': false,
     });
+  }
+
+  /// Configures the scene background from a local image file.
+  Future<void> setBackgroundFromFile(
+    io.File file, {
+    required Color color,
+    bool transparent = false,
+  }) {
+    return _sendHostedResourceCommand(
+      expose: (host) => host.exposeFile(file),
+      action: 'setBackground',
+      fileName: p.basename(file.path),
+      urlField: 'imageUrl',
+      payload: {
+        'color': _colorToHex(color),
+        'transparent': transparent,
+        'hostedImage': true,
+      },
+    );
+  }
+
+  /// Configures the scene background from authenticated image bytes.
+  Future<void> setBackgroundFromBytes(
+    Uint8List bytes, {
+    required String fileName,
+    required Color color,
+    bool transparent = false,
+  }) {
+    if (fileName.trim().isEmpty) {
+      throw ArgumentError.value(fileName, 'fileName', 'Must not be empty.');
+    }
+    return _sendHostedResourceCommand(
+      expose: (host) => host.exposeBytes(bytes, fileName: fileName),
+      action: 'setBackground',
+      fileName: fileName,
+      urlField: 'imageUrl',
+      payload: {
+        'color': _colorToHex(color),
+        'transparent': transparent,
+        'hostedImage': true,
+      },
+    );
   }
 
   /// Sets the pixel ratio for WebGL rendering.

@@ -141,10 +141,7 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
     if (_isRuntimeReady &&
         (oldWidget.backgroundColor != widget.backgroundColor ||
             oldWidget.transparent != widget.transparent)) {
-      widget.controller.setBackground(
-        color: _effectiveBackground,
-        transparent: widget.transparent,
-      );
+      unawaited(_applyBackgroundSafely());
     }
   }
 
@@ -271,10 +268,13 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
       if (!_isCurrentRuntime(runtimeGeneration)) {
         return;
       }
-      widget.controller.setBackground(
+      await widget.controller.setBackground(
         color: _effectiveBackground,
         transparent: widget.transparent,
       );
+      if (!_isCurrentRuntime(runtimeGeneration)) {
+        return;
+      }
 
       final folder = widget.initialModelFolder;
       final file = widget.initialModelFile;
@@ -309,6 +309,29 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
         !_isDisposed &&
         _isRuntimeReady &&
         _runtimeGeneration == generation;
+  }
+
+  Future<void> _applyBackgroundSafely() async {
+    final controller = widget.controller;
+    try {
+      await controller.setBackground(
+        color: _effectiveBackground,
+        transparent: widget.transparent,
+      );
+    } on VrmRuntimeException catch (error, stackTrace) {
+      if (error.code == 'canceled') return;
+      if (_isRuntimeReady &&
+          !_isDisposed &&
+          identical(controller, widget.controller)) {
+        controller._bridge.reportAsyncError(error, stackTrace);
+      }
+    } on Object catch (error, stackTrace) {
+      if (_isRuntimeReady &&
+          !_isDisposed &&
+          identical(controller, widget.controller)) {
+        controller._bridge.reportAsyncError(error, stackTrace);
+      }
+    }
   }
 
   void _handleRuntimeResourceError(String message) {

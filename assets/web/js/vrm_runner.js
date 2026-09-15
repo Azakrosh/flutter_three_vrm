@@ -60,8 +60,11 @@ class VrmRunner {
     this._cachedSpringBoneManager = null;
     this.modelLoadAbortController = null;
     this.animationLoadAbortController = null;
+    this.backgroundLoadAbortController = null;
     this.modelLoadGeneration = 0;
     this.animationLoadGeneration = 0;
+    this.backgroundLoadGeneration = 0;
+    this.backgroundObjectUrl = null;
 
     // Вместо устаревшего THREE.Clock используем нативный performance.now()
     this.lastTime = performance.now();
@@ -690,7 +693,12 @@ class VrmRunner {
         break;
 
       case 'setBackground':
-        this.setBackground(payload.color, payload.imageUrl, payload.transparent);
+        await this.setBackground(
+          payload.color,
+          payload.imageUrl,
+          payload.transparent,
+          payload.hostedImage,
+        );
         break;
       case 'setPhysics':
         this.setPhysics(payload.stiffness, payload.gravity, payload.drag);
@@ -801,6 +809,12 @@ class VrmRunner {
     if (this.animationLoadAbortController) this.animationLoadAbortController.abort();
     this.animationLoadAbortController = null;
     this.animationLoadGeneration += 1;
+  }
+
+  cancelBackgroundLoad() {
+    if (this.backgroundLoadAbortController) this.backgroundLoadAbortController.abort();
+    this.backgroundLoadAbortController = null;
+    this.backgroundLoadGeneration += 1;
   }
 
   createCanceledError(message) {
@@ -1526,11 +1540,66 @@ class VrmRunner {
     this.ambientLight.color.copy(baseAmbient).lerp(envColor, intensity);
   }
 
-  setBackground(colorHex, imageUrl, transparent) {
+  async setBackground(colorHex, imageUrl, transparent, hostedImage = false) {
+    this.cancelBackgroundLoad();
+
+    if (!imageUrl || !hostedImage) {
+      this.applyBackground(colorHex, imageUrl, transparent);
+      this.replaceBackgroundObjectUrl(null);
+      return;
+    }
+
+    const generation = this.backgroundLoadGeneration;
+    const abortController = new AbortController();
+    this.backgroundLoadAbortController = abortController;
+    let objectUrl = null;
+
+    try {
+      const resource = await this.fetchResource(imageUrl, abortController.signal);
+      if (abortController.signal.aborted || generation !== this.backgroundLoadGeneration) {
+        throw this.createCanceledError('Background loading was canceled.');
+      }
+
+      const blob = new Blob([resource.data], {
+        type: resource.contentType || 'application/octet-stream',
+      });
+      objectUrl = URL.createObjectURL(blob);
+      if (abortController.signal.aborted || generation !== this.backgroundLoadGeneration) {
+        throw this.createCanceledError('Background loading was canceled.');
+      }
+
+      this.applyBackground(colorHex, objectUrl, transparent);
+      this.replaceBackgroundObjectUrl(objectUrl);
+      objectUrl = null;
+    } catch (error) {
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      if (
+        abortController.signal.aborted ||
+        generation !== this.backgroundLoadGeneration ||
+        error?.name === 'AbortError' ||
+        error?.code === 'canceled'
+      ) {
+        throw this.createCanceledError('Background loading was canceled.');
+      }
+      throw error;
+    } finally {
+      if (this.backgroundLoadAbortController === abortController) {
+        this.backgroundLoadAbortController = null;
+      }
+    }
+  }
+
+  replaceBackgroundObjectUrl(nextUrl) {
+    const previousUrl = this.backgroundObjectUrl;
+    this.backgroundObjectUrl = nextUrl;
+    if (previousUrl && previousUrl !== nextUrl) URL.revokeObjectURL(previousUrl);
+  }
+
+  applyBackground(colorHex, imageUrl, transparent) {
     if (imageUrl) {
       // Use CSS background on document.body for optimal scaling (cover)
       document.body.style.backgroundColor = colorHex || '#000000';
-      document.body.style.backgroundImage = `url("${imageUrl}")`;
+      document.body.style.backgroundImage = `url(${JSON.stringify(imageUrl)})`;
       document.body.style.backgroundSize = 'cover';
       document.body.style.backgroundPosition = 'center';
 
@@ -1793,6 +1862,9 @@ class VrmRunner {
     this.pauseRendering();
     this.cancelModelLoad();
     this.cancelAnimationLoad();
+    this.cancelBackgroundLoad();
+    this.replaceBackgroundObjectUrl(null);
+    document.body.style.backgroundImage = 'none';
 
     window.removeEventListener('resize', this._onWindowResize);
     window.removeEventListener('pagehide', this._onPageHide);

@@ -14,7 +14,7 @@ Flutter-пакет для отображения и управления одн�
 - сохранение и восстановление `VrmTransform`;
 - прозрачный или цветной фон, свет, тени и настройки качества;
 - загрузка из Flutter assets, локального файла или URL;
-- остановка render loop при уходе приложения в фон.
+- платформо-зависимое управление render loop: экономия ресурсов Android без зависания видимого окна Windows.
 
 Runtime собирается из зафиксированных зависимостей:
 
@@ -144,6 +144,30 @@ VrmView(
 ```
 
 `pauseWhenHidden` сохраняет рендеринг любого видимого окна, а `pauseWhenUnfocused` включает строгую паузу при потере фокуса. Для явной паузы перестройте `VrmView` с `renderingEnabled: false`. Lifecycle управляет только WebGL render loop и не останавливает Flutter-аудио, AI API, чат или bridge. Выбранное состояние автоматически восстанавливается после reload runtime.
+
+## Фон сцены
+
+Цвет, прозрачность и публичный URL задаются через `setBackground()`. Метод возвращает `Future`: после его завершения asset уже скопирован в Blob внутри WebView, а временный loopback URL освобождён.
+
+```dart
+await controller.setBackground(
+  color: const Color(0xFF171823),
+  imageAssetPath: 'assets/images/avatar_room.jpg',
+);
+
+await controller.setBackgroundFromFile(
+  cachedBackgroundFile,
+  color: const Color(0xFF171823),
+);
+
+await controller.setBackgroundFromBytes(
+  authenticatedImageBytes,
+  fileName: 'avatar-room.webp',
+  color: const Color(0xFF171823),
+);
+```
+
+Для защищённого API загружайте изображение Flutter-клиентом с авторизацией и передавайте файл или байты. `imageUrl` предназначен для публичного URL и не получает Flutter-токены. Новая команда отменяет незавершённую предыдущую загрузку; старый фон сохраняется до успешной подготовки нового. Blob URL отзывается при смене фона и уничтожении runtime.
 
 ## Камера
 
@@ -353,9 +377,9 @@ corepack pnpm build
 
 ## Статус roadmap
 
-Расширенный runtime smoke-тест пройден на физическом Android 16 устройстве и автоматически запускается в Windows CI. До стабильного релиза остаётся подтвердить его на отдельном физическом Windows-устройстве.
+Расширенный runtime smoke-тест пройден на физическом Android 16 устройстве и в Windows WebView2. Windows lifecycle дополнительно проверен вручную: клики внутри и вне окна, pan/zoom, сворачивание и восстановление не останавливают анимацию видимого аватара.
 
-Runtime smoke-тест находится в `example/integration_test/runtime_smoke_test.dart` и проверяет initialization, health payload, загрузку и выгрузку модели, lifecycle pause/resume, пересоздание renderer, повторные reload, восстановление камеры и явный dispose `VrmView`:
+Runtime smoke-тест находится в `example/integration_test/runtime_smoke_test.dart` и проверяет initialization, health payload, загрузку и выгрузку модели, перенос asset-фона в WebView Blob, lifecycle pause/resume, пересоздание renderer, повторные reload, восстановление камеры и явный dispose `VrmView`:
 
 ```bash
 cd example
