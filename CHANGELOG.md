@@ -19,6 +19,9 @@
 - Make the example control panel height-adaptive across lifecycle-driven window metric changes.
 - Make asset, file, and authenticated-byte backgrounds awaitable and release their temporary loopback URLs after copying them into WebView-owned Blobs.
 - Cancel stale background transfers and revoke replaced Blob URLs during background changes and runtime disposal.
+- Replace non-redistributable and unattributed example media with pinned official VRM/VRMA samples whose redistribution terms permit a public repository.
+- Add a release-time asset license/checksum verifier and complete third-party notices for the embedded web runtime.
+- Declare Android and Windows explicitly as the supported package platforms.
 
 - Raise the minimum versions to Dart 3.12 and Flutter 3.44.
 - Add dedicated Android and Windows WebView adapters.

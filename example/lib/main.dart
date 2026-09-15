@@ -138,24 +138,24 @@ class _AvatarDemoPageState extends State<AvatarDemoPage> {
         'VRM runtime ${health.runtimeVersion}, three r${health.threeRevision}, '
         'WebGL ${health.webGlVersion}',
       );
-      await controller.loadModel('assets/vrm/', 'sample_0.vrm');
+      await controller.loadModel('assets/vrm/', 'sample.vrm');
       await controller.playAnimation(
         'assets/vrma/',
-        'VRMA_01.vrma',
+        'sample.vrma',
         fadeDuration: 0.25,
       );
     });
   }
 
-  Future<void> _loadModel(String fileName) {
-    return _run(() => _controller.loadModel('assets/vrm/', fileName));
+  Future<void> _loadModel() {
+    return _run(() => _controller.loadModel('assets/vrm/', 'sample.vrm'));
   }
 
-  Future<void> _play(String fileName, {bool loop = true}) {
+  Future<void> _play({bool loop = true}) {
     return _run(
       () => _controller.playAnimation(
         'assets/vrma/',
-        fileName,
+        'sample.vrma',
         loop: loop,
         fadeDuration: 0.3,
       ),
@@ -376,8 +376,8 @@ class _ControlPanel extends StatelessWidget {
   final bool animationPaused;
   final double amplitude;
   final bool hasSavedCamera;
-  final Future<void> Function(String) onLoadModel;
-  final Future<void> Function(String, {bool loop}) onPlayAnimation;
+  final Future<void> Function() onLoadModel;
+  final Future<void> Function({bool loop}) onPlayAnimation;
   final Future<void> Function() onToggleAnimation;
   final Future<void> Function() onApplyPose;
   final Future<void> Function() onResetPose;
@@ -403,11 +403,10 @@ class _ControlPanel extends StatelessWidget {
               Wrap(
                 spacing: 8,
                 children: [
-                  for (var index = 0; index < 3; index += 1)
-                    OutlinedButton(
-                      onPressed: () => onLoadModel('sample_$index.vrm'),
-                      child: Text('Модель ${index + 1}'),
-                    ),
+                  OutlinedButton(
+                    onPressed: onLoadModel,
+                    child: const Text('Перезагрузить модель'),
+                  ),
                 ],
               ),
               const Text('Анимация и поза'),
@@ -415,12 +414,8 @@ class _ControlPanel extends StatelessWidget {
                 spacing: 8,
                 children: [
                   FilledButton.tonal(
-                    onPressed: () => onPlayAnimation('VRMA_01.vrma'),
-                    child: const Text('Idle'),
-                  ),
-                  FilledButton.tonal(
-                    onPressed: () => onPlayAnimation('Thinking.vrma'),
-                    child: const Text('Thinking'),
+                    onPressed: onPlayAnimation,
+                    child: const Text('VRMA'),
                   ),
                   IconButton.filledTonal(
                     onPressed: onToggleAnimation,

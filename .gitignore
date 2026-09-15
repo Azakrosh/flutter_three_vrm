@@ -46,5 +46,8 @@ implementation_plan.md
 task.md
 walkthrough.md
 
+# Local-only assets whose embedded licenses prohibit redistribution
+.local/
+
 # Embedded web runtime
 web/node_modules/

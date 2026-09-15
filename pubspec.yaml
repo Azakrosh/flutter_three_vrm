@@ -3,6 +3,10 @@ description: A production-oriented VRM avatar runtime for Flutter on Android and
 version: 0.2.0-dev.1
 publish_to: none
 
+platforms:
+  android:
+  windows:
+
 environment:
   sdk: ">=3.12.0 <4.0.0"
   flutter: ">=3.44.0"

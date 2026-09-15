@@ -32,7 +32,7 @@ void main() {
 
     await controller.setBackground(
       color: const Color(0xFF171823),
-      imageAssetPath: 'assets/images/backgrounds/bg_0.jpg',
+      imageAssetPath: 'assets/images/backgrounds/background.svg',
     );
     await controller.setBackground(color: const Color(0xFF171823));
 
@@ -100,7 +100,7 @@ void main() {
     expect(controller.isModelLoaded, isFalse);
     expect((await controller.getRuntimeHealth()).modelLoaded, isFalse);
 
-    await controller.loadModel('assets/vrm/', 'sample_0.vrm');
+    await controller.loadModel('assets/vrm/', 'sample.vrm');
     await _waitForModel(tester, controller);
     expect((await controller.getRuntimeHealth()).contextLost, isFalse);
 
