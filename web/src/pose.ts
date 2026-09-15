@@ -4,6 +4,12 @@ import {
   type VRMPose,
   type VRMPoseTransform,
 } from "@pixiv/three-vrm";
+import {
+  AnimationClip,
+  QuaternionKeyframeTrack,
+  VectorKeyframeTrack,
+  type KeyframeTrack,
+} from "three";
 
 const humanBoneNames = new Set<string>(Object.values(VRMHumanBoneName));
 
@@ -53,6 +59,47 @@ export function setNormalizedPose(vrm: VRM | null, value: unknown): void {
 
 export function resetNormalizedPose(vrm: VRM | null): void {
   requireHumanoid(vrm).resetNormalizedPose();
+}
+
+export function createNormalizedPoseClip(
+  vrm: VRM | null,
+  value: unknown,
+  name = "Pose",
+): AnimationClip {
+  const humanoid = requireHumanoid(vrm);
+  const pose = parseNormalizedPose(value);
+  const tracks: KeyframeTrack[] = [];
+
+  for (const [boneName, transform] of Object.entries(pose)) {
+    const node = humanoid.getNormalizedBoneNode(
+      boneName as keyof VRMPose,
+    );
+    if (node === null) continue;
+
+    if (transform.position !== undefined) {
+      tracks.push(
+        new VectorKeyframeTrack(
+          `${node.name}.position`,
+          [0, 1],
+          [...transform.position, ...transform.position],
+        ),
+      );
+    }
+    if (transform.rotation !== undefined) {
+      tracks.push(
+        new QuaternionKeyframeTrack(
+          `${node.name}.quaternion`,
+          [0, 1],
+          [...transform.rotation, ...transform.rotation],
+        ),
+      );
+    }
+  }
+
+  if (Object.keys(pose).length > 0 && tracks.length === 0) {
+    throw new Error("The pose does not target any bones available in this VRM.");
+  }
+  return new AnimationClip(name, 1, tracks);
 }
 
 function requireHumanoid(vrm: VRM | null): VRM["humanoid"] {

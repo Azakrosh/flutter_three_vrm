@@ -430,8 +430,8 @@ class VrmController {
   }
 
   /// Stops the current action and cancels an in-flight animation load.
-  Future<void> stopAnimation() async {
-    await _bridge.sendCommand('stopAnimation');
+  Future<void> stopAnimation({double fadeDuration = 0.5}) async {
+    await _bridge.sendCommand('stopAnimation', {'fadeDuration': fadeDuration});
   }
 
   /// Sets playback speed multiplier for current animation.
@@ -453,18 +453,18 @@ class VrmController {
 
   /// Applies a normalized humanoid [pose].
   ///
-  /// By default the active animation is stopped because its tracks would
-  /// otherwise overwrite the same bones on the next frame.
-  Future<void> setPose(VrmPose pose, {bool stopAnimation = true}) {
+  /// Pose and clip playback share one mixer, so switching from either source
+  /// crossfades without snapping through the rest pose.
+  Future<void> setPose(VrmPose pose, {double fadeDuration = 0.5}) {
     return _bridge.sendCommand('setPose', {
       'pose': pose.toJson(),
-      'stopAnimation': stopAnimation,
+      'fadeDuration': fadeDuration,
     });
   }
 
-  /// Restores all normalized humanoid bones to their rest transforms.
-  Future<void> resetPose({bool stopAnimation = true}) {
-    return _bridge.sendCommand('resetPose', {'stopAnimation': stopAnimation});
+  /// Smoothly restores all normalized humanoid bones to their rest transforms.
+  Future<void> resetPose({double fadeDuration = 0.5}) {
+    return _bridge.sendCommand('resetPose', {'fadeDuration': fadeDuration});
   }
 
   // --- Mood Presets ---

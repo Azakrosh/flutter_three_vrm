@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 /// Standard humanoid bones defined by VRM 1.0.
 enum VrmHumanBone {
   hips,
@@ -87,6 +89,38 @@ final class VrmQuaternion {
   const VrmQuaternion(this.x, this.y, this.z, this.w);
 
   const VrmQuaternion.identity() : this(0, 0, 0, 1);
+
+  /// Creates a quaternion from intrinsic XYZ Euler angles in radians.
+  factory VrmQuaternion.fromEulerRadians(double x, double y, double z) {
+    if (![x, y, z].every((value) => value.isFinite)) {
+      throw const FormatException('Euler angles must be finite numbers.');
+    }
+    final halfX = x / 2;
+    final halfY = y / 2;
+    final halfZ = z / 2;
+    final sinX = math.sin(halfX);
+    final cosX = math.cos(halfX);
+    final sinY = math.sin(halfY);
+    final cosY = math.cos(halfY);
+    final sinZ = math.sin(halfZ);
+    final cosZ = math.cos(halfZ);
+    return VrmQuaternion(
+      sinX * cosY * cosZ + cosX * sinY * sinZ,
+      cosX * sinY * cosZ - sinX * cosY * sinZ,
+      cosX * cosY * sinZ + sinX * sinY * cosZ,
+      cosX * cosY * cosZ - sinX * sinY * sinZ,
+    );
+  }
+
+  /// Creates a quaternion from intrinsic XYZ Euler angles in degrees.
+  factory VrmQuaternion.fromEulerDegrees(double x, double y, double z) {
+    const radiansPerDegree = math.pi / 180;
+    return VrmQuaternion.fromEulerRadians(
+      x * radiansPerDegree,
+      y * radiansPerDegree,
+      z * radiansPerDegree,
+    );
+  }
 
   final double x;
   final double y;

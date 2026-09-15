@@ -25,6 +25,7 @@ export {
 } from "./protocol";
 
 export {
+  createNormalizedPoseClip,
   getNormalizedPose,
   parseNormalizedPose,
   resetNormalizedPose,
@@ -41,6 +42,12 @@ export {
   type AdaptiveQualityConfig,
   type QualityAdjustment,
 } from "./performance";
+
+export {
+  MotionTransitionController,
+  type MotionSource,
+  type MotionTransitionOptions,
+} from "./motion-transition";
 
 export {
   GLTFLoader,

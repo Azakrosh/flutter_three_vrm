@@ -2,6 +2,8 @@
 
 ## 0.2.0-dev.1
 
+- Unify VRMA, retargeted glTF, and static Pose playback under one mixer crossfade path, including smooth transitions to the rest pose.
+- Add XYZ Euler-to-quaternion helpers and two attributed Pose fixtures for transition testing in the example.
 - Bundle the complete browser runtime, including the runner, into one reproducible checksummed artifact and verify its manifest in CI.
 - Preserve user camera pan/zoom across runtime recovery and emit reliable user-initiated camera change events.
 - Fix free-orbit camera controls, isolate constrained pan gestures, add camera reframing, and strictly validate serialized transforms.

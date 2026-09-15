@@ -1,4 +1,7 @@
+import 'dart:math' as math;
+
 import 'package:example/main.dart';
+import 'package:example/sample_poses.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -29,6 +32,9 @@ void main() {
     expect(report.meshes, greaterThan(0));
     expect(report.triangles, greaterThan(0));
     expect(report.humanoidBones, greaterThan(0));
+
+    await _waitForAnimation(tester, controller);
+    await _verifyMotionTransitions(tester, controller);
 
     await controller.setBackground(
       color: const Color(0xFF171823),
@@ -126,6 +132,134 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 250));
     expect(tester.takeException(), isNull);
   });
+}
+
+Future<void> _verifyMotionTransitions(
+  WidgetTester tester,
+  VrmController controller,
+) async {
+  final presenterRotation =
+      presenterOpenPose[VrmHumanBone.leftUpperArm]!.rotation!;
+  final loungeRotation = loungePose[VrmHumanBone.leftUpperArm]!.rotation!;
+
+  // The example starts with a VRMA clip, so this covers VRMA -> Pose.
+  await controller.setPose(presenterOpenPose, fadeDuration: 0.4);
+  await _waitForBoneRotation(
+    tester,
+    controller,
+    VrmHumanBone.leftUpperArm,
+    presenterRotation,
+  );
+
+  // A long fade makes the intermediate Pose -> Pose state observable on both
+  // WebView implementations instead of merely checking the final transform.
+  await controller.setPose(loungePose, fadeDuration: 1.0);
+  await _waitForIntermediateBoneRotation(
+    tester,
+    controller,
+    VrmHumanBone.leftUpperArm,
+    from: presenterRotation,
+    to: loungeRotation,
+  );
+  await _waitForBoneRotation(
+    tester,
+    controller,
+    VrmHumanBone.leftUpperArm,
+    loungeRotation,
+  );
+
+  // Exercise Pose -> VRMA and then another VRMA -> Pose transition.
+  await controller.playAnimation(
+    'assets/vrma/',
+    'sample.vrma',
+    fadeDuration: 0.4,
+  );
+  await _waitForAnimation(tester, controller);
+  await Future<void>.delayed(const Duration(milliseconds: 450));
+  await controller.setPose(presenterOpenPose, fadeDuration: 0.4);
+  await _waitForBoneRotation(
+    tester,
+    controller,
+    VrmHumanBone.leftUpperArm,
+    presenterRotation,
+  );
+
+  // Reset is also a mixer fade, not an immediate humanoid reset.
+  await controller.resetPose(fadeDuration: 0.4);
+  expect((await controller.getRuntimeHealth()).animationActive, isTrue);
+  await _waitForBoneRotation(
+    tester,
+    controller,
+    VrmHumanBone.leftUpperArm,
+    const VrmQuaternion.identity(),
+  );
+}
+
+Future<void> _waitForAnimation(
+  WidgetTester tester,
+  VrmController controller,
+) async {
+  final deadline = DateTime.now().add(const Duration(seconds: 15));
+  while (DateTime.now().isBefore(deadline)) {
+    if ((await controller.getRuntimeHealth()).animationActive) return;
+    await tester.pump(const Duration(milliseconds: 50));
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+  }
+  fail('Expected an active animation before the timeout.');
+}
+
+Future<void> _waitForIntermediateBoneRotation(
+  WidgetTester tester,
+  VrmController controller,
+  VrmHumanBone bone, {
+  required VrmQuaternion from,
+  required VrmQuaternion to,
+}) async {
+  final deadline = DateTime.now().add(const Duration(seconds: 5));
+  VrmQuaternion? lastRotation;
+  while (DateTime.now().isBefore(deadline)) {
+    lastRotation = (await controller.getPose())[bone]?.rotation;
+    if (lastRotation != null &&
+        _quaternionAngle(lastRotation, from) > 0.015 &&
+        _quaternionAngle(lastRotation, to) > 0.015) {
+      return;
+    }
+    await tester.pump(const Duration(milliseconds: 40));
+    await Future<void>.delayed(const Duration(milliseconds: 40));
+  }
+  fail('Expected an intermediate rotation for $bone, got $lastRotation.');
+}
+
+Future<void> _waitForBoneRotation(
+  WidgetTester tester,
+  VrmController controller,
+  VrmHumanBone bone,
+  VrmQuaternion expected,
+) async {
+  final deadline = DateTime.now().add(const Duration(seconds: 8));
+  VrmQuaternion? lastRotation;
+  while (DateTime.now().isBefore(deadline)) {
+    lastRotation = (await controller.getPose())[bone]?.rotation;
+    if (lastRotation != null &&
+        _quaternionAngle(lastRotation, expected) < 0.02) {
+      return;
+    }
+    await tester.pump(const Duration(milliseconds: 50));
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+  }
+  fail('Expected $bone rotation $expected, got $lastRotation.');
+}
+
+double _quaternionAngle(VrmQuaternion first, VrmQuaternion second) {
+  final dot =
+      (first.x * second.x +
+              first.y * second.y +
+              first.z * second.z +
+              first.w * second.w)
+          .abs()
+          .clamp(0.0, 1.0)
+          .toDouble();
+  return 2 * math.acos(dot);
 }
 
 Future<void> _waitForModel(

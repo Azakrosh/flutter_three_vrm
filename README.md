@@ -240,15 +240,16 @@ Pose API работает с нормализованным humanoid-скеле�
 final pose = await controller.getPose();
 await controller.setPose(
   VrmPose({
-    VrmHumanBone.head: const VrmPoseTransform(
-      rotation: VrmQuaternion(0, 0.15, 0, 0.9887),
+    VrmHumanBone.head: VrmPoseTransform(
+      rotation: VrmQuaternion.fromEulerDegrees(4, 0, 0),
     ),
   }),
+  fadeDuration: 0.6,
 );
-await controller.resetPose();
+await controller.resetPose(fadeDuration: 0.6);
 ```
 
-По умолчанию `setPose()` и `resetPose()` останавливают текущую анимацию, иначе AnimationMixer перезапишет те же кости на следующем кадре.
+Pose и VRMA/glTF-анимации выполняются одним `AnimationMixer`. Поэтому переходы VRMA → Pose, Pose → Pose, Pose → VRMA, `resetPose()` и `stopAnimation()` используют crossfade и не проходят скачком через rest pose. Две адаптированные тестовые позы `presenterOpenPose` и `loungePose` находятся в `example/lib/sample_poses.dart`.
 
 ## GLB/glTF и Mixamo
 

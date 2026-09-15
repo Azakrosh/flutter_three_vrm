@@ -9,13 +9,13 @@ import {
   VRMUtils,
   createVRMAnimationClip,
   createHumanoidAnimationClip,
+  createNormalizedPoseClip,
   event as protocolEvent,
   failure,
   getNormalizedPose,
   getRuntimeInfo,
+  MotionTransitionController,
   parseCommand,
-  resetNormalizedPose,
-  setNormalizedPose,
   success,
 } from './main';
 
@@ -56,6 +56,9 @@ class VrmRunner {
 
     this.currentVrm = null;
     this.mixer = null;
+    this.motionTransitions = null;
+    this.pendingRestPoseReset = false;
+    this.poseSequence = 0;
     this.modelReport = null;
     this._cachedSpringBoneManager = null;
     this.modelLoadAbortController = null;
@@ -134,7 +137,6 @@ class VrmRunner {
     this.startCameraTarget = new THREE.Vector3();
 
     // Animation Action
-    this.currentAction = null;
     this.isAnimationPaused = false;
     this._lastLoadPercent = -1;
 
@@ -538,11 +540,11 @@ class VrmRunner {
         break;
       case 'pauseAnimation':
         this.isAnimationPaused = true;
-        if (this.mixer) this.mixer.timeScale = 0;
+        this.motionTransitions?.pause();
         break;
       case 'resumeAnimation':
         this.isAnimationPaused = false;
-        if (this.mixer) this.mixer.timeScale = payload.speed || 1.0;
+        this.motionTransitions?.resume(payload.speed || 1.0);
         break;
       case 'pauseRendering':
         this.pauseRendering();
@@ -552,69 +554,44 @@ class VrmRunner {
         break;
       case 'stopAnimation':
         this.cancelAnimationLoad();
-        if (this.mixer) {
-          this.mixer.stopAllAction();
-        }
-        this.currentAction = null;
-        this.isAnimationPaused = false;
-        if (this.mixer) this.mixer.timeScale = 1.0;
-
-        if (this.currentVrm && this.currentVrm.humanoid) {
-          this.currentVrm.humanoid.resetNormalizedPose();
-
-          // Принудительно сбрасываем normalized кости головы, чтобы 100% избавиться от залипаний
-          const neck = this.currentVrm.humanoid.getNormalizedBoneNode('neck');
-          const head = this.currentVrm.humanoid.getNormalizedBoneNode('head');
-          const chest = this.currentVrm.humanoid.getNormalizedBoneNode('chest');
-          if (neck) neck.quaternion.identity();
-          if (head) head.quaternion.identity();
-          if (chest) chest.quaternion.identity();
-
-          // ВАЖНО: После ручного изменения костей (resetPose), мировые матрицы устаревают!
-          // Если их не обновить прямо сейчас, компонент VRMLookAt на следующем кадре 
-          // рассчитает поворот головы опираясь на старую позу, что приведет к "зависанию" головы в странной позе!
-          this.currentVrm.scene.updateMatrixWorld(true);
-        }
-
-        // Принудительно обнуляем память аддитивного поворота
-        this.baseBonesSaved = false;
-        if (this.neckBaseQuat) this.neckBaseQuat.identity();
-        if (this.headBaseQuat) this.headBaseQuat.identity();
-        if (this.chestBaseQuat) this.chestBaseQuat.identity();
-
-        this.targetHeadYaw = 0;
-        this.targetHeadPitch = 0;
-        this.proceduralHeadYaw = 0;
-        this.proceduralHeadPitch = 0;
+        this.transitionToRest(payload.fadeDuration);
         break;
       case 'setAnimationSpeed':
-        if (this.mixer) this.mixer.timeScale = payload.speed;
+        this.motionTransitions?.setSpeed(payload.speed);
         break;
       case 'getPose':
         return getNormalizedPose(this.currentVrm);
       case 'setPose':
-        if (payload.stopAnimation !== false && this.mixer) {
-          this.mixer.stopAllAction();
-          this.mixer.timeScale = 1.0;
-          this.currentAction = null;
-          this.isAnimationPaused = false;
+        if (!this.motionTransitions) {
+          throw new Error('Load a VRM model before using the Pose API.');
         }
-        setNormalizedPose(this.currentVrm, payload.pose);
+        {
+          const clip = createNormalizedPoseClip(
+            this.currentVrm,
+            payload.pose,
+            `Pose ${++this.poseSequence}`,
+          );
+          if (clip.tracks.length === 0) {
+            this.transitionToRest(payload.fadeDuration);
+          } else {
+            this.motionTransitions.transitionTo(clip, {
+              source: 'pose',
+              fadeDuration: payload.fadeDuration,
+              loop: true,
+              speed: 1,
+            });
+            this.pendingRestPoseReset = false;
+            this.isAnimationPaused = false;
+            this.resetProceduralMotion();
+            this.motionTransitions.update(0);
+          }
+        }
         this.baseBonesSaved = false;
         this.currentVrm.update(0);
         this.currentVrm.scene.updateMatrixWorld(true);
         break;
       case 'resetPose':
-        if (payload.stopAnimation !== false && this.mixer) {
-          this.mixer.stopAllAction();
-          this.mixer.timeScale = 1.0;
-          this.currentAction = null;
-          this.isAnimationPaused = false;
-        }
-        resetNormalizedPose(this.currentVrm);
-        this.baseBonesSaved = false;
-        this.currentVrm.update(0);
-        this.currentVrm.scene.updateMatrixWorld(true);
+        this.transitionToRest(payload.fadeDuration);
         break;
       case 'setShadows':
         this.setShadows(payload.enabled);
@@ -904,6 +881,8 @@ class VrmRunner {
     });
 
     this.mixer = new THREE.AnimationMixer(vrm.scene);
+    this.motionTransitions = new MotionTransitionController(this.mixer);
+    this.pendingRestPoseReset = false;
 
     // Вычисляем реальный рост модели через кости скелета (надежнее, чем габариты сетки)
     let dynamicHeight = 1.6; // Значение по умолчанию
@@ -930,7 +909,7 @@ class VrmRunner {
     this._onAnimationFinished = (e) => {
       // Игнорируем события от старых/остановленных экшенов, если они почему-то приходят
       // И разрешаем отправку только если экшен совпадает с currentAction ИЛИ если currentAction уже очищен.
-      if (!e.action || e.action._hasNotifiedFinished) return;
+      if (!e.action || e.action !== this.currentAction || e.action._hasNotifiedFinished) return;
       e.action._hasNotifiedFinished = true;
       this.notifyFlutter('onAnimationFinished', { name: e.action.getClip().name });
     };
@@ -1016,7 +995,9 @@ class VrmRunner {
       maxTextures: capabilities?.maxTextures || 0,
       maxVertexTextures: capabilities?.maxVertexTextures || 0,
       modelLoaded: Boolean(this.currentVrm),
-      animationActive: Boolean(this.currentAction),
+      // A fade-out remains active after currentAction is cleared, until the
+      // retiring action has reached the normalized rest pose.
+      animationActive: Boolean(this.motionTransitions?.isActive),
       animationPaused: Boolean(this.isAnimationPaused),
       renderingPaused: Boolean(this._isRenderingPaused),
       contextLost: Boolean(this._contextLost),
@@ -1030,7 +1011,7 @@ class VrmRunner {
           this.mixer.removeEventListener('finished', this._onAnimationFinished);
           this._onAnimationFinished = null;
         }
-        this.mixer.stopAllAction();
+        this.motionTransitions?.dispose();
         this.mixer.uncacheRoot(this.currentVrm.scene);
       }
       this.clearAllExpressions();
@@ -1041,7 +1022,8 @@ class VrmRunner {
       VRMUtils.deepDispose(this.currentVrm.scene);
       this.currentVrm = null;
       this.mixer = null;
-      this.currentAction = null;
+      this.motionTransitions = null;
+      this.pendingRestPoseReset = false;
       this.modelReport = null;
       this._cachedSpringBoneManager = null;
       this.hasCustomCameraTransform = false;
@@ -1137,43 +1119,59 @@ class VrmRunner {
       throw new Error('No VRMA or glTF animation clip was found.');
     }
 
-    if (this.mixer) {
-      const newAction = this.mixer.clipAction(clip);
-
-      const loop = options.loop !== undefined ? options.loop : true;
-      const speed = options.speed || 1.0;
-      const fadeDuration = options.fadeDuration || 0.5;
-
-      newAction.setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce);
-      newAction.clampWhenFinished = !loop;
-      newAction.timeScale = speed;
-      newAction.reset();
-
-      if (this.currentAction) {
-        const oldAction = this.currentAction;
-
-        // Плавный переход (Crossfade) от старой анимации к новой
-        newAction.play();
-        this.notifyFlutter('onAnimationStarted', { name: clip.name });
-        oldAction.crossFadeTo(newAction, fadeDuration, true);
-
-        // Ждем завершения перехода + небольшой запас (100мс), затем безопасно выгружаем старую анимацию из памяти (Memory Cleanup)
-        setTimeout(() => {
-          if (this.mixer && oldAction !== this.currentAction) {
-            const oldClip = oldAction.getClip();
-            oldAction.stop();
-            this.mixer.uncacheClip(oldClip);
-            this.mixer.uncacheAction(oldAction);
-          }
-        }, fadeDuration * 1000 + 100);
-
-      } else {
-        newAction.play();
-        this.notifyFlutter('onAnimationStarted', { name: clip.name });
-      }
-
-      this.currentAction = newAction;
+    if (!this.motionTransitions) {
+      throw new Error('Animation mixer is not initialized.');
     }
+    const loop = options.loop !== undefined ? options.loop : true;
+    const speed = options.speed || 1.0;
+    const fadeDuration = options.fadeDuration ?? 0.5;
+    this.motionTransitions.transitionTo(clip, {
+      source: 'clip',
+      fadeDuration,
+      loop,
+      speed,
+    });
+    this.pendingRestPoseReset = false;
+    this.isAnimationPaused = false;
+    this.resetProceduralMotion();
+    this.motionTransitions.update(0);
+    this.notifyFlutter('onAnimationStarted', { name: clip.name });
+  }
+
+  get currentAction() {
+    return this.motionTransitions?.currentAction ?? null;
+  }
+
+  transitionToRest(fadeDuration = 0.5) {
+    if (!this.currentVrm || !this.motionTransitions) {
+      throw new Error('Load a VRM model before stopping its motion.');
+    }
+    this.motionTransitions.transitionToRest(fadeDuration ?? 0.5);
+    this.pendingRestPoseReset = true;
+    this.isAnimationPaused = false;
+    this.resetProceduralMotion();
+    this.motionTransitions.update(0);
+    if (!this.motionTransitions.isActive) this.finalizeRestPose();
+  }
+
+  finalizeRestPose() {
+    if (!this.currentVrm?.humanoid) return;
+    this.currentVrm.humanoid.resetNormalizedPose();
+    this.pendingRestPoseReset = false;
+    this.baseBonesSaved = false;
+    this.currentVrm.update(0);
+    this.currentVrm.scene.updateMatrixWorld(true);
+  }
+
+  resetProceduralMotion() {
+    this.baseBonesSaved = false;
+    this.neckBaseQuat.identity();
+    this.headBaseQuat.identity();
+    this.chestBaseQuat.identity();
+    this.targetHeadYaw = 0;
+    this.targetHeadPitch = 0;
+    this.proceduralHeadYaw = 0;
+    this.proceduralHeadPitch = 0;
   }
 
 
@@ -1937,8 +1935,12 @@ class VrmRunner {
 
     this.restoreBaseBoneRotations();
 
-    if (this.mixer) {
-      this.mixer.update(delta);
+    if (this.motionTransitions) {
+      this.motionTransitions.update(delta);
+
+      if (this.pendingRestPoseReset && !this.motionTransitions.isActive) {
+        this.finalizeRestPose();
+      }
 
       // Надежный fallback: если Three.js не отправил событие finished (из-за бага или остановки),
       // отправляем его вручную, когда анимация достигла конца.

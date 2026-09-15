@@ -87,3 +87,15 @@ above.
 
 SHA-256:
 `38d0fd12d61e896f1a970b5e358ebb41a96c8d5ee8e284496ea18f0ba1f04e7b`
+
+## Example Pose presets
+
+`example/lib/sample_poses.dart` contains adapted `presenterOpen` and `lounge`
+pose values from `AnimationPresets.js` at commit
+`8e644f82d3587c60481e41825bc9798a6ee851d1`:
+
+https://github.com/ruslanmv/3D-Avatar-Chatbot/blob/8e644f82d3587c60481e41825bc9798a6ee851d1/src/AnimationPresets.js
+
+Copyright 2024 Ruslan Magana. The source is licensed under Apache License 2.0.
+The source Euler values were converted to normalized VRM quaternion fixtures.
+A copy of the license is included in `LICENSES/Apache-2.0.txt`.

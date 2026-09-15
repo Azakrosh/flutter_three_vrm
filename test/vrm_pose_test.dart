@@ -38,5 +38,18 @@ void main() {
         throwsFormatException,
       );
     });
+
+    test('creates normalized quaternions from XYZ Euler degrees', () {
+      final rotation = VrmQuaternion.fromEulerDegrees(0, 90, 0);
+
+      expect(rotation.x, closeTo(0, 1e-12));
+      expect(rotation.y, closeTo(0.7071067812, 1e-10));
+      expect(rotation.z, closeTo(0, 1e-12));
+      expect(rotation.w, closeTo(0.7071067812, 1e-10));
+      expect(
+        () => VrmQuaternion.fromEulerRadians(double.nan, 0, 0),
+        throwsFormatException,
+      );
+    });
   });
 }

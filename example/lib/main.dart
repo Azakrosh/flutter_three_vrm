@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_three_vrm/flutter_three_vrm.dart';
 
+import 'sample_poses.dart';
+
 void main() => runApp(const VrmExampleApp());
 
 class VrmExampleApp extends StatelessWidget {
@@ -162,19 +164,8 @@ class _AvatarDemoPageState extends State<AvatarDemoPage> {
     );
   }
 
-  Future<void> _applyHeadPose() {
-    return _run(
-      () => _controller.setPose(
-        VrmPose({
-          VrmHumanBone.head: const VrmPoseTransform(
-            rotation: VrmQuaternion(0, 0.21644, 0, 0.9763),
-          ),
-          VrmHumanBone.leftUpperArm: const VrmPoseTransform(
-            rotation: VrmQuaternion(0, 0, 0.13053, 0.99144),
-          ),
-        }),
-      ),
-    );
+  Future<void> _applyPose(VrmPose pose) {
+    return _run(() => _controller.setPose(pose, fadeDuration: 0.65));
   }
 
   Future<void> _toggleAnimation() async {
@@ -259,8 +250,11 @@ class _AvatarDemoPageState extends State<AvatarDemoPage> {
                         onLoadModel: _loadModel,
                         onPlayAnimation: _play,
                         onToggleAnimation: _toggleAnimation,
-                        onApplyPose: _applyHeadPose,
-                        onResetPose: () => _run(_controller.resetPose),
+                        onPresenterPose: () => _applyPose(presenterOpenPose),
+                        onLoungePose: () => _applyPose(loungePose),
+                        onResetPose: () => _run(
+                          () => _controller.resetPose(fadeDuration: 0.65),
+                        ),
                         onPresetChanged: _setGraphicsPreset,
                         onAdaptiveChanged: _setAdaptiveQuality,
                         onSaveCamera: _saveCamera,
@@ -361,7 +355,8 @@ class _ControlPanel extends StatelessWidget {
     required this.onLoadModel,
     required this.onPlayAnimation,
     required this.onToggleAnimation,
-    required this.onApplyPose,
+    required this.onPresenterPose,
+    required this.onLoungePose,
     required this.onResetPose,
     required this.onPresetChanged,
     required this.onAdaptiveChanged,
@@ -379,7 +374,8 @@ class _ControlPanel extends StatelessWidget {
   final Future<void> Function() onLoadModel;
   final Future<void> Function({bool loop}) onPlayAnimation;
   final Future<void> Function() onToggleAnimation;
-  final Future<void> Function() onApplyPose;
+  final Future<void> Function() onPresenterPose;
+  final Future<void> Function() onLoungePose;
   final Future<void> Function() onResetPose;
   final Future<void> Function(VrmGraphicsPreset) onPresetChanged;
   final Future<void> Function(bool) onAdaptiveChanged;
@@ -425,8 +421,12 @@ class _ControlPanel extends StatelessWidget {
                     tooltip: animationPaused ? 'Продолжить' : 'Пауза',
                   ),
                   OutlinedButton(
-                    onPressed: onApplyPose,
-                    child: const Text('Pose'),
+                    onPressed: onPresenterPose,
+                    child: const Text('Presenter pose'),
+                  ),
+                  OutlinedButton(
+                    onPressed: onLoungePose,
+                    child: const Text('Lounge pose'),
                   ),
                   OutlinedButton(
                     onPressed: onResetPose,
