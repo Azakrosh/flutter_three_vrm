@@ -55,7 +55,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-The generated `assets/web/dist/vrm-engine.js` also retains esbuild's bundled
+The generated `assets/web/dist/vrm-runtime.js` also retains esbuild's bundled
 license comments for the individual three-vrm modules.
 
 ## Example VRM model

@@ -371,9 +371,10 @@ corepack pnpm install --frozen-lockfile
 corepack pnpm typecheck
 corepack pnpm test
 corepack pnpm build
+corepack pnpm verify:build
 ```
 
-Собранные `assets/web/dist/vrm-engine.js` и `manifest.json` входят в репозиторий и проверяются CI. Полные уведомления о лицензиях встроенных библиотек и example-assets находятся в [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). CI также проверяет checksum и право на перераспространение sample-модели, чтобы в публичный пакет случайно не попал avatar с `allowRedistribution: false`.
+Собранные `assets/web/dist/vrm-runtime.js` и `manifest.json` входят в репозиторий и проверяются CI. Полные уведомления о лицензиях встроенных библиотек и example-assets находятся в [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). CI также проверяет checksum и право на перераспространение sample-модели, чтобы в публичный пакет случайно не попал avatar с `allowRedistribution: false`.
 
 ## Статус roadmap
 

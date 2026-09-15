@@ -34,10 +34,10 @@ jobs:
       - name: Check and build web runtime
         working-directory: web
         run: |
-          node --check ../assets/web/js/vrm_runner.js
           pnpm typecheck
           pnpm test
           pnpm build
+          pnpm verify:build
       - name: Verify redistributable example assets
         run: node tool/verify_example_assets.mjs
       - name: Verify generated runtime is committed

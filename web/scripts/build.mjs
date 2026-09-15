@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -13,15 +13,16 @@ const packageJson = JSON.parse(
 );
 const development = process.argv.includes("--development");
 const outputDirectory = resolve(repositoryDirectory, "assets/web/dist");
-const outputFile = resolve(outputDirectory, "vrm-engine.js");
+const entrypoint = "vrm-runtime.js";
+const outputFile = resolve(outputDirectory, entrypoint);
 
 await mkdir(outputDirectory, { recursive: true });
+await rm(resolve(outputDirectory, "vrm-engine.js"), { force: true });
 await build({
-  entryPoints: [resolve(webDirectory, "src/main.ts")],
+  entryPoints: [resolve(webDirectory, "src/runner.js")],
   outfile: outputFile,
   bundle: true,
   format: "iife",
-  globalName: "FlutterThreeVrm",
   platform: "browser",
   target: ["chrome88"],
   minify: !development,
@@ -37,8 +38,11 @@ await build({
 
 const bundle = await readFile(outputFile);
 const manifest = {
+  schemaVersion: 1,
   runtimeVersion: packageJson.version,
   protocolVersion: 1,
+  entrypoint,
+  bytes: bundle.byteLength,
   sha256: createHash("sha256").update(bundle).digest("hex"),
   dependencies: packageJson.dependencies,
 };

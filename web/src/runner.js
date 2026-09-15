@@ -1,4 +1,4 @@
-const {
+import {
   AdaptiveQualityController,
   GLTFLoader,
   OrbitControls,
@@ -9,7 +9,7 @@ const {
   VRMUtils,
   createVRMAnimationClip,
   createHumanoidAnimationClip,
-  event: protocolEvent,
+  event as protocolEvent,
   failure,
   getNormalizedPose,
   getRuntimeInfo,
@@ -17,7 +17,7 @@ const {
   resetNormalizedPose,
   setNormalizedPose,
   success,
-} = window.FlutterThreeVrm;
+} from './main';
 
 function postFlutterMessage(value) {
   const message = typeof value === 'string' ? value : JSON.stringify(value);

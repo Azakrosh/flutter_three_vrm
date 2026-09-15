@@ -2,6 +2,7 @@
 
 ## 0.2.0-dev.1
 
+- Bundle the complete browser runtime, including the runner, into one reproducible checksummed artifact and verify its manifest in CI.
 - Preserve user camera pan/zoom across runtime recovery and emit reliable user-initiated camera change events.
 - Fix free-orbit camera controls, isolate constrained pan gestures, add camera reframing, and strictly validate serialized transforms.
 - Bound realtime amplitude, direct-viseme, and LookAt bridge traffic with latest-value backpressure while preserving ordered speech timelines.
