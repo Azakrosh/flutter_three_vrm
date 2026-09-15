@@ -50,6 +50,16 @@ export {
 } from "./motion-transition";
 
 export {
+  SpeechTimeline,
+  type SpeechAmplitudeFrame,
+  type SpeechTimelineBeginOptions,
+  type SpeechTimelineMode,
+  type SpeechTimelineUpdate,
+  type SpeechVisemeFrame,
+  type SpeechVisemeUpdate,
+} from "./speech-timeline";
+
+export {
   GLTFLoader,
   OrbitControls,
   THREE,
@@ -74,7 +84,7 @@ export function getRuntimeInfo(): RuntimeInfo {
     runtimeVersion: __RUNTIME_VERSION__,
     threeRevision: THREE.REVISION,
     threeVrmVersion: __THREE_VRM_VERSION__,
-    protocolVersion: 1,
+    protocolVersion: 2,
   };
 }
 

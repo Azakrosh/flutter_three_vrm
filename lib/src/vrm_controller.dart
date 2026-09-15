@@ -10,6 +10,11 @@ class VrmController {
   VrmTransform? _lastKnownCameraTransform;
   int _cameraTransformRevision = 0;
   VrmContentHost? _contentHost;
+  int _speechSessionSequence = 0;
+  int _speechInputRevision = 0;
+  String? _activeSpeechSessionId;
+  VrmSpeechMode? _activeSpeechMode;
+  bool _speechIsFinishing = false;
 
   VrmController() {
     _stateSubscription = _bridge.eventStream.listen((event) {
@@ -28,6 +33,8 @@ class VrmController {
             _lastKnownCameraTransform = VrmTransform(x: x, y: y, zoom: zoom);
             _cameraTransformRevision += 1;
           }
+        case VrmSpeechFinishedEvent(:final sessionId):
+          _abandonSpeechSession(sessionId);
         default:
           break;
       }
@@ -42,6 +49,12 @@ class VrmController {
 
   /// Whether the JavaScript runtime completed protocol initialization.
   bool get isRuntimeReady => _bridge.isRuntimeReady;
+
+  /// Whether a speech timeline is active or waiting for its declared end.
+  bool get isSpeechActive => _activeSpeechSessionId != null;
+
+  /// Input type accepted by the current speech timeline.
+  VrmSpeechMode? get speechMode => _activeSpeechMode;
 
   void _attachContentHost(VrmContentHost contentHost) {
     _contentHost = contentHost;
@@ -222,11 +235,13 @@ class VrmController {
   /// Reloads the embedded runtime. [VrmView.onCreated] runs again afterwards.
   Future<void> reloadRuntime() async {
     _isModelLoaded = false;
+    _abandonSpeechSession();
     await _bridge.reloadRuntime();
   }
 
   void _markRuntimeUnavailable(Object error) {
     _isModelLoaded = false;
+    _abandonSpeechSession();
     _bridge.markRuntimeUnavailable(error);
   }
 
@@ -238,7 +253,11 @@ class VrmController {
   Future<void> unloadModel() async {
     _modelLoadGeneration += 1;
     _isLoadingModel = false;
-    await _bridge.sendCommand('unloadModel');
+    _abandonSpeechSession();
+    _clearDirectSpeechInputs();
+    await _bridge.sendCommand('unloadModel', {
+      'speechRevision': _nextSpeechRevision(),
+    });
     _isModelLoaded = false;
     _lastKnownCameraTransform = null;
     _cameraTransformRevision += 1;
@@ -247,6 +266,7 @@ class VrmController {
   /// Disposes this controller and its event streams.
   Future<void> dispose() async {
     _isModelLoaded = false;
+    _abandonSpeechSession();
     await _stateSubscription.cancel();
     await _bridge.dispose();
   }
@@ -544,30 +564,44 @@ class VrmController {
     Duration duration = const Duration(milliseconds: 250),
     bool disableAutoBlink = false,
   }) {
-    if ((layer ?? expression.defaultLayer) == ExpressionLayer.mouth) {
+    final resolvedLayer = layer ?? expression.defaultLayer;
+    int? speechRevision;
+    if (resolvedLayer == ExpressionLayer.mouth) {
+      _abandonSpeechSession();
       _clearDirectSpeechInputs();
+      speechRevision = _nextSpeechRevision();
     }
     _sendCommand('setExpression', {
       'expression': expression.name,
-      'layer': (layer ?? expression.defaultLayer).name,
+      'layer': resolvedLayer.name,
       'weight': weight,
       'duration': duration.inMilliseconds / 1000.0,
       'disableAutoBlink': disableAutoBlink,
+      'speechRevision': ?speechRevision,
     });
   }
 
   /// Clears active expression from a layer.
   void clearExpressionLayer(ExpressionLayer layer) {
+    int? speechRevision;
     if (layer == ExpressionLayer.mouth) {
+      _abandonSpeechSession();
       _clearDirectSpeechInputs();
+      speechRevision = _nextSpeechRevision();
     }
-    _sendCommand('clearExpressionLayer', {'layer': layer.name});
+    _sendCommand('clearExpressionLayer', {
+      'layer': layer.name,
+      'speechRevision': ?speechRevision,
+    });
   }
 
   /// Clears all active facial expressions, blendshapes, and visemes.
   void clearAllExpressions() {
+    _abandonSpeechSession();
     _clearDirectSpeechInputs();
-    _sendCommand('clearAllExpressions');
+    _sendCommand('clearAllExpressions', {
+      'speechRevision': _nextSpeechRevision(),
+    });
   }
 
   /// Sets a custom blendshape key by name and weight (0.0 to 1.0).
@@ -582,12 +616,17 @@ class VrmController {
     if (!amplitude.isFinite) {
       throw ArgumentError.value(amplitude, 'amplitude', 'Must be finite.');
     }
+    _abandonSpeechSession();
+    final speechRevision = _nextSpeechRevision();
     _bridge
       ..clearLatestCommand('directViseme')
       ..sendLatestCommand(
         channel: 'lipSyncAmplitude',
         action: 'setLipSyncAmplitude',
-        payload: {'amplitude': amplitude.clamp(0.0, 1.0)},
+        payload: {
+          'amplitude': amplitude.clamp(0.0, 1.0),
+          'speechRevision': speechRevision,
+        },
       );
   }
 
@@ -596,30 +635,79 @@ class VrmController {
     if (!weight.isFinite) {
       throw ArgumentError.value(weight, 'weight', 'Must be finite.');
     }
+    _abandonSpeechSession();
+    final speechRevision = _nextSpeechRevision();
     _bridge
       ..clearLatestCommand('lipSyncAmplitude')
       ..sendLatestCommand(
         channel: 'directViseme',
         action: 'setViseme',
-        payload: {'viseme': viseme.name, 'weight': weight.clamp(0.0, 1.0)},
+        payload: {
+          'viseme': viseme.name,
+          'weight': weight.clamp(0.0, 1.0),
+          'speechRevision': speechRevision,
+        },
       );
   }
 
   /// Enqueues a list of timed speech viseme frames for TTS playback.
-  Future<void> enqueueSpeechVisemes(List<VisemeFrame> frames) {
+  Future<void> enqueueSpeechVisemes(List<VisemeFrame> frames) async {
+    if (frames.isEmpty) return;
     _validateVisemeFrames(frames);
     final sortedFrames = List<VisemeFrame>.from(frames)..sort();
     _clearDirectSpeechInputs();
-    return _bridge.sendCommand('enqueueSpeechVisemes', {
-      'frames': sortedFrames.map((f) => f.toJson()).toList(),
-    });
+    final sessionId = _activateSpeechSession(VrmSpeechMode.viseme);
+    final speechRevision = _nextSpeechRevision();
+    _speechIsFinishing = true;
+    final timelineOriginEpochMs = DateTime.now().millisecondsSinceEpoch;
+    try {
+      await _bridge.sendCommand('enqueueSpeechVisemes', {
+        'sessionId': sessionId,
+        'mode': VrmSpeechMode.viseme.name,
+        'timelineOriginEpochMs': timelineOriginEpochMs,
+        'speechRevision': speechRevision,
+        'frames': sortedFrames.map((frame) => frame.toJson()).toList(),
+      });
+    } on Object {
+      _abandonSpeechSession(sessionId);
+      rethrow;
+    }
   }
 
-  /// Starts a streaming speech timeline. Subsequent frame batches use
-  /// timestamps relative to the same clock and do not replace older batches.
+  /// Enqueues a complete timestamped amplitude timeline in one command.
+  Future<void> enqueueSpeechAmplitudes(List<AmplitudeFrame> frames) async {
+    if (frames.isEmpty) return;
+    _validateAmplitudeFrames(frames);
+    final sortedFrames = List<AmplitudeFrame>.from(frames)..sort();
+    _clearDirectSpeechInputs();
+    final sessionId = _activateSpeechSession(VrmSpeechMode.amplitude);
+    final speechRevision = _nextSpeechRevision();
+    _speechIsFinishing = true;
+    final timelineOriginEpochMs = DateTime.now().millisecondsSinceEpoch;
+    try {
+      await _bridge.sendCommand('enqueueSpeechAmplitudes', {
+        'sessionId': sessionId,
+        'mode': VrmSpeechMode.amplitude.name,
+        'timelineOriginEpochMs': timelineOriginEpochMs,
+        'speechRevision': speechRevision,
+        'frames': sortedFrames.map((frame) => frame.toJson()).toList(),
+      });
+    } on Object {
+      _abandonSpeechSession(sessionId);
+      rethrow;
+    }
+  }
+
+  /// Starts a real-time speech timeline without pause or seek semantics.
+  ///
+  /// Frame timestamps are relative to the instant this method is called plus
+  /// [startDelay]. Bridge latency is compensated inside the WebView. Invoke
+  /// this alongside audio playback rather than awaiting it before starting
+  /// the player.
   Future<void> beginSpeech({
-    Duration startDelay = const Duration(milliseconds: 180),
-  }) {
+    VrmSpeechMode mode = VrmSpeechMode.viseme,
+    Duration startDelay = Duration.zero,
+  }) async {
     if (startDelay.isNegative) {
       throw ArgumentError.value(
         startDelay,
@@ -628,9 +716,22 @@ class VrmController {
       );
     }
     _clearDirectSpeechInputs();
-    return _bridge.sendCommand('beginSpeech', {
-      'startDelayMs': startDelay.inMilliseconds,
-    });
+    final sessionId = _activateSpeechSession(mode);
+    final speechRevision = _nextSpeechRevision();
+    final timelineOriginEpochMs = DateTime.now()
+        .add(startDelay)
+        .millisecondsSinceEpoch;
+    try {
+      await _bridge.sendCommand('beginSpeech', {
+        'sessionId': sessionId,
+        'mode': mode.name,
+        'timelineOriginEpochMs': timelineOriginEpochMs,
+        'speechRevision': speechRevision,
+      });
+    } on Object {
+      _abandonSpeechSession(sessionId);
+      rethrow;
+    }
   }
 
   /// Appends timed frames to the active streaming speech timeline.
@@ -638,13 +739,27 @@ class VrmController {
     if (frames.isEmpty) return Future<void>.value();
     _validateVisemeFrames(frames);
     final sortedFrames = List<VisemeFrame>.from(frames)..sort();
+    final sessionId = _requireSpeechSession(VrmSpeechMode.viseme);
     return _bridge.sendCommand('appendSpeechVisemes', {
+      'sessionId': sessionId,
       'frames': sortedFrames.map((f) => f.toJson()).toList(),
     });
   }
 
+  /// Appends timestamped amplitude samples to an amplitude speech timeline.
+  Future<void> appendSpeechAmplitudes(List<AmplitudeFrame> frames) {
+    if (frames.isEmpty) return Future<void>.value();
+    _validateAmplitudeFrames(frames);
+    final sortedFrames = List<AmplitudeFrame>.from(frames)..sort();
+    final sessionId = _requireSpeechSession(VrmSpeechMode.amplitude);
+    return _bridge.sendCommand('appendSpeechAmplitudes', {
+      'sessionId': sessionId,
+      'frames': sortedFrames.map((frame) => frame.toJson()).toList(),
+    });
+  }
+
   /// Marks a streaming speech timeline as complete.
-  Future<void> finishSpeech(Duration audioDuration) {
+  Future<void> finishSpeech(Duration audioDuration) async {
     if (audioDuration.isNegative) {
       throw ArgumentError.value(
         audioDuration,
@@ -652,15 +767,68 @@ class VrmController {
         'Must not be negative.',
       );
     }
-    return _bridge.sendCommand('finishSpeech', {
-      'audioDurationMs': audioDuration.inMilliseconds,
+    final sessionId = _requireSpeechSession();
+    _speechIsFinishing = true;
+    try {
+      await _bridge.sendCommand('finishSpeech', {
+        'sessionId': sessionId,
+        'audioDurationMs': audioDuration.inMilliseconds,
+      });
+    } on Object {
+      if (_activeSpeechSessionId == sessionId) {
+        _speechIsFinishing = false;
+      }
+      rethrow;
+    }
+  }
+
+  /// Fully stops the active speech timeline and closes the mouth layer.
+  Future<void> cancelSpeech() {
+    _clearDirectSpeechInputs();
+    final sessionId = _activeSpeechSessionId;
+    _abandonSpeechSession();
+    return _bridge.sendCommand('cancelSpeech', {
+      'sessionId': ?sessionId,
+      'speechRevision': _nextSpeechRevision(),
     });
   }
 
-  /// Cancels queued speech and closes only the mouth expression layer.
-  Future<void> cancelSpeech() {
-    _clearDirectSpeechInputs();
-    return _bridge.sendCommand('cancelSpeech');
+  String _activateSpeechSession(VrmSpeechMode mode) {
+    final sessionId =
+        'speech-${DateTime.now().microsecondsSinceEpoch}-${_speechSessionSequence++}';
+    _activeSpeechSessionId = sessionId;
+    _activeSpeechMode = mode;
+    _speechIsFinishing = false;
+    return sessionId;
+  }
+
+  int _nextSpeechRevision() => ++_speechInputRevision;
+
+  String _requireSpeechSession([VrmSpeechMode? mode]) {
+    final sessionId = _activeSpeechSessionId;
+    if (sessionId == null) {
+      throw StateError('Call beginSpeech() before appending or finishing.');
+    }
+    if (_speechIsFinishing) {
+      throw StateError('The active speech timeline is already finishing.');
+    }
+    if (mode != null && _activeSpeechMode != mode) {
+      throw StateError(
+        'The active speech timeline accepts ${_activeSpeechMode?.name} frames, '
+        'not ${mode.name} frames.',
+      );
+    }
+    return sessionId;
+  }
+
+  void _abandonSpeechSession([String? expectedSessionId]) {
+    if (expectedSessionId != null &&
+        expectedSessionId != _activeSpeechSessionId) {
+      return;
+    }
+    _activeSpeechSessionId = null;
+    _activeSpeechMode = null;
+    _speechIsFinishing = false;
   }
 
   void _clearDirectSpeechInputs() {
@@ -676,6 +844,35 @@ class VrmController {
         throw ArgumentError.value(
           frame.weight,
           'frames[$index].weight',
+          'Must be a finite value from 0 to 1.',
+        );
+      }
+      if (frame.timestamp.isNegative) {
+        throw ArgumentError.value(
+          frame.timestamp,
+          'frames[$index].timestamp',
+          'Must not be negative.',
+        );
+      }
+      if (frame.duration.isNegative) {
+        throw ArgumentError.value(
+          frame.duration,
+          'frames[$index].duration',
+          'Must not be negative.',
+        );
+      }
+    }
+  }
+
+  void _validateAmplitudeFrames(List<AmplitudeFrame> frames) {
+    for (var index = 0; index < frames.length; index += 1) {
+      final frame = frames[index];
+      if (!frame.amplitude.isFinite ||
+          frame.amplitude < 0 ||
+          frame.amplitude > 1) {
+        throw ArgumentError.value(
+          frame.amplitude,
+          'frames[$index].amplitude',
           'Must be a finite value from 0 to 1.',
         );
       }

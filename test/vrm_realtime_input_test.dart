@@ -43,6 +43,40 @@ void main() {
         ]),
         throwsArgumentError,
       );
+      expect(
+        () => controller.appendSpeechAmplitudes(<AmplitudeFrame>[
+          const AmplitudeFrame(amplitude: 1.1, timestamp: Duration.zero),
+        ]),
+        throwsArgumentError,
+      );
+    });
+
+    test('requires an active timeline before valid frame batches', () {
+      expect(
+        () => controller.appendSpeechVisemes(<VisemeFrame>[
+          const VisemeFrame(viseme: VrmViseme.aa, timestamp: Duration.zero),
+        ]),
+        throwsStateError,
+      );
+      expect(
+        () => controller.appendSpeechAmplitudes(<AmplitudeFrame>[
+          const AmplitudeFrame(amplitude: 0.5, timestamp: Duration.zero),
+        ]),
+        throwsStateError,
+      );
+    });
+
+    test('amplitude frames round-trip their timeline values', () {
+      const frame = AmplitudeFrame(
+        amplitude: 0.75,
+        timestamp: Duration(milliseconds: 120),
+        duration: Duration(milliseconds: 40),
+      );
+
+      final restored = AmplitudeFrame.fromJson(frame.toJson());
+      expect(restored.amplitude, 0.75);
+      expect(restored.timestamp, const Duration(milliseconds: 120));
+      expect(restored.duration, const Duration(milliseconds: 40));
     });
 
     test('rejects negative speech timing', () {

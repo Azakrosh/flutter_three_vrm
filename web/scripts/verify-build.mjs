@@ -17,7 +17,7 @@ const manifest = JSON.parse(
 
 assert.equal(manifest.schemaVersion, 1, "Unexpected manifest schema version");
 assert.equal(manifest.runtimeVersion, packageJson.version);
-assert.equal(manifest.protocolVersion, 1);
+assert.equal(manifest.protocolVersion, 2);
 assert.equal(manifest.entrypoint, "vrm-runtime.js");
 assert.deepEqual(manifest.dependencies, packageJson.dependencies);
 

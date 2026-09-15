@@ -72,8 +72,12 @@ class VrmExpressionChangedEvent extends VrmEvent {
   VrmExpressionChangedEvent({required this.expression, required this.layer});
 }
 
-/// Emitted when queued speech viseme frames complete playback.
-class VrmSpeechFinishedEvent extends VrmEvent {}
+/// Emitted when the active speech timeline reaches its declared audio length.
+class VrmSpeechFinishedEvent extends VrmEvent {
+  VrmSpeechFinishedEvent({required this.sessionId});
+
+  final String sessionId;
+}
 
 /// Emitted when an error occurs during model loading or rendering in WebGL.
 class VrmErrorEvent extends VrmEvent {

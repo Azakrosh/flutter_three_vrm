@@ -16,6 +16,7 @@ import {
   getRuntimeInfo,
   MotionTransitionController,
   parseCommand,
+  SpeechTimeline,
   success,
 } from './main';
 
@@ -112,11 +113,7 @@ class VrmRunner {
     // Lip Sync & Audio Amplitude
     this.lipSyncAmplitude = 0.0;
     this.smoothLipSyncAmplitude = 0.0;
-    this.visemeQueue = [];
-    this.speechEpochMs = null;
-    this.speechEndTimeMs = null;
-    this.speechIsFinishing = false;
-    this.speechFinishedNotified = false;
+    this.speechTimeline = new SpeechTimeline();
 
     // Micro-movements
     this.autoBlinkEnabled = true;
@@ -530,6 +527,7 @@ class VrmRunner {
       case 'unloadModel':
         this.cancelModelLoad();
         this.cancelAnimationLoad();
+        this.speechTimeline.acceptInputRevision(payload.speechRevision);
         this.unloadModel();
         break;
       case 'playAnimationFromUrl':
@@ -597,6 +595,10 @@ class VrmRunner {
         this.setShadows(payload.enabled);
         break;
       case 'setExpression':
+        if (payload.layer === 'mouth') {
+          if (!this.speechTimeline.acceptInputRevision(payload.speechRevision)) break;
+          this.cancelSpeech();
+        }
         this.setExpression(
           payload.expression,
           payload.layer,
@@ -606,38 +608,56 @@ class VrmRunner {
         );
         break;
       case 'clearExpressionLayer':
+        if (payload.layer === 'mouth') {
+          if (!this.speechTimeline.acceptInputRevision(payload.speechRevision)) break;
+          this.cancelSpeech();
+        }
         this.clearExpressionLayer(payload.layer);
         break;
       case 'clearAllExpressions':
+        if (!this.speechTimeline.acceptInputRevision(payload.speechRevision)) break;
+        this.cancelSpeech();
         this.clearAllExpressions();
         break;
       case 'setCustomBlendShape':
         this.customBlendShapes.set(payload.name, payload.weight);
         break;
       case 'setLipSyncAmplitude':
+        if (!this.speechTimeline.acceptInputRevision(payload.speechRevision)) break;
+        this.cancelSpeech();
         this.lipSyncAmplitude = payload.amplitude;
         break;
       case 'setViseme':
+        if (!this.speechTimeline.acceptInputRevision(payload.speechRevision)) break;
+        this.cancelSpeech();
         this.setViseme(payload.viseme, payload.weight);
         break;
       case 'enqueueSpeechVisemes':
-        if (payload.frames && Array.isArray(payload.frames)) {
-          this.enqueueSpeechVisemes(payload.frames);
-        }
+        this.enqueueSpeechVisemes(payload);
+        break;
+      case 'enqueueSpeechAmplitudes':
+        this.enqueueSpeechAmplitudes(payload);
         break;
       case 'beginSpeech':
-        this.beginSpeech(payload.startDelayMs);
+        this.beginSpeech(payload);
         break;
       case 'appendSpeechVisemes':
         if (payload.frames && Array.isArray(payload.frames)) {
-          this.appendSpeechVisemes(payload.frames);
+          this.appendSpeechVisemes(payload.sessionId, payload.frames);
+        }
+        break;
+      case 'appendSpeechAmplitudes':
+        if (payload.frames && Array.isArray(payload.frames)) {
+          this.appendSpeechAmplitudes(payload.sessionId, payload.frames);
         }
         break;
       case 'finishSpeech':
-        this.finishSpeech(payload.audioDurationMs);
+        this.finishSpeech(payload.sessionId, payload.audioDurationMs);
         break;
       case 'cancelSpeech':
-        this.cancelSpeech();
+        if (this.speechTimeline.acceptInputRevision(payload.speechRevision)) {
+          this.cancelSpeech(payload.sessionId);
+        }
         break;
       case 'setAutoBlink':
         this.autoBlinkEnabled = payload.enabled;
@@ -1005,6 +1025,7 @@ class VrmRunner {
   }
 
   unloadModel() {
+    this.cancelSpeech();
     if (this.currentVrm) {
       if (this.mixer) {
         if (this._onAnimationFinished) {
@@ -1278,62 +1299,61 @@ class VrmRunner {
     this.setExpression(targetViseme, 'mouth', weight, 0.1);
   }
 
-  enqueueSpeechVisemes(frames) {
+  enqueueSpeechVisemes(payload) {
+    const frames = payload.frames;
     if (!frames || frames.length === 0) return;
-    this.beginSpeech(0);
-    this.appendSpeechVisemes(frames);
+    if (!this.beginSpeech(payload)) return;
+    this.appendSpeechVisemes(payload.sessionId, frames);
     const audioDurationMs = frames.reduce((end, frame) => {
       return Math.max(end, Number(frame.timestampMs || 0) + Number(frame.durationMs || 0));
     }, 0);
-    this.finishSpeech(audioDurationMs);
+    this.finishSpeech(payload.sessionId, audioDurationMs);
   }
 
-  beginSpeech(startDelayMs = 180) {
-    this.visemeQueue = [];
-    this.speechEpochMs = performance.now() + Math.max(0, Number(startDelayMs || 0));
-    this.speechEndTimeMs = null;
-    this.speechIsFinishing = false;
-    this.speechFinishedNotified = false;
-    this.lipSyncAmplitude = 0.0;
-    this.smoothLipSyncAmplitude = 0.0;
-    this.clearExpressionLayer('mouth');
-  }
-
-  appendSpeechVisemes(frames) {
+  enqueueSpeechAmplitudes(payload) {
+    const frames = payload.frames;
     if (!frames || frames.length === 0) return;
-    if (this.speechEpochMs === null) this.beginSpeech(0);
-
-    const appendedFrames = frames.map(frame => ({
-      viseme: frame.viseme || 'sil',
-      weight: Math.max(0.0, Math.min(1.0, Number(frame.weight ?? 1.0))),
-      timestampMs: Math.max(0, Number(frame.timestampMs || 0)),
-      durationMs: Math.max(0, Number(frame.durationMs || 0)),
-      targetTime: this.speechEpochMs + Math.max(0, Number(frame.timestampMs || 0))
-    }));
-
-    this.visemeQueue.push(...appendedFrames);
-    this.visemeQueue.sort((a, b) => a.targetTime - b.targetTime);
+    if (!this.beginSpeech(payload)) return;
+    this.appendSpeechAmplitudes(payload.sessionId, frames);
+    const audioDurationMs = frames.reduce((end, frame) => {
+      return Math.max(end, Number(frame.timestampMs || 0) + Number(frame.durationMs || 0));
+    }, 0);
+    this.finishSpeech(payload.sessionId, audioDurationMs);
   }
 
-  finishSpeech(audioDurationMs = 0) {
-    if (this.speechEpochMs === null) this.beginSpeech(0);
-    const durationMs = Math.max(0, Number(audioDurationMs || 0));
-    this.speechEndTimeMs = this.speechEpochMs + durationMs;
-    this.speechIsFinishing = true;
-    this.appendSpeechVisemes([{
-      viseme: 'sil',
-      weight: 0.0,
-      timestampMs: durationMs,
-      durationMs: 0
-    }]);
+  beginSpeech(payload) {
+    if (!this.speechTimeline.acceptInputRevision(payload.speechRevision)) return false;
+    this.speechTimeline.begin({
+      sessionId: payload.sessionId,
+      mode: payload.mode,
+      timelineOriginEpochMs: payload.timelineOriginEpochMs,
+      nowMs: performance.now(),
+      wallNowEpochMs: Date.now(),
+    });
+    this.resetSpeechPresentation();
+    return true;
   }
 
-  cancelSpeech() {
-    this.visemeQueue = [];
-    this.speechEpochMs = null;
-    this.speechEndTimeMs = null;
-    this.speechIsFinishing = false;
-    this.speechFinishedNotified = false;
+  appendSpeechVisemes(sessionId, frames) {
+    this.speechTimeline.appendVisemes(sessionId, frames);
+  }
+
+  appendSpeechAmplitudes(sessionId, frames) {
+    this.speechTimeline.appendAmplitudes(sessionId, frames);
+  }
+
+  finishSpeech(sessionId, audioDurationMs) {
+    this.speechTimeline.finish(sessionId, audioDurationMs);
+  }
+
+  cancelSpeech(sessionId) {
+    const canceled = this.speechTimeline.cancel(sessionId);
+    if (sessionId !== undefined && !canceled) return false;
+    this.resetSpeechPresentation();
+    return canceled;
+  }
+
+  resetSpeechPresentation() {
     this.lipSyncAmplitude = 0.0;
     this.smoothLipSyncAmplitude = 0.0;
     this.clearExpressionLayer('mouth');
@@ -1956,7 +1976,7 @@ class VrmRunner {
     }
 
     if (this.currentVrm) {
-      this.updateLipSyncQueue();
+      this.updateSpeechTimeline();
       this.updateExpressions(delta);
       this.updateMicroMovements(elapsedTime, delta);
 
@@ -2042,38 +2062,34 @@ class VrmRunner {
     this.recordPerformance(now);
   }
 
-  updateLipSyncQueue() {
+  updateSpeechTimeline() {
     const now = performance.now();
+    const update = this.speechTimeline.advance(now);
 
-    while (this.visemeQueue && this.visemeQueue.length > 0 && this.visemeQueue[0].targetTime <= now) {
-      const frame = this.visemeQueue.shift();
-
-      const targetViseme = VrmRunner.VISEME_MAP[frame.viseme] || 'aa';
-
-      if (targetViseme === 'sil') {
+    if (Object.prototype.hasOwnProperty.call(update, 'viseme')) {
+      if (update.viseme === null) {
         this.clearExpressionLayer('mouth');
       } else {
-        let transitionDuration = Math.min(0.08, Math.max(0.02, frame.durationMs / 4000.0));
-        if (this.visemeQueue.length > 0) {
-          const nextFrame = this.visemeQueue[0];
-          const timeToNext = Math.max(10, nextFrame.targetTime - now);
-          transitionDuration = Math.min(transitionDuration, (timeToNext / 1000.0) * 0.8);
-        }
-
-        this.setExpression(targetViseme, 'mouth', frame.weight, transitionDuration);
+        const targetViseme = VrmRunner.VISEME_MAP[update.viseme.viseme] || 'aa';
+        const transitionDuration = Math.min(
+          0.08,
+          Math.max(0.02, update.viseme.durationMs / 4000.0),
+        );
+        this.setExpression(
+          targetViseme,
+          'mouth',
+          update.viseme.weight,
+          transitionDuration,
+        );
       }
-
     }
-
-    if (this.speechIsFinishing &&
-        this.visemeQueue.length === 0 &&
-        this.speechEndTimeMs !== null &&
-        now >= this.speechEndTimeMs &&
-        !this.speechFinishedNotified) {
-      this.clearExpressionLayer('mouth');
-      this.speechFinishedNotified = true;
-      this.speechIsFinishing = false;
-      this.notifyFlutter('onSpeechFinished', {});
+    if (Object.prototype.hasOwnProperty.call(update, 'amplitude')) {
+      this.lipSyncAmplitude = update.amplitude;
+    }
+    if (update.finishedSessionId !== undefined) {
+      this.notifyFlutter('onSpeechFinished', {
+        sessionId: update.finishedSessionId,
+      });
     }
   }
 
@@ -2357,7 +2373,7 @@ class VrmRunner {
   }
 }
 
-// Static viseme mapping used in setViseme() and updateLipSyncQueue()
+// Static viseme mapping used by direct input and the speech timeline.
 VrmRunner.VISEME_MAP = {
   'aa': 'aa', 'ih': 'ih', 'ou': 'ou', 'ee': 'ee', 'oh': 'oh',
   'AA': 'aa', 'IH': 'ih', 'OU': 'ou', 'EE': 'ee', 'OH': 'oh',

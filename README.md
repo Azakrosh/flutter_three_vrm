@@ -9,7 +9,7 @@ Flutter-пакет для отображения и управления одн�
 - VRM 0.x/1.0 через `@pixiv/three-vrm`;
 - VRMA-анимации и очереди анимаций;
 - слои выражений, моргание, взгляд, wind и spring bones;
-- amplitude lip sync и timeline визем без воспроизведения аудио;
+- realtime amplitude, amplitude timeline и timeline визем без воспроизведения аудио;
 - pan/zoom, ограниченный и свободный режим камеры, автоматическое кадрирование;
 - сохранение и восстановление `VrmTransform`;
 - прозрачный или цветной фон, свет, тени и настройки качества;
@@ -348,21 +348,43 @@ VrmView(
 Аудио воспроизводит Flutter-приложение. Пакет получает только амплитуду или временную шкалу визем:
 
 ```dart
-controller.setLipSyncAmplitude(0.65);
-await controller.beginSpeech(
-  startDelay: const Duration(milliseconds: 180),
-);
+final speechStart = controller.beginSpeech();
+final audioStart = audioPlayer.play(audioSource);
+await Future.wait([speechStart, audioStart]);
+
 await controller.appendSpeechVisemes(frames);
 await controller.finishSpeech(audioDuration);
+
+// Альтернатива для timestamped amplitude от сервера:
+await controller.beginSpeech(mode: VrmSpeechMode.amplitude);
+await controller.appendSpeechAmplitudes(amplitudeFrames);
+await controller.finishSpeech(audioDuration);
+
+// Если вся timeline уже известна:
+await controller.enqueueSpeechAmplitudes(amplitudeFrames);
+
+// Единственная операция транспорта во время воспроизведения — полный stop:
+await Future.wait([audioPlayer.stop(), controller.cancelSpeech()]);
 ```
 
-Для потокового TTS передавайте небольшие порции timeline заранее. Авторизационные токены сервера нельзя передавать в JavaScript/WebView; защищённую загрузку следует выполнять Flutter-клиентом, а затем вызывать `loadModelFromFile()` (предпочтительно для больших файлов) или `loadModelFromBytes()`.
+Для потокового TTS передавайте небольшие порции timeline заранее. Вызов `beginSpeech()`
+и запуск аудиоплеера выполняйте одновременно: timeline привязана к моменту вызова
+Flutter, а задержка доставки команды в WebView компенсируется автоматически. Пауза
+и перемотка намеренно не поддерживаются. Новая speech-сессия заменяет предыдущую,
+а пакеты со старым session ID игнорируются.
+
+Viseme и amplitude нельзя смешивать внутри одной сессии. `duration` каждого кадра
+ограничивает время его действия: если следующая порция сервера задержалась, рот
+автоматически вернётся в нейтральное состояние вместо зависания.
+
+Авторизационные токены сервера нельзя передавать в JavaScript/WebView; защищённую загрузку следует выполнять Flutter-клиентом, а затем вызывать `loadModelFromFile()` (предпочтительно для больших файлов) или `loadModelFromBytes()`.
 
 `setLipSyncAmplitude()`, прямой `setViseme()` и `setLookAtTarget()` используют
 latest-value backpressure: в WebView одновременно отправляется не более одного
 значения каждого типа, а накопившиеся устаревшие samples заменяются самым новым.
-Команды `beginSpeech()` / `appendSpeechVisemes()` / `finishSpeech()` остаются
-упорядоченными и не теряют timeline-кадры.
+Команды `beginSpeech()`, `appendSpeechVisemes()`,
+`appendSpeechAmplitudes()` и `finishSpeech()` используют упорядоченную
+session-safe timeline.
 
 ## Сборка web-runtime
 

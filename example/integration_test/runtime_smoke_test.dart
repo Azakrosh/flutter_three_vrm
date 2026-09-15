@@ -22,7 +22,7 @@ void main() {
     await controller.waitUntilReady(timeout: const Duration(seconds: 30));
 
     final initialHealth = await controller.getRuntimeHealth();
-    expect(initialHealth.protocolVersion, 1);
+    expect(initialHealth.protocolVersion, 2);
     expect(initialHealth.threeRevision, '180');
     expect(initialHealth.threeVrmVersion, '3.5.5');
     expect(initialHealth.maxTextureSize, greaterThan(0));
@@ -58,6 +58,7 @@ void main() {
     }
     await controller.cancelSpeech();
 
+    final visemeSpeechFinished = controller.onSpeechFinished.first;
     await controller.beginSpeech(startDelay: Duration.zero);
     await controller.appendSpeechVisemes(<VisemeFrame>[
       const VisemeFrame(
@@ -72,6 +73,39 @@ void main() {
       ),
     ]);
     await controller.finishSpeech(const Duration(milliseconds: 30));
+    expect(
+      (await visemeSpeechFinished.timeout(
+        const Duration(seconds: 5),
+      )).sessionId,
+      isNotEmpty,
+    );
+    expect(controller.isSpeechActive, isFalse);
+
+    final amplitudeSpeechFinished = controller.onSpeechFinished.first;
+    await controller.beginSpeech(
+      mode: VrmSpeechMode.amplitude,
+      startDelay: Duration.zero,
+    );
+    await controller.appendSpeechAmplitudes(<AmplitudeFrame>[
+      const AmplitudeFrame(
+        amplitude: 0.8,
+        timestamp: Duration.zero,
+        duration: Duration(milliseconds: 40),
+      ),
+      const AmplitudeFrame(
+        amplitude: 0,
+        timestamp: Duration(milliseconds: 40),
+        duration: Duration.zero,
+      ),
+    ]);
+    await controller.finishSpeech(const Duration(milliseconds: 40));
+    expect(
+      (await amplitudeSpeechFinished.timeout(
+        const Duration(seconds: 5),
+      )).sessionId,
+      isNotEmpty,
+    );
+    expect(controller.isSpeechActive, isFalse);
 
     const expectedTransform = VrmTransform(x: 0.2, y: -0.1, zoom: 1.4);
     await controller.setTransform(expectedTransform);

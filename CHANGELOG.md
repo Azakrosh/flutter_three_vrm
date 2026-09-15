@@ -2,6 +2,9 @@
 
 ## 0.2.0-dev.1
 
+- Add a monotonic, transport-latency-compensated speech timeline with isolated viseme and amplitude modes.
+- Isolate speech messages by session, expire late/stalled frames safely, and expose full-stop semantics without pause or seek.
+- Bump the internal Flutter/WebView protocol to version 2 for the session-safe speech contract.
 - Unify VRMA, retargeted glTF, and static Pose playback under one mixer crossfade path, including smooth transitions to the rest pose.
 - Add XYZ Euler-to-quaternion helpers and two attributed Pose fixtures for transition testing in the example.
 - Bundle the complete browser runtime, including the runner, into one reproducible checksummed artifact and verify its manifest in CI.

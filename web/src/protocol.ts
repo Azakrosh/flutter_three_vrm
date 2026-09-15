@@ -1,4 +1,4 @@
-export const protocolVersion = 1 as const;
+export const protocolVersion = 2 as const;
 
 export interface CommandEnvelope {
   readonly version: typeof protocolVersion;

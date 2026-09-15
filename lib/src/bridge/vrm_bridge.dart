@@ -4,7 +4,7 @@ typedef VrmJavaScriptRunner = Future<void> Function(String source);
 typedef VrmRuntimeReloader = Future<void> Function();
 
 final class _VrmBridge {
-  static const int _protocolVersion = 1;
+  static const int _protocolVersion = 2;
   static const Duration _commandTimeout = Duration(minutes: 2);
   static const int _maxIgnoredResponseIds = 256;
   final StreamController<VrmEvent> _eventController =
@@ -188,7 +188,11 @@ final class _VrmBridge {
           ),
         );
       case 'onSpeechFinished':
-        _eventController.add(VrmSpeechFinishedEvent());
+        final sessionId = payload['sessionId'];
+        if (sessionId is! String || sessionId.isEmpty) {
+          throw const FormatException('Speech event sessionId is missing.');
+        }
+        _eventController.add(VrmSpeechFinishedEvent(sessionId: sessionId));
       case 'onError':
         _eventController.add(
           VrmErrorEvent(
