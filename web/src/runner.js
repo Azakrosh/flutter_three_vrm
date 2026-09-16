@@ -10,26 +10,13 @@ import {
   createVRMAnimationClip,
   createHumanoidAnimationClip,
   createNormalizedPoseClip,
-  event as protocolEvent,
-  failure,
   getNormalizedPose,
   getRuntimeInfo,
+  installRuntimeBridge,
   MotionTransitionController,
-  parseCommand,
+  postRuntimeEvent,
   SpeechTimeline,
-  success,
 } from './main';
-
-function postFlutterMessage(value) {
-  const message = typeof value === 'string' ? value : JSON.stringify(value);
-  if (window.FlutterBridge && window.FlutterBridge.postMessage) {
-    window.FlutterBridge.postMessage(message);
-  } else if (window.chrome && window.chrome.webview) {
-    window.chrome.webview.postMessage(message);
-  } else if (window.parent) {
-    window.parent.postMessage(message, '*');
-  }
-}
 // Подавляем безвредные предупреждения от @pixiv/three-vrm-animation для старых vrma файлов
 const originalConsoleWarn = console.warn;
 console.warn = function (...args) {
@@ -210,7 +197,7 @@ class VrmRunner {
     this._onWebGlContextLost = (event) => this.onWebGlContextLost(event);
     this._onWebGlContextRestored = () => this.onWebGlContextRestored();
     this._onPageHide = () => this.dispose();
-    this._disposeRuntime = () => this.dispose();
+    this._detachRuntimeBridge = null;
 
     this.initScene();
     this.initEvents();
@@ -319,21 +306,12 @@ class VrmRunner {
     window.addEventListener('pagehide', this._onPageHide);
     this.attachPointerEvents();
 
-    this._flutterDispatch = async (commandJson) => {
-      let id = 'invalid-command';
-      try {
-        const command = parseCommand(commandJson);
-        id = command.id;
-        const result = await this.handleFlutterCommand(command.action, command.payload ?? {});
-        if (!this._isDisposed) postFlutterMessage(success(id, result ?? null));
-      } catch (error) {
-        const code = typeof error?.code === 'string' ? error.code : 'runtimeError';
-        const message = error instanceof Error ? error.message : String(error);
-        if (!this._isDisposed) postFlutterMessage(failure(id, code, message));
-      }
-    };
-    window.flutterVrmDispatch = this._flutterDispatch;
-    window.flutterVrmDispose = this._disposeRuntime;
+    this._detachRuntimeBridge = installRuntimeBridge({
+      executeCommand: (action, payload) =>
+        this.handleFlutterCommand(action, payload),
+      dispose: () => this.dispose(),
+      isDisposed: () => this._isDisposed,
+    });
   }
 
   attachControlsEvents() {
@@ -1900,12 +1878,8 @@ class VrmRunner {
 
     window.removeEventListener('resize', this._onWindowResize);
     window.removeEventListener('pagehide', this._onPageHide);
-    if (window.flutterVrmDispatch === this._flutterDispatch) {
-      delete window.flutterVrmDispatch;
-    }
-    if (window.flutterVrmDispose === this._disposeRuntime) {
-      delete window.flutterVrmDispose;
-    }
+    this._detachRuntimeBridge?.();
+    this._detachRuntimeBridge = null;
 
     if (this.currentVrm) this.unloadModel();
     this.detachPointerEvents();
@@ -2389,7 +2363,7 @@ class VrmRunner {
 
   notifyFlutter(eventName, payload) {
     if (this._isDisposed) return;
-    postFlutterMessage(protocolEvent(eventName, payload));
+    postRuntimeEvent(eventName, payload);
   }
 }
 

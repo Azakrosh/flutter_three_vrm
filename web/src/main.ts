@@ -73,6 +73,14 @@ export {
 } from "./speech-timeline";
 
 export {
+  createRuntimeCommandResponse,
+  installRuntimeBridge,
+  postRuntimeEvent,
+  type RuntimeBridgeOptions,
+  type RuntimeCommandExecutor,
+} from "./runtime-bridge";
+
+export {
   GLTFLoader,
   OrbitControls,
   THREE,
