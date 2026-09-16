@@ -35,7 +35,7 @@ void main() {
         throwsArgumentError,
       );
       expect(
-        () => controller.appendSpeechVisemes(<VisemeFrame>[
+        () => controller.enqueueSpeechVisemes(<VisemeFrame>[
           VisemeFrame(
             viseme: VrmViseme.aa,
             timestamp: const Duration(milliseconds: -1),
@@ -44,25 +44,10 @@ void main() {
         throwsArgumentError,
       );
       expect(
-        () => controller.appendSpeechAmplitudes(<AmplitudeFrame>[
+        () => controller.enqueueSpeechAmplitudes(<AmplitudeFrame>[
           const AmplitudeFrame(amplitude: 1.1, timestamp: Duration.zero),
         ]),
         throwsArgumentError,
-      );
-    });
-
-    test('requires an active timeline before valid frame batches', () {
-      expect(
-        () => controller.appendSpeechVisemes(<VisemeFrame>[
-          const VisemeFrame(viseme: VrmViseme.aa, timestamp: Duration.zero),
-        ]),
-        throwsStateError,
-      );
-      expect(
-        () => controller.appendSpeechAmplitudes(<AmplitudeFrame>[
-          const AmplitudeFrame(amplitude: 0.5, timestamp: Duration.zero),
-        ]),
-        throwsStateError,
       );
     });
 
@@ -84,10 +69,6 @@ void main() {
         () => controller.beginSpeech(
           startDelay: const Duration(milliseconds: -1),
         ),
-        throwsArgumentError,
-      );
-      expect(
-        () => controller.finishSpeech(const Duration(milliseconds: -1)),
         throwsArgumentError,
       );
     });

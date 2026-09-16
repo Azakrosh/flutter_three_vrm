@@ -59,51 +59,70 @@ void main() {
     await controller.cancelSpeech();
 
     final visemeSpeechFinished = controller.onSpeechFinished.first;
-    await controller.beginSpeech(startDelay: Duration.zero);
-    await controller.appendSpeechVisemes(<VisemeFrame>[
-      const VisemeFrame(
-        viseme: VrmViseme.aa,
-        timestamp: Duration.zero,
-        duration: Duration(milliseconds: 30),
-      ),
-      const VisemeFrame(
-        viseme: VrmViseme.sil,
-        timestamp: Duration(milliseconds: 30),
-        duration: Duration.zero,
-      ),
-    ]);
-    await controller.finishSpeech(const Duration(milliseconds: 30));
+    final staleSpeech = await controller.beginSpeech();
+    final visemeSpeech = await controller.beginSpeech(
+      startDelay: Duration.zero,
+    );
+    expect(staleSpeech.isActive, isFalse);
+    expect(
+      await staleSpeech.appendVisemes(<VisemeFrame>[
+        const VisemeFrame(viseme: VrmViseme.oh, timestamp: Duration.zero),
+      ]),
+      isFalse,
+    );
+    expect(
+      await visemeSpeech.appendVisemes(<VisemeFrame>[
+        const VisemeFrame(
+          viseme: VrmViseme.aa,
+          timestamp: Duration.zero,
+          duration: Duration(milliseconds: 30),
+        ),
+        const VisemeFrame(
+          viseme: VrmViseme.sil,
+          timestamp: Duration(milliseconds: 30),
+          duration: Duration.zero,
+        ),
+      ]),
+      isTrue,
+    );
+    expect(await visemeSpeech.finish(const Duration(milliseconds: 30)), isTrue);
     expect(
       (await visemeSpeechFinished.timeout(
         const Duration(seconds: 5),
       )).sessionId,
-      isNotEmpty,
+      visemeSpeech.id,
     );
     expect(controller.isSpeechActive, isFalse);
 
     final amplitudeSpeechFinished = controller.onSpeechFinished.first;
-    await controller.beginSpeech(
+    final amplitudeSpeech = await controller.beginSpeech(
       mode: VrmSpeechMode.amplitude,
       startDelay: Duration.zero,
     );
-    await controller.appendSpeechAmplitudes(<AmplitudeFrame>[
-      const AmplitudeFrame(
-        amplitude: 0.8,
-        timestamp: Duration.zero,
-        duration: Duration(milliseconds: 40),
-      ),
-      const AmplitudeFrame(
-        amplitude: 0,
-        timestamp: Duration(milliseconds: 40),
-        duration: Duration.zero,
-      ),
-    ]);
-    await controller.finishSpeech(const Duration(milliseconds: 40));
+    expect(
+      await amplitudeSpeech.appendAmplitudes(<AmplitudeFrame>[
+        const AmplitudeFrame(
+          amplitude: 0.8,
+          timestamp: Duration.zero,
+          duration: Duration(milliseconds: 40),
+        ),
+        const AmplitudeFrame(
+          amplitude: 0,
+          timestamp: Duration(milliseconds: 40),
+          duration: Duration.zero,
+        ),
+      ]),
+      isTrue,
+    );
+    expect(
+      await amplitudeSpeech.finish(const Duration(milliseconds: 40)),
+      isTrue,
+    );
     expect(
       (await amplitudeSpeechFinished.timeout(
         const Duration(seconds: 5),
       )).sessionId,
-      isNotEmpty,
+      amplitudeSpeech.id,
     );
     expect(controller.isSpeechActive, isFalse);
 

@@ -2,6 +2,7 @@
 
 ## 0.2.0-dev.1
 
+- Bind streaming speech operations to a typed `VrmSpeechSession` so late callbacks from replaced AI messages cannot mutate the current timeline.
 - Add a monotonic, transport-latency-compensated speech timeline with isolated viseme and amplitude modes.
 - Isolate speech messages by session, expire late/stalled frames safely, and expose full-stop semantics without pause or seek.
 - Bump the internal Flutter/WebView protocol to version 2 for the session-safe speech contract.

@@ -348,17 +348,20 @@ VrmView(
 Аудио воспроизводит Flutter-приложение. Пакет получает только амплитуду или временную шкалу визем:
 
 ```dart
-final speechStart = controller.beginSpeech();
+final speechFuture = controller.beginSpeech();
 final audioStart = audioPlayer.play(audioSource);
-await Future.wait([speechStart, audioStart]);
+final speech = await speechFuture;
+await audioStart;
 
-await controller.appendSpeechVisemes(frames);
-await controller.finishSpeech(audioDuration);
+await speech.appendVisemes(frames);
+await speech.finish(audioDuration);
 
 // Альтернатива для timestamped amplitude от сервера:
-await controller.beginSpeech(mode: VrmSpeechMode.amplitude);
-await controller.appendSpeechAmplitudes(amplitudeFrames);
-await controller.finishSpeech(audioDuration);
+final amplitudeSpeech = await controller.beginSpeech(
+  mode: VrmSpeechMode.amplitude,
+);
+await amplitudeSpeech.appendAmplitudes(amplitudeFrames);
+await amplitudeSpeech.finish(audioDuration);
 
 // Если вся timeline уже известна:
 await controller.enqueueSpeechAmplitudes(amplitudeFrames);
@@ -366,6 +369,12 @@ await controller.enqueueSpeechAmplitudes(amplitudeFrames);
 // Единственная операция транспорта во время воспроизведения — полный stop:
 await Future.wait([audioPlayer.stop(), controller.cancelSpeech()]);
 ```
+
+Сохраняйте возвращённый `VrmSpeechSession` рядом с конкретным аудиосообщением
+AI-сервера и используйте его во всех callbacks этого сообщения. После запуска
+следующей речи операции старого handle возвращают `false` и не могут изменить
+актуальную timeline. `VrmSpeechSession.cancel()` также останавливает речь
+только тогда, когда этот handle всё ещё активен.
 
 Для потокового TTS передавайте небольшие порции timeline заранее. Вызов `beginSpeech()`
 и запуск аудиоплеера выполняйте одновременно: timeline привязана к моменту вызова
@@ -382,8 +391,8 @@ Viseme и amplitude нельзя смешивать внутри одной се
 `setLipSyncAmplitude()`, прямой `setViseme()` и `setLookAtTarget()` используют
 latest-value backpressure: в WebView одновременно отправляется не более одного
 значения каждого типа, а накопившиеся устаревшие samples заменяются самым новым.
-Команды `beginSpeech()`, `appendSpeechVisemes()`,
-`appendSpeechAmplitudes()` и `finishSpeech()` используют упорядоченную
+`beginSpeech()` и методы `VrmSpeechSession.appendVisemes()`,
+`appendAmplitudes()`, `finish()` и `cancel()` используют упорядоченную
 session-safe timeline.
 
 ## Сборка web-runtime

@@ -704,7 +704,7 @@ class VrmController {
   /// [startDelay]. Bridge latency is compensated inside the WebView. Invoke
   /// this alongside audio playback rather than awaiting it before starting
   /// the player.
-  Future<void> beginSpeech({
+  Future<VrmSpeechSession> beginSpeech({
     VrmSpeechMode mode = VrmSpeechMode.viseme,
     Duration startDelay = Duration.zero,
   }) async {
@@ -728,38 +728,45 @@ class VrmController {
         'timelineOriginEpochMs': timelineOriginEpochMs,
         'speechRevision': speechRevision,
       });
+      return VrmSpeechSession._(this, sessionId, mode);
     } on Object {
       _abandonSpeechSession(sessionId);
       rethrow;
     }
   }
 
-  /// Appends timed frames to the active streaming speech timeline.
-  Future<void> appendSpeechVisemes(List<VisemeFrame> frames) {
-    if (frames.isEmpty) return Future<void>.value();
+  Future<bool> _appendSpeechVisemes(
+    String sessionId,
+    List<VisemeFrame> frames,
+  ) async {
+    if (!_canUseSpeechSession(sessionId)) return false;
     _validateVisemeFrames(frames);
+    if (frames.isEmpty) return true;
     final sortedFrames = List<VisemeFrame>.from(frames)..sort();
-    final sessionId = _requireSpeechSession(VrmSpeechMode.viseme);
-    return _bridge.sendCommand('appendSpeechVisemes', {
+    await _bridge.sendCommand('appendSpeechVisemes', {
       'sessionId': sessionId,
       'frames': sortedFrames.map((f) => f.toJson()).toList(),
     });
+    return true;
   }
 
-  /// Appends timestamped amplitude samples to an amplitude speech timeline.
-  Future<void> appendSpeechAmplitudes(List<AmplitudeFrame> frames) {
-    if (frames.isEmpty) return Future<void>.value();
+  Future<bool> _appendSpeechAmplitudes(
+    String sessionId,
+    List<AmplitudeFrame> frames,
+  ) async {
+    if (!_canUseSpeechSession(sessionId)) return false;
     _validateAmplitudeFrames(frames);
+    if (frames.isEmpty) return true;
     final sortedFrames = List<AmplitudeFrame>.from(frames)..sort();
-    final sessionId = _requireSpeechSession(VrmSpeechMode.amplitude);
-    return _bridge.sendCommand('appendSpeechAmplitudes', {
+    await _bridge.sendCommand('appendSpeechAmplitudes', {
       'sessionId': sessionId,
       'frames': sortedFrames.map((frame) => frame.toJson()).toList(),
     });
+    return true;
   }
 
-  /// Marks a streaming speech timeline as complete.
-  Future<void> finishSpeech(Duration audioDuration) async {
+  Future<bool> _finishSpeech(String sessionId, Duration audioDuration) async {
+    if (!_canUseSpeechSession(sessionId)) return false;
     if (audioDuration.isNegative) {
       throw ArgumentError.value(
         audioDuration,
@@ -767,7 +774,6 @@ class VrmController {
         'Must not be negative.',
       );
     }
-    final sessionId = _requireSpeechSession();
     _speechIsFinishing = true;
     try {
       await _bridge.sendCommand('finishSpeech', {
@@ -780,6 +786,7 @@ class VrmController {
       }
       rethrow;
     }
+    return true;
   }
 
   /// Fully stops the active speech timeline and closes the mouth layer.
@@ -793,6 +800,17 @@ class VrmController {
     });
   }
 
+  Future<bool> _cancelSpeechSession(String sessionId) async {
+    if (_activeSpeechSessionId != sessionId) return false;
+    _clearDirectSpeechInputs();
+    _abandonSpeechSession(sessionId);
+    await _bridge.sendCommand('cancelSpeech', {
+      'sessionId': sessionId,
+      'speechRevision': _nextSpeechRevision(),
+    });
+    return true;
+  }
+
   String _activateSpeechSession(VrmSpeechMode mode) {
     final sessionId =
         'speech-${DateTime.now().microsecondsSinceEpoch}-${_speechSessionSequence++}';
@@ -804,22 +822,8 @@ class VrmController {
 
   int _nextSpeechRevision() => ++_speechInputRevision;
 
-  String _requireSpeechSession([VrmSpeechMode? mode]) {
-    final sessionId = _activeSpeechSessionId;
-    if (sessionId == null) {
-      throw StateError('Call beginSpeech() before appending or finishing.');
-    }
-    if (_speechIsFinishing) {
-      throw StateError('The active speech timeline is already finishing.');
-    }
-    if (mode != null && _activeSpeechMode != mode) {
-      throw StateError(
-        'The active speech timeline accepts ${_activeSpeechMode?.name} frames, '
-        'not ${mode.name} frames.',
-      );
-    }
-    return sessionId;
-  }
+  bool _canUseSpeechSession(String sessionId) =>
+      _activeSpeechSessionId == sessionId && !_speechIsFinishing;
 
   void _abandonSpeechSession([String? expectedSessionId]) {
     if (expectedSessionId != null &&
@@ -1229,4 +1233,45 @@ class VrmController {
 
   Stream<VrmTapEvent> get onTap =>
       _bridge.eventStream.where((e) => e is VrmTapEvent).cast<VrmTapEvent>();
+}
+
+/// A high-level handle bound to one real-time audio message.
+///
+/// Late callbacks can safely keep their original handle: once another session
+/// starts, append, finish, and cancel return `false` without touching it.
+final class VrmSpeechSession {
+  const VrmSpeechSession._(this._controller, this.id, this.mode);
+
+  final VrmController _controller;
+
+  /// Opaque identifier also reported by [VrmSpeechFinishedEvent].
+  final String id;
+
+  final VrmSpeechMode mode;
+
+  bool get isActive => _controller._activeSpeechSessionId == id;
+
+  /// Appends visemes when this is the active viseme session.
+  Future<bool> appendVisemes(List<VisemeFrame> frames) {
+    if (mode != VrmSpeechMode.viseme) {
+      throw StateError('This speech session accepts amplitude frames.');
+    }
+    return _controller._appendSpeechVisemes(id, frames);
+  }
+
+  /// Appends amplitudes when this is the active amplitude session.
+  Future<bool> appendAmplitudes(List<AmplitudeFrame> frames) {
+    if (mode != VrmSpeechMode.amplitude) {
+      throw StateError('This speech session accepts viseme frames.');
+    }
+    return _controller._appendSpeechAmplitudes(id, frames);
+  }
+
+  /// Declares the final audio duration and schedules neutral mouth state.
+  Future<bool> finish(Duration audioDuration) {
+    return _controller._finishSpeech(id, audioDuration);
+  }
+
+  /// Cancels this session only if it is still active.
+  Future<bool> cancel() => _controller._cancelSpeechSession(id);
 }
