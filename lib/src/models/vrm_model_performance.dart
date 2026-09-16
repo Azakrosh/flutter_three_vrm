@@ -27,13 +27,7 @@ final class VrmModelComplexityThresholds {
     required this.textureDimension,
     required this.morphTargets,
     required this.springBoneJoints,
-  }) : assert(sourceBytes > 0),
-       assert(triangles > 0),
-       assert(textureCount > 0),
-       assert(texturePixels > 0),
-       assert(textureDimension > 0),
-       assert(morphTargets > 0),
-       assert(springBoneJoints > 0);
+  });
 
   final int sourceBytes;
   final int triangles;
@@ -42,6 +36,27 @@ final class VrmModelComplexityThresholds {
   final int textureDimension;
   final int morphTargets;
   final int springBoneJoints;
+
+  void _validate(String name) {
+    final values = <String, int>{
+      'sourceBytes': sourceBytes,
+      'triangles': triangles,
+      'textureCount': textureCount,
+      'texturePixels': texturePixels,
+      'textureDimension': textureDimension,
+      'morphTargets': morphTargets,
+      'springBoneJoints': springBoneJoints,
+    };
+    for (final entry in values.entries) {
+      if (entry.value <= 0) {
+        throw ArgumentError.value(
+          entry.value,
+          '$name.${entry.key}',
+          'Must be positive.',
+        );
+      }
+    }
+  }
 
   @override
   bool operator ==(Object other) =>
@@ -126,9 +141,7 @@ final class VrmModelPerformancePolicy {
     ),
     this.elevatedMaxPixelRatio = 1.25,
     this.highMaxPixelRatio = 1,
-  }) : assert(elevatedMaxPixelRatio >= 0.5),
-       assert(highMaxPixelRatio >= 0.5),
-       assert(highMaxPixelRatio <= elevatedMaxPixelRatio);
+  });
 
   final bool autoTunePixelRatio;
   final VrmModelComplexityThresholds elevated;
@@ -154,13 +167,39 @@ final class VrmModelPerformancePolicy {
     highMaxPixelRatio,
   );
 
-  VrmModelAssessment assess(VrmModelReport report) {
+  /// Verifies advisory thresholds and render caps in all build modes.
+  void validate() {
+    elevated._validate('elevated');
+    high._validate('high');
+    if (!elevatedMaxPixelRatio.isFinite || elevatedMaxPixelRatio < 0.5) {
+      throw ArgumentError.value(
+        elevatedMaxPixelRatio,
+        'elevatedMaxPixelRatio',
+        'Must be finite and at least 0.5.',
+      );
+    }
+    if (!highMaxPixelRatio.isFinite || highMaxPixelRatio < 0.5) {
+      throw ArgumentError.value(
+        highMaxPixelRatio,
+        'highMaxPixelRatio',
+        'Must be finite and at least 0.5.',
+      );
+    }
+    if (highMaxPixelRatio > elevatedMaxPixelRatio) {
+      throw ArgumentError(
+        'highMaxPixelRatio must not exceed elevatedMaxPixelRatio.',
+      );
+    }
     if (!_thresholdsAreOrdered) {
       throw StateError(
         'High complexity thresholds must not be lower than elevated '
         'thresholds.',
       );
     }
+  }
+
+  VrmModelAssessment assess(VrmModelReport report) {
+    validate();
     final warnings = <VrmModelPerformanceWarning>[];
     final textureDimension = math.max(
       report.maxTextureWidth,
@@ -271,6 +310,8 @@ final class VrmModelPerformancePolicy {
     VrmAdaptiveQualitySettings settings,
     VrmModelAssessment assessment,
   ) {
+    validate();
+    settings.validate();
     final cap = assessment.recommendedMaxPixelRatio;
     if (!autoTunePixelRatio || !settings.enabled || cap == null) {
       return settings;

@@ -73,6 +73,7 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    _validateConfiguration();
     WidgetsBinding.instance.addObserver(this);
     _lifecycleCoordinator = VrmRenderLifecycleCoordinator(
       platform: defaultTargetPlatform,
@@ -95,6 +96,7 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
   @override
   void didUpdateWidget(covariant VrmView oldWidget) {
     super.didUpdateWidget(oldWidget);
+    _validateConfiguration();
     if (oldWidget.renderingEnabled != widget.renderingEnabled ||
         oldWidget.lifecyclePolicy != widget.lifecyclePolicy) {
       _lifecycleCoordinator.updateConfiguration(
@@ -143,6 +145,12 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
             oldWidget.transparent != widget.transparent)) {
       unawaited(_applyBackgroundSafely());
     }
+  }
+
+  void _validateConfiguration() {
+    widget.adaptiveQuality.validate();
+    widget.modelPerformancePolicy.validate();
+    widget.recoveryPolicy.validate();
   }
 
   void _bindController(VrmController controller) {

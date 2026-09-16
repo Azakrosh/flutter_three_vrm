@@ -11,22 +11,52 @@ final class VrmAdaptiveQualitySettings {
     this.targetFps = 55,
     this.minPixelRatio = 0.75,
     this.maxPixelRatio = 1.5,
-  }) : assert(targetFps >= 15 && targetFps <= 120),
-       assert(minPixelRatio >= 0.5 && minPixelRatio <= 3),
-       assert(maxPixelRatio >= 0.5 && maxPixelRatio <= 3),
-       assert(minPixelRatio <= maxPixelRatio);
+  });
 
   final bool enabled;
   final int targetFps;
   final double minPixelRatio;
   final double maxPixelRatio;
 
-  Map<String, Object> toJson() => <String, Object>{
-    'enabled': enabled,
-    'targetFps': targetFps,
-    'minPixelRatio': minPixelRatio,
-    'maxPixelRatio': maxPixelRatio,
-  };
+  /// Verifies renderer bounds in both debug and release builds.
+  void validate() {
+    if (targetFps < 15 || targetFps > 120) {
+      throw ArgumentError.value(
+        targetFps,
+        'targetFps',
+        'Must be between 15 and 120.',
+      );
+    }
+    if (!minPixelRatio.isFinite || minPixelRatio < 0.5 || minPixelRatio > 3) {
+      throw ArgumentError.value(
+        minPixelRatio,
+        'minPixelRatio',
+        'Must be finite and between 0.5 and 3.',
+      );
+    }
+    if (!maxPixelRatio.isFinite || maxPixelRatio < 0.5 || maxPixelRatio > 3) {
+      throw ArgumentError.value(
+        maxPixelRatio,
+        'maxPixelRatio',
+        'Must be finite and between 0.5 and 3.',
+      );
+    }
+    if (minPixelRatio > maxPixelRatio) {
+      throw ArgumentError(
+        'minPixelRatio must not be greater than maxPixelRatio.',
+      );
+    }
+  }
+
+  Map<String, Object> toJson() {
+    validate();
+    return <String, Object>{
+      'enabled': enabled,
+      'targetFps': targetFps,
+      'minPixelRatio': minPixelRatio,
+      'maxPixelRatio': maxPixelRatio,
+    };
+  }
 
   VrmAdaptiveQualitySettings copyWith({
     bool? enabled,

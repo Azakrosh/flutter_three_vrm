@@ -2,6 +2,7 @@
 
 ## 0.2.0-dev.1
 
+- Enforce transform, adaptive-quality, recovery, and model-performance configuration contracts in release builds instead of relying on debug-only asserts.
 - Validate animation, pose, expression, gaze, lighting, physics, and renderer inputs synchronously before they can corrupt WebView state.
 - Bind streaming speech operations to a typed `VrmSpeechSession` so late callbacks from replaced AI messages cannot mutate the current timeline.
 - Add a monotonic, transport-latency-compensated speech timeline with isolated viseme and amplitude modes.

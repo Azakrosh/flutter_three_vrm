@@ -96,20 +96,39 @@ final class VrmRuntimeRecoveryPolicy {
     this.maxAttempts = 2,
     this.baseDelay = const Duration(milliseconds: 500),
     this.maxDelay = const Duration(seconds: 4),
-  }) : assert(maxAttempts >= 0);
+  });
 
   final bool enabled;
   final int maxAttempts;
   final Duration baseDelay;
   final Duration maxDelay;
 
+  /// Verifies retry bounds in both debug and release builds.
+  void validate() {
+    if (maxAttempts < 0) {
+      throw ArgumentError.value(
+        maxAttempts,
+        'maxAttempts',
+        'Must not be negative.',
+      );
+    }
+    if (baseDelay.isNegative) {
+      throw ArgumentError.value(
+        baseDelay,
+        'baseDelay',
+        'Must not be negative.',
+      );
+    }
+    if (maxDelay.isNegative) {
+      throw ArgumentError.value(maxDelay, 'maxDelay', 'Must not be negative.');
+    }
+  }
+
   Duration delayForAttempt(int attempt) {
     if (attempt < 1) {
       throw RangeError.range(attempt, 1, null, 'attempt');
     }
-    if (baseDelay.isNegative || maxDelay.isNegative) {
-      throw StateError('Runtime recovery delays must not be negative.');
-    }
+    validate();
     final exponent = math.min(attempt - 1, 20);
     final milliseconds = math.min(
       maxDelay.inMilliseconds,

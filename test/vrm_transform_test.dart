@@ -31,5 +31,14 @@ void main() {
         throwsFormatException,
       );
     });
+
+    test('validates directly constructed values in release-safe paths', () {
+      const invalidPosition = VrmTransform(x: double.nan, y: 0, zoom: 1);
+      const invalidZoom = VrmTransform(x: 0, y: 0, zoom: 0);
+
+      expect(invalidPosition.validate, throwsArgumentError);
+      expect(invalidPosition.toMap, throwsArgumentError);
+      expect(invalidZoom.validate, throwsArgumentError);
+    });
   });
 }

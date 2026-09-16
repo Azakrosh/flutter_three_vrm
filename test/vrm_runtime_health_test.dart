@@ -54,12 +54,14 @@ void main() {
       expect(policy.delayForAttempt(10), const Duration(seconds: 1));
     });
 
-    test('rejects invalid attempt and negative delays', () {
+    test('rejects invalid retry configuration without relying on asserts', () {
       const negative = VrmRuntimeRecoveryPolicy(
         baseDelay: Duration(milliseconds: -1),
       );
+      const invalidAttempts = VrmRuntimeRecoveryPolicy(maxAttempts: -1);
 
-      expect(() => negative.delayForAttempt(1), throwsStateError);
+      expect(() => negative.delayForAttempt(1), throwsArgumentError);
+      expect(invalidAttempts.validate, throwsArgumentError);
       expect(
         () => const VrmRuntimeRecoveryPolicy().delayForAttempt(0),
         throwsRangeError,

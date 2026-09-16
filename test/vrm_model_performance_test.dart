@@ -112,6 +112,31 @@ void main() {
 
       expect(() => invalid.assess(_report()), throwsStateError);
     });
+
+    test('rejects non-positive thresholds and invalid caps in all modes', () {
+      const invalidThreshold = VrmModelPerformancePolicy(
+        elevated: VrmModelComplexityThresholds(
+          sourceBytes: 0,
+          triangles: 100,
+          textureCount: 10,
+          texturePixels: 100,
+          textureDimension: 100,
+          morphTargets: 10,
+          springBoneJoints: 10,
+        ),
+      );
+      const invalidCap = VrmModelPerformancePolicy(
+        elevatedMaxPixelRatio: double.nan,
+      );
+      const invertedCaps = VrmModelPerformancePolicy(
+        elevatedMaxPixelRatio: 1,
+        highMaxPixelRatio: 1.25,
+      );
+
+      expect(invalidThreshold.validate, throwsArgumentError);
+      expect(invalidCap.validate, throwsArgumentError);
+      expect(invertedCaps.validate, throwsArgumentError);
+    });
   });
 }
 

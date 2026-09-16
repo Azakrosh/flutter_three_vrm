@@ -2,16 +2,29 @@ import 'dart:convert';
 
 /// Serializable pan and zoom state of the avatar camera.
 final class VrmTransform {
-  const VrmTransform({required this.x, required this.y, required this.zoom})
-    : assert(x > double.negativeInfinity && x < double.infinity),
-      assert(y > double.negativeInfinity && y < double.infinity),
-      assert(zoom > 0 && zoom < double.infinity);
+  const VrmTransform({required this.x, required this.y, required this.zoom});
 
   final double x;
   final double y;
   final double zoom;
 
-  Map<String, double> toMap() => <String, double>{'x': x, 'y': y, 'zoom': zoom};
+  /// Verifies values in both debug and release builds.
+  void validate() {
+    if (!x.isFinite) {
+      throw ArgumentError.value(x, 'x', 'Must be finite.');
+    }
+    if (!y.isFinite) {
+      throw ArgumentError.value(y, 'y', 'Must be finite.');
+    }
+    if (!zoom.isFinite || zoom <= 0) {
+      throw ArgumentError.value(zoom, 'zoom', 'Must be positive and finite.');
+    }
+  }
+
+  Map<String, double> toMap() {
+    validate();
+    return <String, double>{'x': x, 'y': y, 'zoom': zoom};
+  }
 
   factory VrmTransform.fromMap(Map<String, dynamic> map) {
     return VrmTransform(

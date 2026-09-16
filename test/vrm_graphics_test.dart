@@ -18,6 +18,21 @@ void main() {
       });
     });
 
+    test('rejects invalid adaptive settings without relying on asserts', () {
+      const invalidFps = VrmAdaptiveQualitySettings(targetFps: 121);
+      const invalidMinimum = VrmAdaptiveQualitySettings(
+        minPixelRatio: double.nan,
+      );
+      const inverted = VrmAdaptiveQualitySettings(
+        minPixelRatio: 2,
+        maxPixelRatio: 1,
+      );
+
+      expect(invalidFps.validate, throwsArgumentError);
+      expect(invalidMinimum.toJson, throwsArgumentError);
+      expect(inverted.validate, throwsArgumentError);
+    });
+
     test('parses a strict performance snapshot', () {
       final snapshot = VrmPerformanceSnapshot.fromJson(<String, Object>{
         'fps': 57.5,
