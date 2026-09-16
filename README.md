@@ -423,6 +423,9 @@ corepack pnpm verify:build
 
 ## Статус roadmap
 
+Канонический план, аудит текущей архитектуры и следующие этапы находятся в
+[`docs/ROADMAP.md`](docs/ROADMAP.md).
+
 Расширенный runtime smoke-тест пройден на физическом Android 16 устройстве и в Windows WebView2. Windows lifecycle дополнительно проверен вручную: клики внутри и вне окна, pan/zoom, сворачивание и восстановление не останавливают анимацию видимого аватара.
 
 Runtime smoke-тест находится в `example/integration_test/runtime_smoke_test.dart` и проверяет initialization, health payload, загрузку и выгрузку модели, перенос asset-фона в WebView Blob, lifecycle pause/resume, пересоздание renderer, повторные reload, восстановление камеры и явный dispose `VrmView`:

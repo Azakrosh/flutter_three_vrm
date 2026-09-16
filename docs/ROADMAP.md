@@ -1,0 +1,275 @@
+# План рефакторинга и развития flutter_three_vrm
+
+Статус: активный рабочий документ  
+Дата аудита: 2026-09-16  
+Проверенная база: `fe8a671 Stage 25.`  
+Целевые платформы: Android и Windows; приоритет — Android
+
+## 1. Откуда восстановлен первоначальный план
+
+Отдельного файла с первоначальным планом в репозитории не было. Первый
+восстанавливаемый вариант находится в `README.md` коммита `07579bc Stage 1.`:
+
+> До стабильного релиза запланированы: типизированный command/response bridge
+> с timeout/cancel, authenticated resource client, GLB/glTF и
+> Mixamo-retargeting, полный Pose API, adaptive quality tiers, диагностика
+> WebGL и интеграционные тесты Android/Windows.
+
+Последующие решения из рабочего обсуждения расширили этот план:
+
+- полная переработка без обязательной совместимости с `0.1.x`;
+- один активный аватар;
+- загрузка защищённых моделей и анимаций выполняется Flutter-приложением с его
+  авторизацией, а WebView получает временный локальный ресурс без credentials;
+- VRM 0.x/1.0, VRMA, GLB/glTF, Mixamo-retargeting и Pose API;
+- плавная смена любых источников движения: VRMA, glTF и Pose;
+- Flutter воспроизводит звук, пакет получает realtime amplitude/viseme timeline;
+- аудио нельзя ставить на паузу или перематывать: только проигрывание и полная
+  остановка текущего сообщения;
+- pan/zoom, ограничения, автоматическое кадрирование и восстановление камеры;
+- ограничения сложности модели носят рекомендательный характер; жёстко
+  блокируются только некорректные или заведомо опасные данные;
+- публичный низкоуровневый API renderer не предоставляется;
+- Windows не должен останавливать видимый аватар из-за простой потери фокуса,
+  Android должен экономить ресурсы;
+- публикация пакета отложена;
+- текущие стабильные версии Three.js/three-vrm пока сохраняются.
+
+Этот документ является каноническим продолжением плана. Если исторический
+первичный текст будет найден вне Git, его нужно добавить в раздел источников,
+не переписывая уже зафиксированные решения молча.
+
+## 2. Выполненные этапы
+
+| Этап | Результат | Статус |
+| --- | --- | --- |
+| 1 | Android/Windows adapters, pnpm/esbuild runtime, bridge, защищённый loopback host, authenticated handoff, удаление camera presets | Выполнено |
+| 2 | Pose API, GLB/glTF и Mixamo-retargeting, resource bundles, мобильные FPS/pixel-ratio defaults | Выполнено |
+| 3 | Graphics presets, adaptive resolution, telemetry, WebGL recovery, новый example | Выполнено |
+| 4–5 | Race-safe загрузка, model report и рекомендательная оценка сложности | Выполнено |
+| 6 | Сериализуемая очередь анимаций, recovery и typed error stream | Выполнено |
+| 7 | Readiness, runtime health, manual reload и bounded recovery | Выполнено |
+| 8–9 | Восстановление камеры, free/constrained controls и строгий `VrmTransform` | Выполнено |
+| 10 | Backpressure для realtime amplitude/viseme/LookAt | Выполнено |
+| 11–12 | Освобождение VRM/WebGL ресурсов и детерминированный teardown | Выполнено |
+| 13 | Платформенная lifecycle-политика Android/Windows | Выполнено |
+| 14 | Race-safe background API и освобождение Blob/loopback ресурсов | Выполнено |
+| 15 | Лицензированные example-assets, checksums и third-party notices | Выполнено |
+| 16 | Единый воспроизводимый runtime bundle и проверяемый manifest | Выполнено |
+| 17–19 | В Git нет отдельных этапов с такими номерами | Не восстанавливать догадками |
+| 20 | Общий mixer/crossfade для VRMA, glTF и Pose | Выполнено |
+| 21–22 | Realtime speech timeline и типизированные speech sessions | Выполнено |
+| 23–24 | Release-safe валидация команд и конфигурации | Выполнено |
+| 25 | Playback identity и изоляция очереди от посторонних анимаций | Выполнено |
+
+## 3. Состояние реализации
+
+### Архитектура
+
+```text
+Flutter application
+  └─ VrmView                 lifecycle, WebView, recovery, desired configuration
+      └─ VrmController       публичный высокоуровневый API
+          ├─ _VrmBridge      protocol v3, correlation IDs, timeout, events
+          ├─ content host    session loopback, opaque resources
+          └─ platform adapter
+               ├─ Android WebView
+               └─ Windows WebView2
+
+WebView runtime
+  └─ main.ts / protocol.ts
+      └─ runner.js           сцена, модель, камера, animation, expressions,
+                            speech, physics, performance и disposal
+          ├─ motion-transition.ts
+          ├─ humanoid-animation.ts
+          ├─ pose.ts
+          ├─ speech-timeline.ts
+          └─ performance.ts
+```
+
+### Что уже соответствует production-направлению
+
+- публичный API остаётся высокоуровневым и не раскрывает Three.js;
+- credentials не передаются в WebView;
+- локальный host использует случайный порт, opaque IDs и проверку Host;
+- command/response envelope имеет версию, correlation ID, ошибки и timeout;
+- модель сохраняется до успешной подготовки её замены;
+- загрузки, background transfer и runtime recovery защищены от stale completion;
+- VRM-ресурсы, DOM listeners, animation frames и WebGL context освобождаются;
+- camera, lifecycle и animation queue имеют определённую recovery-семантику;
+- motion и speech операции получают собственную identity;
+- Android и Windows проверены runtime smoke-тестом;
+- runtime собирается из закреплённых зависимостей и проверяется checksum;
+- модель не отклоняется по произвольному лимиту полигонов или текстур:
+  диагностика и adaptive policy носят рекомендательный характер.
+
+### Текущий размер и покрытие
+
+- Flutter library: 31 файл, примерно 5100 строк;
+- web source: 8 файлов, примерно 3200 строк;
+- `runner.js`: примерно 2100 строк;
+- `VrmController`: примерно 1280 строк;
+- Flutter unit tests: 63;
+- web unit tests: 21;
+- один сквозной runtime smoke-сценарий, примерно 337 строк.
+
+Числа нужны как ориентир концентрации ответственности, а не как целевые KPI.
+
+## 4. Оставшиеся архитектурные риски
+
+### P0 — ядро runtime не проверяется TypeScript
+
+`web/tsconfig.json` включает только `src/**/*.ts` и `test/**/*.ts`.
+Основная реализация находится в `web/src/runner.js`, поэтому строгие настройки
+TypeScript не проверяют большую часть runtime. Существующие web unit tests
+проверяют вынесенные модули, но не сам command dispatcher и полный lifecycle
+runner.
+
+### P0 — wire contract типизирован только на уровне envelope
+
+Protocol v3 типизирует форму envelope, но `action` и `event` остаются строками,
+а payload/result — `unknown` в TypeScript и `Map<String, dynamic>` в Dart.
+Публичный Flutter API типизирован, однако расхождение имени команды или формы
+payload между Dart и web обнаруживается преимущественно интеграционным тестом.
+
+Это незавершённая часть самого первого roadmap-пункта про типизированный bridge.
+
+### P1 — два крупных центра ответственности
+
+`runner.js` объединяет scene, loading, camera, input, motion, face, speech,
+physics, performance и disposal. `VrmController` одновременно валидирует
+данные, управляет hosted resources, сериализует protocol payload и предоставляет
+публичный API. Любое изменение затрагивает слишком большой контекст.
+
+### P1 — recovery state распределён между несколькими владельцами
+
+Камера и конфигурация восстанавливаются через `VrmView`/`VrmController`,
+очередь — самостоятельно, а защищённая модель — через повторный
+`VrmView.onCreated` в приложении. Эта семантика разумна, но пока не описана как
+единая таблица ownership/replay order и потому уязвима при добавлении новых
+состояний.
+
+### P1 — интеграционные проверки недостаточно изолированы
+
+Smoke-тест покрывает много важных сценариев, но является одним большим тестом.
+Сбой позднего шага затрудняет локализацию. Физический Android не запускается в
+GitHub Actions; Windows smoke запускается. Нужны отдельные contract/race/soak
+сценарии, при этом физический Android остаётся release gate.
+
+### P1 — CI branch должен соответствовать реальной основной ветке
+
+Workflow запускается на push в `main`, а текущая локальная ветка называется
+`master`. Перед использованием GitHub нужно выбрать одно имя и синхронизировать
+workflow; иначе прямые push могут обходить CI.
+
+### P2 — публикационная готовность отложена
+
+В `pubspec.yaml` установлен `publish_to: none`. Это соответствует принятому
+решению. Проверки package metadata, generated API docs и release checklist не
+являются текущим блокером и не должны отвлекать от стабилизации runtime.
+
+## 5. Текущее направление
+
+Ближайшее направление: **типизированное и модульное ядро runtime без расширения
+публичного API**.
+
+Сейчас не следует:
+
+- обновлять Three.js/three-vrm без отдельной причины;
+- добавлять новые эффекты или ещё один способ управления моделью;
+- начинать публикацию;
+- менять protocol v3 только ради рефакторинга;
+- одновременно переделывать lifecycle, motion и speech semantics.
+
+Сначала нужно уменьшить риск уже реализованного функционала.
+
+## 6. Следующие этапы
+
+### Stage 26 — contract tests и TypeScript migration
+
+Цель: сделать весь выполняемый web runtime частью строгой типизации, сохранив
+текущее поведение и protocol v3.
+
+Работы:
+
+1. Зафиксировать каталог всех command/event, payload и result.
+2. Добавить contract tests для Dart serializers/parsers и web dispatcher.
+3. Перевести `runner.js` в TypeScript без функциональных изменений.
+4. Заменить произвольные строки команд внутренними constants/discriminated
+   unions и типизированными codecs.
+5. Разделить runner минимум на model loading, scene/camera, motion,
+   face/speech, performance и resource lifecycle.
+6. Оставить один facade, который принимает protocol-команды и координирует
+   модули.
+7. Исправить CI branch trigger после выбора основной ветки.
+
+Критерии готовности:
+
+- весь исходный web runtime входит в `tsc --noEmit`;
+- command/event payload проверяются на runtime boundary;
+- неизвестные или некорректные payload дают стабильный protocol error;
+- generated bundle и protocol version не меняются без необходимости;
+- Flutter/web unit tests и Windows/Android smoke проходят;
+- поведение example не меняется.
+
+### Stage 27 — единая модель state ownership и recovery
+
+Цель: формально определить, какое состояние сохраняет пакет, runtime или
+приложение.
+
+Работы:
+
+- составить таблицу desired/applied state и порядок replay;
+- централизовать восстановление graphics, background, camera, lifecycle и
+  model-dependent state;
+- явно отменять speech/motion operations, которые нельзя корректно продолжить;
+- сохранить app-owned reload модели для обновления authorization token;
+- добавить тесты recovery во время model load, animation transition и speech.
+
+Критерий готовности: для каждого публичного mutating API документировано и
+проверено поведение после WebView reload, lifecycle pause и dispose.
+
+### Stage 28 — Android performance и длительная стабильность
+
+Цель: предсказуемая нагрузка на смартфон без произвольного запрета тяжёлых
+моделей.
+
+Работы:
+
+- добавить frame-time percentiles и причины изменения adaptive quality;
+- проверить FPS cap, pixel ratio и recovery на слабом физическом Android;
+- провести циклы load/unload/reload и длительный speech/motion soak;
+- фиксировать context loss, память текстур и время загрузки в diagnostics;
+- оставить model complexity policy рекомендательной и настраиваемой.
+
+Критерий готовности: документированный профиль нагрузки и отсутствие
+неограниченного роста ресурсов в длительных сценариях.
+
+### Stage 29 — тестовая матрица и документация API
+
+Цель: превратить существующие гарантии в повторяемые release gates.
+
+Работы:
+
+- разбить монолитный smoke-тест на независимые сценарии;
+- добавить race tests для replacement/cancel/reload;
+- добавить authenticated bytes и external-resource glTF integration cases;
+- документировать ошибки, ownership, transition и speech semantics;
+- добавить минимальные примеры для каждого высокоуровневого блока API.
+
+### Stage 30 — подготовка публикации
+
+Статус: отложено до отдельного решения.
+
+Включает GitHub metadata, package metadata, API docs, versioning policy,
+release checklist, clean-clone verification и окончательный аудит лицензий.
+
+## 7. Правила обновления roadmap
+
+- После этапа обновлять его статус и добавлять commit hash.
+- Новая функция должна быть привязана к требованию или измеримой проблеме.
+- Breaking wire change требует новой protocol version.
+- Generated runtime не редактируется вручную.
+- Изменения поведения проверяются минимум unit/contract тестом; lifecycle,
+  loading, rendering и disposal — также smoke-тестом на затронутой платформе.
+- Публикационные задачи остаются отложенными, пока это явно не изменено.
