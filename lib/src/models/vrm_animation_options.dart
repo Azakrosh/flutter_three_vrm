@@ -8,6 +8,23 @@ enum VrmRootMotion {
   full,
 }
 
+/// Identity of one successfully started animation playback.
+///
+/// The identifier is also included in animation lifecycle events so higher
+/// level coordinators can ignore unrelated or replaced animations.
+final class VrmAnimationPlayback {
+  factory VrmAnimationPlayback({required String id}) {
+    if (id.trim().isEmpty) {
+      throw ArgumentError.value(id, 'id', 'Must not be empty.');
+    }
+    return VrmAnimationPlayback._(id);
+  }
+
+  const VrmAnimationPlayback._(this.id);
+
+  final String id;
+}
+
 /// Playback and retargeting options for VRMA and glTF/GLB animation clips.
 final class VrmAnimationOptions {
   const VrmAnimationOptions({

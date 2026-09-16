@@ -22,7 +22,7 @@ void main() {
     await controller.waitUntilReady(timeout: const Duration(seconds: 30));
 
     final initialHealth = await controller.getRuntimeHealth();
-    expect(initialHealth.protocolVersion, 2);
+    expect(initialHealth.protocolVersion, 3);
     expect(initialHealth.threeRevision, '180');
     expect(initialHealth.threeVrmVersion, '3.5.5');
     expect(initialHealth.maxTextureSize, greaterThan(0));
@@ -222,10 +222,15 @@ Future<void> _verifyMotionTransitions(
   );
 
   // Exercise Pose -> VRMA and then another VRMA -> Pose transition.
-  await controller.playAnimation(
+  final animationStarted = controller.onAnimationStarted.first;
+  final loopingPlayback = await controller.playAnimation(
     'assets/vrma/',
     'sample.vrma',
     fadeDuration: 0.4,
+  );
+  expect(
+    (await animationStarted.timeout(const Duration(seconds: 5))).playbackId,
+    loopingPlayback.id,
   );
   await _waitForAnimation(tester, controller);
   await Future<void>.delayed(const Duration(milliseconds: 450));
@@ -245,6 +250,18 @@ Future<void> _verifyMotionTransitions(
     controller,
     VrmHumanBone.leftUpperArm,
     const VrmQuaternion.identity(),
+  );
+
+  final animationFinished = controller.onAnimationFinished.first;
+  final finitePlayback = await controller.playAnimation(
+    'assets/vrma/',
+    'sample.vrma',
+    loop: false,
+    fadeDuration: 0,
+  );
+  expect(
+    (await animationFinished.timeout(const Duration(seconds: 30))).playbackId,
+    finitePlayback.id,
   );
 }
 
@@ -289,7 +306,10 @@ Future<void> _waitForBoneRotation(
   VrmHumanBone bone,
   VrmQuaternion expected,
 ) async {
-  final deadline = DateTime.now().add(const Duration(seconds: 8));
+  // Android WebView can briefly throttle its render loop immediately after
+  // installation or foreground restoration. Keep this longer than the
+  // transition itself so the smoke test does not mistake that for a failure.
+  final deadline = DateTime.now().add(const Duration(seconds: 15));
   VrmQuaternion? lastRotation;
   while (DateTime.now().isBefore(deadline)) {
     lastRotation = (await controller.getPose())[bone]?.rotation;
@@ -300,7 +320,13 @@ Future<void> _waitForBoneRotation(
     await tester.pump(const Duration(milliseconds: 50));
     await Future<void>.delayed(const Duration(milliseconds: 50));
   }
-  fail('Expected $bone rotation $expected, got $lastRotation.');
+  final angle = lastRotation == null
+      ? null
+      : _quaternionAngle(lastRotation, expected);
+  fail(
+    'Expected $bone rotation $expected, got $lastRotation '
+    '(angular error: $angle radians).',
+  );
 }
 
 double _quaternionAngle(VrmQuaternion first, VrmQuaternion second) {

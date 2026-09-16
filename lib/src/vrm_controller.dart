@@ -7,6 +7,7 @@ class VrmController {
   bool _isLoadingModel = false;
   bool _isModelLoaded = false;
   int _modelLoadGeneration = 0;
+  int _animationPlaybackSequence = 0;
   VrmTransform? _lastKnownCameraTransform;
   int _cameraTransformRevision = 0;
   VrmContentHost? _contentHost;
@@ -277,7 +278,7 @@ class VrmController {
   // --- Animation control ---
 
   /// Plays a VRMA animation from Flutter assets.
-  Future<void> playAnimation(
+  Future<VrmAnimationPlayback> playAnimation(
     String folderPath,
     String fileName, {
     bool loop = true,
@@ -298,7 +299,7 @@ class VrmController {
   }
 
   /// Plays a VRMA or glTF animation from a local file.
-  Future<void> playAnimationFromFile(
+  Future<VrmAnimationPlayback> playAnimationFromFile(
     io.File file, {
     bool loop = true,
     double speed = 1,
@@ -318,7 +319,7 @@ class VrmController {
   }
 
   /// Plays VRMA or glTF animation bytes obtained by Flutter.
-  Future<void> playAnimationFromBytes(
+  Future<VrmAnimationPlayback> playAnimationFromBytes(
     Uint8List bytes, {
     required String fileName,
     bool loop = true,
@@ -342,7 +343,7 @@ class VrmController {
   ///
   /// Keys are safe relative URI paths used by the glTF document, for example
   /// `animation.gltf`, `animation.bin`, and `textures/atlas.png`.
-  Future<void> playAnimationFromFileBundle(
+  Future<VrmAnimationPlayback> playAnimationFromFileBundle(
     Map<String, io.File> files, {
     required String entryFileName,
     bool loop = true,
@@ -366,7 +367,7 @@ class VrmController {
   /// Plays an external-resource glTF animation from authenticated bytes.
   ///
   /// Every URI referenced by the entrypoint must be present in [files].
-  Future<void> playAnimationFromBytesBundle(
+  Future<VrmAnimationPlayback> playAnimationFromBytesBundle(
     Map<String, Uint8List> files, {
     required String entryFileName,
     bool loop = true,
@@ -387,7 +388,7 @@ class VrmController {
     );
   }
 
-  Future<void> _playHostedAnimation({
+  Future<VrmAnimationPlayback> _playHostedAnimation({
     required Uri Function(VrmContentHost host) expose,
     required String fileName,
     required bool loop,
@@ -409,16 +410,26 @@ class VrmController {
       rootMotion: rootMotion,
       clipName: clipName,
     );
+    final playback = _createAnimationPlayback();
     return _sendHostedResourceCommand(
       expose: expose,
       action: 'playAnimationFromUrl',
       fileName: fileName,
-      payload: {'options': options.toJson()},
-    );
+      payload: {
+        'options': {...options.toJson(), 'playbackId': playback.id},
+      },
+    ).then((_) => playback);
+  }
+
+  VrmAnimationPlayback _createAnimationPlayback() {
+    final id =
+        'animation-${DateTime.now().microsecondsSinceEpoch}-'
+        '${_animationPlaybackSequence++}';
+    return VrmAnimationPlayback(id: id);
   }
 
   /// Plays a VRMA or glTF animation from a public URL.
-  Future<void> playAnimationFromUrl(
+  Future<VrmAnimationPlayback> playAnimationFromUrl(
     String url, {
     bool loop = true,
     double speed = 1,
@@ -440,11 +451,15 @@ class VrmController {
       rootMotion: rootMotion,
       clipName: clipName,
     );
-    return _bridge.sendCommand('playAnimationFromUrl', {
-      'url': url,
-      'fileName': Uri.parse(url).pathSegments.lastOrNull ?? 'animation.vrma',
-      'options': options.toJson(),
-    });
+    final playback = _createAnimationPlayback();
+    return _bridge
+        .sendCommand('playAnimationFromUrl', {
+          'url': url,
+          'fileName':
+              Uri.parse(url).pathSegments.lastOrNull ?? 'animation.vrma',
+          'options': {...options.toJson(), 'playbackId': playback.id},
+        })
+        .then((_) => playback);
   }
 
   /// Pauses animation clip playback.

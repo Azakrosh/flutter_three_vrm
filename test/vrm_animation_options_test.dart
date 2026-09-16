@@ -28,4 +28,16 @@ void main() {
       expect(restored.clipName, 'Talking');
     });
   });
+
+  group('VrmAnimationPlayback', () {
+    test('preserves a non-empty opaque identifier', () {
+      final playback = VrmAnimationPlayback(id: 'animation-42');
+
+      expect(playback.id, 'animation-42');
+    });
+
+    test('rejects an empty identifier', () {
+      expect(() => VrmAnimationPlayback(id: '  '), throwsArgumentError);
+    });
+  });
 }

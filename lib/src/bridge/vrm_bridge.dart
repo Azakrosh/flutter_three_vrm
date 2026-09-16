@@ -4,7 +4,7 @@ typedef VrmJavaScriptRunner = Future<void> Function(String source);
 typedef VrmRuntimeReloader = Future<void> Function();
 
 final class _VrmBridge {
-  static const int _protocolVersion = 2;
+  static const int _protocolVersion = 3;
   static const Duration _commandTimeout = Duration(minutes: 2);
   static const int _maxIgnoredResponseIds = 256;
   final StreamController<VrmEvent> _eventController =
@@ -165,15 +165,29 @@ final class _VrmBridge {
       case 'onModelUnloaded':
         _eventController.add(VrmModelUnloadedEvent());
       case 'onAnimationStarted':
+        final playbackId = payload['playbackId'];
+        if (playbackId is! String || playbackId.isEmpty) {
+          throw const FormatException(
+            'Animation started event playbackId is missing.',
+          );
+        }
         _eventController.add(
           VrmAnimationStartedEvent(
             name: payload['name'] as String? ?? 'Animation',
+            playbackId: playbackId,
           ),
         );
       case 'onAnimationFinished':
+        final playbackId = payload['playbackId'];
+        if (playbackId is! String || playbackId.isEmpty) {
+          throw const FormatException(
+            'Animation finished event playbackId is missing.',
+          );
+        }
         _eventController.add(
           VrmAnimationFinishedEvent(
             name: payload['name'] as String? ?? 'Animation',
+            playbackId: playbackId,
           ),
         );
       case 'onExpressionChanged':

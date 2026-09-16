@@ -50,18 +50,20 @@ class VrmModelAssessmentEvent extends VrmEvent {
 /// Emitted when the current VRM model is unloaded from the scene.
 class VrmModelUnloadedEvent extends VrmEvent {}
 
-/// Emitted when a VRMA animation clip starts playing.
+/// Emitted when a VRMA or retargeted glTF animation clip starts playing.
 class VrmAnimationStartedEvent extends VrmEvent {
   final String name;
+  final String playbackId;
 
-  VrmAnimationStartedEvent({required this.name});
+  VrmAnimationStartedEvent({required this.name, required this.playbackId});
 }
 
-/// Emitted when a non-looping VRMA animation clip finishes playing.
+/// Emitted when a non-looping VRMA or retargeted glTF clip finishes playing.
 class VrmAnimationFinishedEvent extends VrmEvent {
   final String name;
+  final String playbackId;
 
-  VrmAnimationFinishedEvent({required this.name});
+  VrmAnimationFinishedEvent({required this.name, required this.playbackId});
 }
 
 /// Emitted when an expression layer changes target expression or weight.

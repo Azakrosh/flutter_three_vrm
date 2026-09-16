@@ -6,7 +6,7 @@ void main() {
     test('parses a strict runtime capability snapshot', () {
       final health = VrmRuntimeHealth.fromJson(<String, Object>{
         'runtimeVersion': '0.2.0-dev.1',
-        'protocolVersion': 2,
+        'protocolVersion': 3,
         'threeRevision': '180',
         'threeVrmVersion': '3.5.5',
         'webGlVersion': 2,
@@ -20,7 +20,7 @@ void main() {
         'contextLost': false,
       });
 
-      expect(health.protocolVersion, 2);
+      expect(health.protocolVersion, 3);
       expect(health.threeRevision, '180');
       expect(health.webGlVersion, 2);
       expect(health.maxTextureSize, 16384);

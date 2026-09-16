@@ -135,5 +135,11 @@ final class VrmAnimationQueueSnapshot {
         'Interrupted queue snapshot requires an interrupt source.',
       );
     }
+    if (interruptSpeed != null &&
+        (!interruptSpeed!.isFinite || interruptSpeed! <= 0)) {
+      throw const FormatException(
+        'interruptSpeed must be a positive finite number.',
+      );
+    }
   }
 }

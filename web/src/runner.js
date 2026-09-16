@@ -930,8 +930,13 @@ class VrmRunner {
       // Игнорируем события от старых/остановленных экшенов, если они почему-то приходят
       // И разрешаем отправку только если экшен совпадает с currentAction ИЛИ если currentAction уже очищен.
       if (!e.action || e.action !== this.currentAction || e.action._hasNotifiedFinished) return;
+      const playbackId = e.action._flutterPlaybackId;
+      if (typeof playbackId !== 'string' || playbackId.length === 0) return;
       e.action._hasNotifiedFinished = true;
-      this.notifyFlutter('onAnimationFinished', { name: e.action.getClip().name });
+      this.notifyFlutter('onAnimationFinished', {
+        name: e.action.getClip().name,
+        playbackId,
+      });
     };
     this.mixer.addEventListener('finished', this._onAnimationFinished);
 
@@ -1107,6 +1112,10 @@ class VrmRunner {
   }
 
   _playLoadedAnimation(gltf, options) {
+    const playbackId = options.playbackId;
+    if (typeof playbackId !== 'string' || playbackId.length === 0) {
+      throw new TypeError('playbackId must be a non-empty string.');
+    }
     let clip = null;
 
     if (gltf.userData.vrmAnimations && gltf.userData.vrmAnimations.length > 0) {
@@ -1146,17 +1155,22 @@ class VrmRunner {
     const loop = options.loop !== undefined ? options.loop : true;
     const speed = options.speed || 1.0;
     const fadeDuration = options.fadeDuration ?? 0.5;
-    this.motionTransitions.transitionTo(clip, {
+    const action = this.motionTransitions.transitionTo(clip, {
       source: 'clip',
       fadeDuration,
       loop,
       speed,
     });
+    action._flutterPlaybackId = playbackId;
+    action._hasNotifiedFinished = false;
     this.pendingRestPoseReset = false;
     this.isAnimationPaused = false;
     this.resetProceduralMotion();
     this.motionTransitions.update(0);
-    this.notifyFlutter('onAnimationStarted', { name: clip.name });
+    this.notifyFlutter('onAnimationStarted', {
+      name: clip.name,
+      playbackId,
+    });
   }
 
   get currentAction() {
@@ -1968,8 +1982,14 @@ class VrmRunner {
         const clip = this.currentAction.getClip();
         if (clip && this.currentAction.time >= clip.duration - 0.05) {
           if (!this.currentAction._hasNotifiedFinished) {
-            this.currentAction._hasNotifiedFinished = true;
-            this.notifyFlutter('onAnimationFinished', { name: clip.name });
+            const playbackId = this.currentAction._flutterPlaybackId;
+            if (typeof playbackId === 'string' && playbackId.length > 0) {
+              this.currentAction._hasNotifiedFinished = true;
+              this.notifyFlutter('onAnimationFinished', {
+                name: clip.name,
+                playbackId,
+              });
+            }
           }
         }
       }

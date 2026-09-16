@@ -2,12 +2,13 @@
 
 ## 0.2.0-dev.1
 
+- Scope animation lifecycle events and queues to opaque playback IDs so unrelated or replaced animations cannot advance a queue.
 - Enforce transform, adaptive-quality, recovery, and model-performance configuration contracts in release builds instead of relying on debug-only asserts.
 - Validate animation, pose, expression, gaze, lighting, physics, and renderer inputs synchronously before they can corrupt WebView state.
 - Bind streaming speech operations to a typed `VrmSpeechSession` so late callbacks from replaced AI messages cannot mutate the current timeline.
 - Add a monotonic, transport-latency-compensated speech timeline with isolated viseme and amplitude modes.
 - Isolate speech messages by session, expire late/stalled frames safely, and expose full-stop semantics without pause or seek.
-- Bump the internal Flutter/WebView protocol to version 2 for the session-safe speech contract.
+- Bump the internal Flutter/WebView protocol to version 3 for session-safe speech and playback-scoped animation events.
 - Unify VRMA, retargeted glTF, and static Pose playback under one mixer crossfade path, including smooth transitions to the rest pose.
 - Add XYZ Euler-to-quaternion helpers and two attributed Pose fixtures for transition testing in the example.
 - Bundle the complete browser runtime, including the runner, into one reproducible checksummed artifact and verify its manifest in CI.

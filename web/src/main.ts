@@ -84,7 +84,7 @@ export function getRuntimeInfo(): RuntimeInfo {
     runtimeVersion: __RUNTIME_VERSION__,
     threeRevision: THREE.REVISION,
     threeVrmVersion: __THREE_VRM_VERSION__,
-    protocolVersion: 2,
+    protocolVersion: 3,
   };
 }
 

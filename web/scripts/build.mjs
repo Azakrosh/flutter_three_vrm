@@ -40,7 +40,7 @@ const bundle = await readFile(outputFile);
 const manifest = {
   schemaVersion: 1,
   runtimeVersion: packageJson.version,
-  protocolVersion: 2,
+  protocolVersion: 3,
   entrypoint,
   bytes: bundle.byteLength,
   sha256: createHash("sha256").update(bundle).digest("hex"),

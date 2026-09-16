@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 
 import '../vrm_runtime.dart';
+import '../models/vrm_animation_options.dart';
 import '../models/vrm_events.dart';
 import 'vrm_animation_queue_snapshot.dart';
 import 'vrm_animation_queue_state.dart';
@@ -64,6 +65,9 @@ class VrmAnimationQueue {
   String? _interruptFileName;
   double? _interruptSpeed;
   int _operationGeneration = 0;
+  String? _activePlaybackId;
+  bool _playbackStartPending = false;
+  final Set<String> _finishedWhileStarting = <String>{};
   bool _disposed = false;
 
   final StreamController<VrmAnimationQueueState> _stateController =
@@ -91,6 +95,36 @@ class VrmAnimationQueue {
   }) : _fileNames = List<String>.unmodifiable(fileNames),
        _isRandom = random,
        _isLooping = loop {
+    if (_folderPath.trim().isEmpty) {
+      throw ArgumentError.value(
+        _folderPath,
+        'folderPath',
+        'Must not be empty.',
+      );
+    }
+    for (final fileName in _fileNames) {
+      if (fileName.trim().isEmpty) {
+        throw ArgumentError.value(
+          fileNames,
+          'fileNames',
+          'File names must not be empty.',
+        );
+      }
+    }
+    if (!_speed.isFinite || _speed <= 0) {
+      throw ArgumentError.value(
+        _speed,
+        'speed',
+        'Must be positive and finite.',
+      );
+    }
+    if (!_fadeDuration.isFinite || _fadeDuration < 0) {
+      throw ArgumentError.value(
+        _fadeDuration,
+        'fadeDuration',
+        'Must be non-negative and finite.',
+      );
+    }
     // Pre-allocate the index array once
     _playOrder = List<int>.generate(fileNames.length, (i) => i);
   }
@@ -108,6 +142,9 @@ class VrmAnimationQueue {
         _currentIndex < 0 ||
         _currentIndex >= _playOrder.length) {
       return null;
+    }
+    if (_state == VrmAnimationQueueState.interrupted) {
+      return _interruptFileName;
     }
     return _fileNames[_playOrder[_currentIndex]];
   }
@@ -149,6 +186,8 @@ class VrmAnimationQueue {
         'Snapshot queue length does not match this queue.',
       );
     }
+    _operationGeneration += 1;
+    _resetPlaybackTracking();
     for (var index = 0; index < _playOrder.length; index += 1) {
       _playOrder[index] = snapshot.playOrder[index];
     }
@@ -220,6 +259,7 @@ class VrmAnimationQueue {
   void stop() {
     _ensureNotDisposed();
     _operationGeneration += 1;
+    _resetPlaybackTracking();
     _cancelSubscription();
     _currentIndex = 0;
     _pauseAfterInterrupt = false;
@@ -243,12 +283,26 @@ class VrmAnimationQueue {
     double? speed,
   }) {
     _ensureNotDisposed();
+    if (folderPath.trim().isEmpty) {
+      throw ArgumentError.value(folderPath, 'folderPath', 'Must not be empty.');
+    }
+    if (fileName.trim().isEmpty) {
+      throw ArgumentError.value(fileName, 'fileName', 'Must not be empty.');
+    }
+    final resolvedSpeed = speed ?? _speed;
+    if (!resolvedSpeed.isFinite || resolvedSpeed <= 0) {
+      throw ArgumentError.value(
+        resolvedSpeed,
+        'speed',
+        'Must be positive and finite.',
+      );
+    }
     if (_state == VrmAnimationQueueState.stopped) return;
 
     _ensureSubscription();
     _interruptFolderPath = folderPath;
     _interruptFileName = fileName;
-    _interruptSpeed = speed ?? _speed;
+    _interruptSpeed = resolvedSpeed;
     _setState(VrmAnimationQueueState.interrupted);
     _playInterrupt();
   }
@@ -258,6 +312,7 @@ class VrmAnimationQueue {
     if (_disposed) return;
     _disposed = true;
     _operationGeneration += 1;
+    _resetPlaybackTracking();
     _cancelSubscription();
     unawaited(_stateController.close());
     unawaited(_errorController.close());
@@ -269,7 +324,7 @@ class VrmAnimationQueue {
 
   void _playCurrentTrack() {
     final fileName = _fileNames[_playOrder[_currentIndex]];
-    _runOperation(
+    _runPlaybackOperation(
       'play',
       fileName,
       () => _controller.playAnimation(
@@ -286,7 +341,7 @@ class VrmAnimationQueue {
     final folderPath = _interruptFolderPath;
     final fileName = _interruptFileName;
     if (folderPath == null || fileName == null) return;
-    _runOperation(
+    _runPlaybackOperation(
       'interrupt',
       fileName,
       () => _controller.playAnimation(
@@ -351,6 +406,20 @@ class VrmAnimationQueue {
   }
 
   void _onAnimationFinished(VrmAnimationFinishedEvent event) {
+    if (event.playbackId != _activePlaybackId) {
+      if (_playbackStartPending) {
+        _finishedWhileStarting.add(event.playbackId);
+        if (_finishedWhileStarting.length > 16) {
+          _finishedWhileStarting.remove(_finishedWhileStarting.first);
+        }
+      }
+      return;
+    }
+    _activePlaybackId = null;
+    _handleActivePlaybackFinished();
+  }
+
+  void _handleActivePlaybackFinished() {
     switch (_state) {
       case VrmAnimationQueueState.playing:
         _advanceToNext();
@@ -414,6 +483,48 @@ class VrmAnimationQueue {
     _interruptFolderPath = null;
     _interruptFileName = null;
     _interruptSpeed = null;
+  }
+
+  void _resetPlaybackTracking() {
+    _activePlaybackId = null;
+    _playbackStartPending = false;
+    _finishedWhileStarting.clear();
+  }
+
+  void _runPlaybackOperation(
+    String operation,
+    String fileName,
+    Future<VrmAnimationPlayback> Function() callback,
+  ) {
+    final generation = ++_operationGeneration;
+    _resetPlaybackTracking();
+    _playbackStartPending = true;
+    unawaited(() async {
+      try {
+        final playback = await callback();
+        if (_disposed || generation != _operationGeneration) return;
+        _activePlaybackId = playback.id;
+        _playbackStartPending = false;
+        final alreadyFinished = _finishedWhileStarting.remove(playback.id);
+        _finishedWhileStarting.clear();
+        if (alreadyFinished) {
+          _activePlaybackId = null;
+          _handleActivePlaybackFinished();
+        }
+      } on Object catch (error, stackTrace) {
+        if (!_disposed && generation == _operationGeneration) {
+          _resetPlaybackTracking();
+          _errorController.add(
+            VrmAnimationQueueError(
+              operation: operation,
+              fileName: fileName,
+              error: error,
+              stackTrace: stackTrace,
+            ),
+          );
+        }
+      }
+    }());
   }
 
   void _runOperation(

@@ -121,7 +121,7 @@ class _AvatarDemoPageState extends State<AvatarDemoPage> {
     if (mounted) setState(callback);
   }
 
-  Future<void> _run(Future<void> Function() operation) async {
+  Future<void> _run<T>(Future<T> Function() operation) async {
     if (_busy) return;
     setState(() => _busy = true);
     try {

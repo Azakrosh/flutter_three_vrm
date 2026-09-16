@@ -141,6 +141,124 @@ void main() {
         expect(controller.playedFiles, <String>['idle.vrma']);
       },
     );
+
+    test('ignores completion events from unrelated playback', () async {
+      final controller = _FakeVrmController();
+      final queue = VrmAnimationQueue(
+        controller: controller,
+        folderPath: 'assets/vrma/',
+        fileNames: const <String>['idle.vrma', 'talk.vrma'],
+      );
+      addTearDown(() async {
+        queue.dispose();
+        await controller.dispose();
+      });
+
+      queue.start();
+      await pumpEventQueue();
+      final queuePlaybackId = controller.playbackIds.single;
+
+      controller.emitAnimationFinished('external-playback');
+      await pumpEventQueue();
+      expect(controller.playedFiles, <String>['idle.vrma']);
+
+      controller.emitAnimationFinished(queuePlaybackId);
+      await pumpEventQueue();
+      expect(controller.playedFiles, <String>['idle.vrma', 'talk.vrma']);
+    });
+
+    test('handles a completion delivered before play returns', () async {
+      final controller = _FakeVrmController()..delayNextPlayback = true;
+      final queue = VrmAnimationQueue(
+        controller: controller,
+        folderPath: 'assets/vrma/',
+        fileNames: const <String>['first.vrma', 'second.vrma'],
+      );
+      addTearDown(() async {
+        queue.dispose();
+        await controller.dispose();
+      });
+
+      queue.start();
+      await pumpEventQueue();
+      final firstPlaybackId = controller.playbackIds.single;
+      controller.emitAnimationFinished(firstPlaybackId);
+      await pumpEventQueue();
+      expect(controller.playedFiles, <String>['first.vrma']);
+
+      controller.completeDelayedPlayback();
+      await pumpEventQueue();
+      expect(controller.playedFiles, <String>['first.vrma', 'second.vrma']);
+    });
+
+    test('reports the interrupt as the current file', () async {
+      final controller = _FakeVrmController();
+      final queue = VrmAnimationQueue(
+        controller: controller,
+        folderPath: 'assets/vrma/',
+        fileNames: const <String>['idle.vrma'],
+      );
+      addTearDown(() async {
+        queue.dispose();
+        await controller.dispose();
+      });
+
+      queue.start();
+      await pumpEventQueue();
+      queue.interrupt(folderPath: 'assets/reactions/', fileName: 'happy.vrma');
+
+      expect(queue.currentFile, 'happy.vrma');
+    });
+
+    test('validates queue and interrupt playback inputs', () async {
+      final controller = _FakeVrmController();
+      addTearDown(controller.dispose);
+
+      expect(
+        () => VrmAnimationQueue(
+          controller: controller,
+          folderPath: ' ',
+          fileNames: const <String>['idle.vrma'],
+        ),
+        throwsArgumentError,
+      );
+      expect(
+        () => VrmAnimationQueue(
+          controller: controller,
+          folderPath: 'assets/vrma/',
+          fileNames: const <String>['idle.vrma'],
+          speed: 0,
+        ),
+        throwsArgumentError,
+      );
+
+      final queue = VrmAnimationQueue(
+        controller: controller,
+        folderPath: 'assets/vrma/',
+        fileNames: const <String>['idle.vrma'],
+      );
+      addTearDown(queue.dispose);
+      expect(
+        () => queue.interrupt(
+          folderPath: 'assets/reactions/',
+          fileName: 'happy.vrma',
+          speed: double.nan,
+        ),
+        throwsArgumentError,
+      );
+      expect(
+        () => VrmAnimationQueueSnapshot(
+          state: VrmAnimationQueueState.interrupted,
+          playOrder: const <int>[0],
+          currentIndex: 0,
+          pauseAfterInterrupt: false,
+          interruptFolderPath: 'assets/reactions/',
+          interruptFileName: 'happy.vrma',
+          interruptSpeed: 0,
+        ),
+        throwsFormatException,
+      );
+    });
   });
 }
 
@@ -151,6 +269,10 @@ final class _FakeVrmController extends VrmController {
       StreamController<VrmAnimationFinishedEvent>.broadcast();
 
   final List<String> playedFiles = <String>[];
+  final List<String> playbackIds = <String>[];
+  bool delayNextPlayback = false;
+  Completer<VrmAnimationPlayback>? _delayedPlayback;
+  int _playbackSequence = 0;
 
   @override
   bool get isModelLoaded => false;
@@ -166,8 +288,24 @@ final class _FakeVrmController extends VrmController {
     _modelLoaded.add(VrmModelLoadedEvent(name: 'Avatar', version: '1'));
   }
 
+  void emitAnimationFinished(String playbackId) {
+    _animationFinished.add(
+      VrmAnimationFinishedEvent(name: 'Animation', playbackId: playbackId),
+    );
+  }
+
+  void completeDelayedPlayback() {
+    final completer = _delayedPlayback;
+    if (completer == null) {
+      throw StateError('No delayed animation playback.');
+    }
+    _delayedPlayback = null;
+    delayNextPlayback = false;
+    completer.complete(VrmAnimationPlayback(id: playbackIds.last));
+  }
+
   @override
-  Future<void> playAnimation(
+  Future<VrmAnimationPlayback> playAnimation(
     String folderPath,
     String fileName, {
     bool loop = true,
@@ -175,8 +313,18 @@ final class _FakeVrmController extends VrmController {
     double fadeDuration = 0.5,
     VrmRootMotion rootMotion = VrmRootMotion.inPlace,
     String? clipName,
-  }) async {
+  }) {
     playedFiles.add(fileName);
+    final playbackId = 'fake-playback-${_playbackSequence++}';
+    playbackIds.add(playbackId);
+    if (delayNextPlayback) {
+      final completer = Completer<VrmAnimationPlayback>();
+      _delayedPlayback = completer;
+      return completer.future;
+    }
+    return Future<VrmAnimationPlayback>.value(
+      VrmAnimationPlayback(id: playbackId),
+    );
   }
 
   @override
