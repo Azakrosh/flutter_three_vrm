@@ -396,6 +396,12 @@ class VrmController {
     required VrmRootMotion rootMotion,
     required String? clipName,
   }) {
+    _validateAnimationPlayback(
+      fileName: fileName,
+      speed: speed,
+      fadeDuration: fadeDuration,
+      clipName: clipName,
+    );
     final options = VrmAnimationOptions(
       loop: loop,
       speed: speed,
@@ -420,6 +426,13 @@ class VrmController {
     VrmRootMotion rootMotion = VrmRootMotion.inPlace,
     String? clipName,
   }) {
+    _requireNonEmpty(url, 'url');
+    _validateAnimationPlayback(
+      fileName: Uri.parse(url).pathSegments.lastOrNull ?? 'animation.vrma',
+      speed: speed,
+      fadeDuration: fadeDuration,
+      clipName: clipName,
+    );
     final options = VrmAnimationOptions(
       loop: loop,
       speed: speed,
@@ -440,8 +453,9 @@ class VrmController {
   }
 
   /// Resumes animation clip playback.
-  Future<void> resumeAnimation({double speed = 1.0}) async {
-    await _bridge.sendCommand('resumeAnimation', {'speed': speed});
+  Future<void> resumeAnimation({double speed = 1.0}) {
+    _requirePositiveFinite(speed, 'speed');
+    return _bridge.sendCommand('resumeAnimation', {'speed': speed});
   }
 
   /// Cancels an animation transfer without stopping the current action.
@@ -450,13 +464,15 @@ class VrmController {
   }
 
   /// Stops the current action and cancels an in-flight animation load.
-  Future<void> stopAnimation({double fadeDuration = 0.5}) async {
-    await _bridge.sendCommand('stopAnimation', {'fadeDuration': fadeDuration});
+  Future<void> stopAnimation({double fadeDuration = 0.5}) {
+    _requireNonNegativeFinite(fadeDuration, 'fadeDuration');
+    return _bridge.sendCommand('stopAnimation', {'fadeDuration': fadeDuration});
   }
 
   /// Sets playback speed multiplier for current animation.
-  Future<void> setAnimationSpeed(double speed) async {
-    await _bridge.sendCommand('setAnimationSpeed', {'speed': speed});
+  Future<void> setAnimationSpeed(double speed) {
+    _requirePositiveFinite(speed, 'speed');
+    return _bridge.sendCommand('setAnimationSpeed', {'speed': speed});
   }
 
   // --- Humanoid pose ---
@@ -476,6 +492,7 @@ class VrmController {
   /// Pose and clip playback share one mixer, so switching from either source
   /// crossfades without snapping through the rest pose.
   Future<void> setPose(VrmPose pose, {double fadeDuration = 0.5}) {
+    _requireNonNegativeFinite(fadeDuration, 'fadeDuration');
     return _bridge.sendCommand('setPose', {
       'pose': pose.toJson(),
       'fadeDuration': fadeDuration,
@@ -484,6 +501,7 @@ class VrmController {
 
   /// Smoothly restores all normalized humanoid bones to their rest transforms.
   Future<void> resetPose({double fadeDuration = 0.5}) {
+    _requireNonNegativeFinite(fadeDuration, 'fadeDuration');
     return _bridge.sendCommand('resetPose', {'fadeDuration': fadeDuration});
   }
 
@@ -501,6 +519,8 @@ class VrmController {
   /// ));
   /// ```
   void setMood(VrmMood mood, {bool disableAutoBlink = false}) {
+    _validateMood(mood);
+
     // Eyes layer
     if (mood.expression != null) {
       setExpression(
@@ -564,6 +584,8 @@ class VrmController {
     Duration duration = const Duration(milliseconds: 250),
     bool disableAutoBlink = false,
   }) {
+    _requireUnitInterval(weight, 'weight');
+    _requireNonNegativeDuration(duration, 'duration');
     final resolvedLayer = layer ?? expression.defaultLayer;
     int? speechRevision;
     if (resolvedLayer == ExpressionLayer.mouth) {
@@ -606,6 +628,8 @@ class VrmController {
 
   /// Sets a custom blendshape key by name and weight (0.0 to 1.0).
   void setCustomBlendShape(String name, double weight) {
+    _requireNonEmpty(name, 'name');
+    _requireUnitInterval(weight, 'weight');
     _sendCommand('setCustomBlendShape', {'name': name, 'weight': weight});
   }
 
@@ -927,6 +951,12 @@ class VrmController {
 
   /// Configures LookAt dead zone X range (default 0.35) and gaze hold duration (default 1.8s).
   void setLookAtConfig({double? deadZoneX, Duration? holdDuration}) {
+    if (deadZoneX != null) {
+      _requireUnitInterval(deadZoneX, 'deadZoneX');
+    }
+    if (holdDuration != null) {
+      _requireNonNegativeDuration(holdDuration, 'holdDuration');
+    }
     _sendCommand('setLookAtConfig', {
       'deadZoneX': ?deadZoneX,
       if (holdDuration != null)
@@ -990,6 +1020,12 @@ class VrmController {
     Color? directionalColor,
     double? directionalIntensity,
   }) {
+    if (ambientIntensity != null) {
+      _requireNonNegativeFinite(ambientIntensity, 'ambientIntensity');
+    }
+    if (directionalIntensity != null) {
+      _requireNonNegativeFinite(directionalIntensity, 'directionalIntensity');
+    }
     _sendCommand('setLighting', {
       if (ambientColor != null) 'ambientColor': _colorToHex(ambientColor),
       'ambientIntensity': ?ambientIntensity,
@@ -1003,9 +1039,10 @@ class VrmController {
   /// [color] is the dominant color of the background.
   /// [intensity] (0.0 to 1.0) controls how strongly the ambient light mixes with the background color (default 0.5).
   void setEnvironmentColor(Color color, {double intensity = 0.5}) {
+    _requireUnitInterval(intensity, 'intensity');
     _sendCommand('setEnvironmentColor', {
       'color': _colorToHex(color),
-      'intensity': intensity.clamp(0.0, 1.0),
+      'intensity': intensity,
     });
   }
 
@@ -1024,6 +1061,7 @@ class VrmController {
     double gravity = 1.0,
     double drag = 1.0,
   }) {
+    _validatePhysics(stiffness: stiffness, gravity: gravity, drag: drag);
     _sendCommand('setPhysics', {
       'stiffness': stiffness,
       'gravity': gravity,
@@ -1159,6 +1197,16 @@ class VrmController {
     bool? enablePhysics,
     int? fpsCap,
   }) {
+    if (pixelRatio != null) {
+      _requirePositiveFinite(pixelRatio, 'pixelRatio');
+    }
+    if (fpsCap != null && (fpsCap < 0 || fpsCap > 120)) {
+      throw ArgumentError.value(
+        fpsCap,
+        'fpsCap',
+        'Must be zero or between 1 and 120.',
+      );
+    }
     final settings = <String, dynamic>{};
     if (pixelRatio != null) settings['pixelRatio'] = pixelRatio;
     if (antialias != null) settings['antialias'] = antialias;
@@ -1233,6 +1281,81 @@ class VrmController {
 
   Stream<VrmTapEvent> get onTap =>
       _bridge.eventStream.where((e) => e is VrmTapEvent).cast<VrmTapEvent>();
+}
+
+void _validateAnimationPlayback({
+  required String fileName,
+  required double speed,
+  required double fadeDuration,
+  required String? clipName,
+}) {
+  _requireNonEmpty(fileName, 'fileName');
+  _requirePositiveFinite(speed, 'speed');
+  _requireNonNegativeFinite(fadeDuration, 'fadeDuration');
+  if (clipName != null) {
+    _requireNonEmpty(clipName, 'clipName');
+  }
+}
+
+void _validateMood(VrmMood mood) {
+  if (mood.expression != null) {
+    _requireUnitInterval(mood.expressionWeight, 'mood.expressionWeight');
+  }
+  if (mood.browExpression != null) {
+    _requireUnitInterval(mood.browWeight, 'mood.browWeight');
+  }
+  final physics = mood.physics;
+  if (physics != null) {
+    _validatePhysics(
+      stiffness: physics.stiffness,
+      gravity: physics.gravity,
+      drag: physics.drag,
+    );
+  }
+}
+
+void _validatePhysics({
+  required double stiffness,
+  required double gravity,
+  required double drag,
+}) {
+  _requireNonNegativeFinite(stiffness, 'stiffness');
+  _requireNonNegativeFinite(gravity, 'gravity');
+  _requireNonNegativeFinite(drag, 'drag');
+}
+
+void _requireNonEmpty(String value, String name) {
+  if (value.trim().isEmpty) {
+    throw ArgumentError.value(value, name, 'Must not be empty.');
+  }
+}
+
+void _requirePositiveFinite(double value, String name) {
+  if (!value.isFinite || value <= 0) {
+    throw ArgumentError.value(value, name, 'Must be positive and finite.');
+  }
+}
+
+void _requireNonNegativeFinite(double value, String name) {
+  if (!value.isFinite || value < 0) {
+    throw ArgumentError.value(value, name, 'Must be non-negative and finite.');
+  }
+}
+
+void _requireUnitInterval(double value, String name) {
+  if (!value.isFinite || value < 0 || value > 1) {
+    throw ArgumentError.value(
+      value,
+      name,
+      'Must be finite and between 0 and 1.',
+    );
+  }
+}
+
+void _requireNonNegativeDuration(Duration value, String name) {
+  if (value.isNegative) {
+    throw ArgumentError.value(value, name, 'Must not be negative.');
+  }
 }
 
 /// A high-level handle bound to one real-time audio message.
