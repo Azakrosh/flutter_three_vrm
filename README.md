@@ -415,6 +415,7 @@ cd web
 corepack pnpm install --frozen-lockfile
 corepack pnpm typecheck
 corepack pnpm test
+corepack pnpm verify:contract
 corepack pnpm build
 corepack pnpm verify:build
 ```

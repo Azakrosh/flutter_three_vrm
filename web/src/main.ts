@@ -25,6 +25,19 @@ export {
 } from "./protocol";
 
 export {
+  findRuntimeCommandPayloadError,
+  findRuntimeEventPayloadError,
+  isRuntimeCommandName,
+  isRuntimeEventName,
+  runtimeCommandNames,
+  runtimeEventNames,
+  type RuntimeCommandName,
+  type RuntimeCommandPayload,
+  type RuntimeEventName,
+  type RuntimeEventPayload,
+} from "./protocol-contract";
+
+export {
   createNormalizedPoseClip,
   getNormalizedPose,
   parseNormalizedPose,

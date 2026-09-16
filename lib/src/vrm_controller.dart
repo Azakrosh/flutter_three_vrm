@@ -79,7 +79,10 @@ class VrmController {
     return contentHost;
   }
 
-  void _sendCommand(String action, [Map<String, dynamic>? payload]) {
+  void _sendCommand(
+    VrmProtocolCommand action, [
+    Map<String, dynamic>? payload,
+  ]) {
     unawaited(
       _bridge.sendCommand(action, payload).catchError((
         Object error,
@@ -92,7 +95,7 @@ class VrmController {
 
   Future<void> _sendHostedResourceCommand({
     required Uri Function(VrmContentHost host) expose,
-    required String action,
+    required VrmProtocolCommand action,
     required String fileName,
     String urlField = 'url',
     Map<String, dynamic>? payload,
@@ -119,7 +122,7 @@ class VrmController {
     try {
       await _sendHostedResourceCommand(
         expose: (host) => host.exposeAsset('$folderPath$fileName'),
-        action: 'loadModelFromUrl',
+        action: VrmProtocolCommand.loadModelFromUrl,
         fileName: fileName,
       );
       if (loadGeneration == _modelLoadGeneration) {
@@ -139,7 +142,7 @@ class VrmController {
     try {
       await _sendHostedResourceCommand(
         expose: (host) => host.exposeFile(file),
-        action: 'loadModelFromUrl',
+        action: VrmProtocolCommand.loadModelFromUrl,
         fileName: p.basename(file.path),
       );
       if (loadGeneration == _modelLoadGeneration) {
@@ -165,7 +168,7 @@ class VrmController {
     try {
       await _sendHostedResourceCommand(
         expose: (host) => host.exposeBytes(bytes, fileName: fileName),
-        action: 'loadModelFromUrl',
+        action: VrmProtocolCommand.loadModelFromUrl,
         fileName: fileName,
       );
       if (loadGeneration == _modelLoadGeneration) {
@@ -185,7 +188,7 @@ class VrmController {
     final loadGeneration = ++_modelLoadGeneration;
     _isLoadingModel = true;
     try {
-      await _bridge.sendCommand('loadModelFromUrl', {
+      await _bridge.sendCommand(VrmProtocolCommand.loadModelFromUrl, {
         'url': url,
         'fileName': Uri.parse(url).pathSegments.lastOrNull ?? 'avatar.vrm',
       });
@@ -206,12 +209,14 @@ class VrmController {
   Future<void> cancelModelLoad() async {
     _modelLoadGeneration += 1;
     _isLoadingModel = false;
-    await _bridge.sendCommand('cancelModelLoad');
+    await _bridge.sendCommand(VrmProtocolCommand.cancelModelLoad);
   }
 
   /// Returns the diagnostic report for the current avatar.
   Future<VrmModelReport> getModelReport() async {
-    final result = await _bridge.requestCommand('getModelReport');
+    final result = await _bridge.requestCommand(
+      VrmProtocolCommand.getModelReport,
+    );
     return VrmModelReport.fromJson(result);
   }
 
@@ -227,7 +232,9 @@ class VrmController {
 
   /// Returns runtime versions, WebGL limits, and current engine state.
   Future<VrmRuntimeHealth> getRuntimeHealth() async {
-    final result = await _bridge.requestCommand('getRuntimeHealth');
+    final result = await _bridge.requestCommand(
+      VrmProtocolCommand.getRuntimeHealth,
+    );
     final health = VrmRuntimeHealth.fromJson(result);
     _isModelLoaded = health.modelLoaded;
     return health;
@@ -256,7 +263,7 @@ class VrmController {
     _isLoadingModel = false;
     _abandonSpeechSession();
     _clearDirectSpeechInputs();
-    await _bridge.sendCommand('unloadModel', {
+    await _bridge.sendCommand(VrmProtocolCommand.unloadModel, {
       'speechRevision': _nextSpeechRevision(),
     });
     _isModelLoaded = false;
@@ -272,8 +279,11 @@ class VrmController {
     await _bridge.dispose();
   }
 
-  Future<void> _setRenderingPaused(bool paused) =>
-      _bridge.sendCommand(paused ? 'pauseRendering' : 'resumeRendering');
+  Future<void> _setRenderingPaused(bool paused) => _bridge.sendCommand(
+    paused
+        ? VrmProtocolCommand.pauseRendering
+        : VrmProtocolCommand.resumeRendering,
+  );
 
   // --- Animation control ---
 
@@ -413,7 +423,7 @@ class VrmController {
     final playback = _createAnimationPlayback();
     return _sendHostedResourceCommand(
       expose: expose,
-      action: 'playAnimationFromUrl',
+      action: VrmProtocolCommand.playAnimationFromUrl,
       fileName: fileName,
       payload: {
         'options': {...options.toJson(), 'playbackId': playback.id},
@@ -453,7 +463,7 @@ class VrmController {
     );
     final playback = _createAnimationPlayback();
     return _bridge
-        .sendCommand('playAnimationFromUrl', {
+        .sendCommand(VrmProtocolCommand.playAnimationFromUrl, {
           'url': url,
           'fileName':
               Uri.parse(url).pathSegments.lastOrNull ?? 'animation.vrma',
@@ -464,30 +474,36 @@ class VrmController {
 
   /// Pauses animation clip playback.
   Future<void> pauseAnimation() async {
-    await _bridge.sendCommand('pauseAnimation');
+    await _bridge.sendCommand(VrmProtocolCommand.pauseAnimation);
   }
 
   /// Resumes animation clip playback.
   Future<void> resumeAnimation({double speed = 1.0}) {
     _requirePositiveFinite(speed, 'speed');
-    return _bridge.sendCommand('resumeAnimation', {'speed': speed});
+    return _bridge.sendCommand(VrmProtocolCommand.resumeAnimation, {
+      'speed': speed,
+    });
   }
 
   /// Cancels an animation transfer without stopping the current action.
   Future<void> cancelAnimationLoad() {
-    return _bridge.sendCommand('cancelAnimationLoad');
+    return _bridge.sendCommand(VrmProtocolCommand.cancelAnimationLoad);
   }
 
   /// Stops the current action and cancels an in-flight animation load.
   Future<void> stopAnimation({double fadeDuration = 0.5}) {
     _requireNonNegativeFinite(fadeDuration, 'fadeDuration');
-    return _bridge.sendCommand('stopAnimation', {'fadeDuration': fadeDuration});
+    return _bridge.sendCommand(VrmProtocolCommand.stopAnimation, {
+      'fadeDuration': fadeDuration,
+    });
   }
 
   /// Sets playback speed multiplier for current animation.
   Future<void> setAnimationSpeed(double speed) {
     _requirePositiveFinite(speed, 'speed');
-    return _bridge.sendCommand('setAnimationSpeed', {'speed': speed});
+    return _bridge.sendCommand(VrmProtocolCommand.setAnimationSpeed, {
+      'speed': speed,
+    });
   }
 
   // --- Humanoid pose ---
@@ -498,7 +514,7 @@ class VrmController {
   /// `@pixiv/three-vrm`, so the result can be stored and applied to another
   /// compatible VRM avatar.
   Future<VrmPose> getPose() async {
-    final result = await _bridge.requestCommand('getPose');
+    final result = await _bridge.requestCommand(VrmProtocolCommand.getPose);
     return VrmPose.fromJson(result);
   }
 
@@ -508,7 +524,7 @@ class VrmController {
   /// crossfades without snapping through the rest pose.
   Future<void> setPose(VrmPose pose, {double fadeDuration = 0.5}) {
     _requireNonNegativeFinite(fadeDuration, 'fadeDuration');
-    return _bridge.sendCommand('setPose', {
+    return _bridge.sendCommand(VrmProtocolCommand.setPose, {
       'pose': pose.toJson(),
       'fadeDuration': fadeDuration,
     });
@@ -517,7 +533,9 @@ class VrmController {
   /// Smoothly restores all normalized humanoid bones to their rest transforms.
   Future<void> resetPose({double fadeDuration = 0.5}) {
     _requireNonNegativeFinite(fadeDuration, 'fadeDuration');
-    return _bridge.sendCommand('resetPose', {'fadeDuration': fadeDuration});
+    return _bridge.sendCommand(VrmProtocolCommand.resetPose, {
+      'fadeDuration': fadeDuration,
+    });
   }
 
   // --- Mood Presets ---
@@ -608,7 +626,7 @@ class VrmController {
       _clearDirectSpeechInputs();
       speechRevision = _nextSpeechRevision();
     }
-    _sendCommand('setExpression', {
+    _sendCommand(VrmProtocolCommand.setExpression, {
       'expression': expression.name,
       'layer': resolvedLayer.name,
       'weight': weight,
@@ -626,7 +644,7 @@ class VrmController {
       _clearDirectSpeechInputs();
       speechRevision = _nextSpeechRevision();
     }
-    _sendCommand('clearExpressionLayer', {
+    _sendCommand(VrmProtocolCommand.clearExpressionLayer, {
       'layer': layer.name,
       'speechRevision': ?speechRevision,
     });
@@ -636,7 +654,7 @@ class VrmController {
   void clearAllExpressions() {
     _abandonSpeechSession();
     _clearDirectSpeechInputs();
-    _sendCommand('clearAllExpressions', {
+    _sendCommand(VrmProtocolCommand.clearAllExpressions, {
       'speechRevision': _nextSpeechRevision(),
     });
   }
@@ -645,7 +663,10 @@ class VrmController {
   void setCustomBlendShape(String name, double weight) {
     _requireNonEmpty(name, 'name');
     _requireUnitInterval(weight, 'weight');
-    _sendCommand('setCustomBlendShape', {'name': name, 'weight': weight});
+    _sendCommand(VrmProtocolCommand.setCustomBlendShape, {
+      'name': name,
+      'weight': weight,
+    });
   }
 
   // --- Lip Sync (ElevenLabs & Amplitude) ---
@@ -661,7 +682,7 @@ class VrmController {
       ..clearLatestCommand('directViseme')
       ..sendLatestCommand(
         channel: 'lipSyncAmplitude',
-        action: 'setLipSyncAmplitude',
+        action: VrmProtocolCommand.setLipSyncAmplitude,
         payload: {
           'amplitude': amplitude.clamp(0.0, 1.0),
           'speechRevision': speechRevision,
@@ -680,7 +701,7 @@ class VrmController {
       ..clearLatestCommand('lipSyncAmplitude')
       ..sendLatestCommand(
         channel: 'directViseme',
-        action: 'setViseme',
+        action: VrmProtocolCommand.setViseme,
         payload: {
           'viseme': viseme.name,
           'weight': weight.clamp(0.0, 1.0),
@@ -700,7 +721,7 @@ class VrmController {
     _speechIsFinishing = true;
     final timelineOriginEpochMs = DateTime.now().millisecondsSinceEpoch;
     try {
-      await _bridge.sendCommand('enqueueSpeechVisemes', {
+      await _bridge.sendCommand(VrmProtocolCommand.enqueueSpeechVisemes, {
         'sessionId': sessionId,
         'mode': VrmSpeechMode.viseme.name,
         'timelineOriginEpochMs': timelineOriginEpochMs,
@@ -724,7 +745,7 @@ class VrmController {
     _speechIsFinishing = true;
     final timelineOriginEpochMs = DateTime.now().millisecondsSinceEpoch;
     try {
-      await _bridge.sendCommand('enqueueSpeechAmplitudes', {
+      await _bridge.sendCommand(VrmProtocolCommand.enqueueSpeechAmplitudes, {
         'sessionId': sessionId,
         'mode': VrmSpeechMode.amplitude.name,
         'timelineOriginEpochMs': timelineOriginEpochMs,
@@ -761,7 +782,7 @@ class VrmController {
         .add(startDelay)
         .millisecondsSinceEpoch;
     try {
-      await _bridge.sendCommand('beginSpeech', {
+      await _bridge.sendCommand(VrmProtocolCommand.beginSpeech, {
         'sessionId': sessionId,
         'mode': mode.name,
         'timelineOriginEpochMs': timelineOriginEpochMs,
@@ -782,7 +803,7 @@ class VrmController {
     _validateVisemeFrames(frames);
     if (frames.isEmpty) return true;
     final sortedFrames = List<VisemeFrame>.from(frames)..sort();
-    await _bridge.sendCommand('appendSpeechVisemes', {
+    await _bridge.sendCommand(VrmProtocolCommand.appendSpeechVisemes, {
       'sessionId': sessionId,
       'frames': sortedFrames.map((f) => f.toJson()).toList(),
     });
@@ -797,7 +818,7 @@ class VrmController {
     _validateAmplitudeFrames(frames);
     if (frames.isEmpty) return true;
     final sortedFrames = List<AmplitudeFrame>.from(frames)..sort();
-    await _bridge.sendCommand('appendSpeechAmplitudes', {
+    await _bridge.sendCommand(VrmProtocolCommand.appendSpeechAmplitudes, {
       'sessionId': sessionId,
       'frames': sortedFrames.map((frame) => frame.toJson()).toList(),
     });
@@ -815,7 +836,7 @@ class VrmController {
     }
     _speechIsFinishing = true;
     try {
-      await _bridge.sendCommand('finishSpeech', {
+      await _bridge.sendCommand(VrmProtocolCommand.finishSpeech, {
         'sessionId': sessionId,
         'audioDurationMs': audioDuration.inMilliseconds,
       });
@@ -833,7 +854,7 @@ class VrmController {
     _clearDirectSpeechInputs();
     final sessionId = _activeSpeechSessionId;
     _abandonSpeechSession();
-    return _bridge.sendCommand('cancelSpeech', {
+    return _bridge.sendCommand(VrmProtocolCommand.cancelSpeech, {
       'sessionId': ?sessionId,
       'speechRevision': _nextSpeechRevision(),
     });
@@ -843,7 +864,7 @@ class VrmController {
     if (_activeSpeechSessionId != sessionId) return false;
     _clearDirectSpeechInputs();
     _abandonSpeechSession(sessionId);
-    await _bridge.sendCommand('cancelSpeech', {
+    await _bridge.sendCommand(VrmProtocolCommand.cancelSpeech, {
       'sessionId': sessionId,
       'speechRevision': _nextSpeechRevision(),
     });
@@ -941,11 +962,11 @@ class VrmController {
   /// Toggles random auto-blinking generator.
   /// Включает или отключает случайные движения зрачков (саккады).
   void setAutoSaccades({bool enabled = true}) {
-    _sendCommand('setAutoSaccades', {'enabled': enabled});
+    _sendCommand(VrmProtocolCommand.setAutoSaccades, {'enabled': enabled});
   }
 
   void setAutoBlink(bool enabled) {
-    _sendCommand('setAutoBlink', {'enabled': enabled});
+    _sendCommand(VrmProtocolCommand.setAutoBlink, {'enabled': enabled});
   }
 
   /// Sets 3D LookAt target point on screen.
@@ -959,7 +980,7 @@ class VrmController {
     }
     _bridge.sendLatestCommand(
       channel: 'lookAtTarget',
-      action: 'setLookAtTarget',
+      action: VrmProtocolCommand.setLookAtTarget,
       payload: {'x': screenPosition.dx, 'y': screenPosition.dy},
     );
   }
@@ -972,7 +993,7 @@ class VrmController {
     if (holdDuration != null) {
       _requireNonNegativeDuration(holdDuration, 'holdDuration');
     }
-    _sendCommand('setLookAtConfig', {
+    _sendCommand(VrmProtocolCommand.setLookAtConfig, {
       'deadZoneX': ?deadZoneX,
       if (holdDuration != null)
         'holdDurationSec': holdDuration.inMilliseconds / 1000.0,
@@ -983,7 +1004,7 @@ class VrmController {
 
   /// Selects constrained avatar controls or unrestricted orbit controls.
   Future<void> setCameraMode(VrmCameraMode mode) {
-    return _bridge.sendCommand('setCameraMode', {
+    return _bridge.sendCommand(VrmProtocolCommand.setCameraMode, {
       'mode': switch (mode) {
         VrmCameraMode.constrained => 'constrained',
         VrmCameraMode.free => 'free',
@@ -993,7 +1014,9 @@ class VrmController {
 
   /// Retrieves the current serializable pan and zoom state of the avatar.
   Future<VrmTransform> getTransform() async {
-    final result = await _bridge.requestCommand('getTransform');
+    final result = await _bridge.requestCommand(
+      VrmProtocolCommand.getTransform,
+    );
     if (result is! Map<String, dynamic>) {
       throw const FormatException('VRM transform response must be an object.');
     }
@@ -1004,7 +1027,9 @@ class VrmController {
 
   /// Restores a previously saved pan and zoom state of the avatar.
   Future<void> setTransform(VrmTransform transform) async {
-    await _bridge.sendCommand('setTransform', {'transform': transform.toMap()});
+    await _bridge.sendCommand(VrmProtocolCommand.setTransform, {
+      'transform': transform.toMap(),
+    });
     _lastKnownCameraTransform = transform;
     _cameraTransformRevision += 1;
   }
@@ -1016,7 +1041,7 @@ class VrmController {
     if (duration.isNegative) {
       throw ArgumentError.value(duration, 'duration', 'Must not be negative.');
     }
-    await _bridge.sendCommand('resetCamera', {
+    await _bridge.sendCommand(VrmProtocolCommand.resetCamera, {
       'durationMs': duration.inMilliseconds,
     });
     _lastKnownCameraTransform = null;
@@ -1041,7 +1066,7 @@ class VrmController {
     if (directionalIntensity != null) {
       _requireNonNegativeFinite(directionalIntensity, 'directionalIntensity');
     }
-    _sendCommand('setLighting', {
+    _sendCommand(VrmProtocolCommand.setLighting, {
       if (ambientColor != null) 'ambientColor': _colorToHex(ambientColor),
       'ambientIntensity': ?ambientIntensity,
       if (directionalColor != null)
@@ -1055,7 +1080,7 @@ class VrmController {
   /// [intensity] (0.0 to 1.0) controls how strongly the ambient light mixes with the background color (default 0.5).
   void setEnvironmentColor(Color color, {double intensity = 0.5}) {
     _requireUnitInterval(intensity, 'intensity');
-    _sendCommand('setEnvironmentColor', {
+    _sendCommand(VrmProtocolCommand.setEnvironmentColor, {
       'color': _colorToHex(color),
       'intensity': intensity,
     });
@@ -1064,7 +1089,7 @@ class VrmController {
   /// Enables or disables real-time shadow mapping in WebGL.
   /// Shadows improve visual quality significantly but increase GPU usage.
   void setShadows(bool enabled) {
-    _sendCommand('setShadows', {'enabled': enabled});
+    _sendCommand(VrmProtocolCommand.setShadows, {'enabled': enabled});
   }
 
   /// Adjusts the physics of the model's soft bodies (Spring Bones) like hair and clothes.
@@ -1077,7 +1102,7 @@ class VrmController {
     double drag = 1.0,
   }) {
     _validatePhysics(stiffness: stiffness, gravity: gravity, drag: drag);
-    _sendCommand('setPhysics', {
+    _sendCommand(VrmProtocolCommand.setPhysics, {
       'stiffness': stiffness,
       'gravity': gravity,
       'drag': drag,
@@ -1089,12 +1114,15 @@ class VrmController {
     VrmWindType type = VrmWindType.none,
     VrmWindDirection direction = VrmWindDirection.right,
   }) {
-    _sendCommand('setWind', {'type': type.name, 'direction': direction.name});
+    _sendCommand(VrmProtocolCommand.setWind, {
+      'type': type.name,
+      'direction': direction.name,
+    });
   }
 
   /// Smoothly fades out the wind effect over a few seconds.
   void stopWind() {
-    _sendCommand('stopWind');
+    _sendCommand(VrmProtocolCommand.stopWind);
   }
 
   /// Configures the scene background with a color or an optional image.
@@ -1121,7 +1149,7 @@ class VrmController {
     if (imageAssetPath != null) {
       await _sendHostedResourceCommand(
         expose: (host) => host.exposeAsset(imageAssetPath),
-        action: 'setBackground',
+        action: VrmProtocolCommand.setBackground,
         fileName: p.basename(imageAssetPath),
         urlField: 'imageUrl',
         payload: {...payload, 'hostedImage': true},
@@ -1129,7 +1157,7 @@ class VrmController {
       return;
     }
 
-    await _bridge.sendCommand('setBackground', {
+    await _bridge.sendCommand(VrmProtocolCommand.setBackground, {
       ...payload,
       'imageUrl': ?imageUrl,
       'hostedImage': false,
@@ -1144,7 +1172,7 @@ class VrmController {
   }) {
     return _sendHostedResourceCommand(
       expose: (host) => host.exposeFile(file),
-      action: 'setBackground',
+      action: VrmProtocolCommand.setBackground,
       fileName: p.basename(file.path),
       urlField: 'imageUrl',
       payload: {
@@ -1167,7 +1195,7 @@ class VrmController {
     }
     return _sendHostedResourceCommand(
       expose: (host) => host.exposeBytes(bytes, fileName: fileName),
-      action: 'setBackground',
+      action: VrmProtocolCommand.setBackground,
       fileName: fileName,
       urlField: 'imageUrl',
       payload: {
@@ -1186,19 +1214,23 @@ class VrmController {
 
   /// Applies a curated renderer profile.
   Future<void> setGraphicsPreset(VrmGraphicsPreset preset) {
-    return _bridge.sendCommand('setGraphicsPreset', {'preset': preset.name});
+    return _bridge.sendCommand(VrmProtocolCommand.setGraphicsPreset, {
+      'preset': preset.name,
+    });
   }
 
   /// Enables or configures automatic render-resolution adaptation.
   Future<void> setAdaptiveQuality(VrmAdaptiveQualitySettings settings) {
-    return _bridge.sendCommand('setAdaptiveQuality', {
+    return _bridge.sendCommand(VrmProtocolCommand.setAdaptiveQuality, {
       'settings': settings.toJson(),
     });
   }
 
   /// Returns the latest renderer workload measurement.
   Future<VrmPerformanceSnapshot> getPerformanceSnapshot() async {
-    final result = await _bridge.requestCommand('getPerformanceSnapshot');
+    final result = await _bridge.requestCommand(
+      VrmProtocolCommand.getPerformanceSnapshot,
+    );
     return VrmPerformanceSnapshot.fromJson(result);
   }
 
@@ -1228,7 +1260,9 @@ class VrmController {
     if (enablePhysics != null) settings['enablePhysics'] = enablePhysics;
     if (fpsCap != null) settings['fpsCap'] = fpsCap;
 
-    return _bridge.sendCommand('setGraphicsSettings', {'settings': settings});
+    return _bridge.sendCommand(VrmProtocolCommand.setGraphicsSettings, {
+      'settings': settings,
+    });
   }
   // --- Event Stream Getters ---
 

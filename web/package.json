@@ -8,6 +8,7 @@
         "build": "node scripts/build.mjs",
         "build:dev": "node scripts/build.mjs --development",
         "verify:build": "node scripts/verify-build.mjs",
+        "verify:contract": "node scripts/verify-contract.mjs",
         "typecheck": "tsc --noEmit",
         "test": "vitest run"
     },

@@ -2,6 +2,8 @@
 
 ## 0.2.0-dev.1
 
+- Add a shared protocol-v3 command/event manifest, typed Dart command catalog, and runtime-boundary payload validation.
+- Verify that Dart, TypeScript, and the runner dispatcher expose the same protocol contract in tests and CI.
 - Scope animation lifecycle events and queues to opaque playback IDs so unrelated or replaced animations cannot advance a queue.
 - Enforce transform, adaptive-quality, recovery, and model-performance configuration contracts in release builds instead of relying on debug-only asserts.
 - Validate animation, pose, expression, gaze, lighting, physics, and renderer inputs synchronously before they can corrupt WebView state.

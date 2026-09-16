@@ -133,24 +133,29 @@ final class _VrmBridge {
         'Unsupported VRM protocol version: ${decoded['version']}.',
       );
     }
-    final event = decoded['event'];
-    if (event is! String) {
+    final eventName = decoded['event'];
+    if (eventName is! String) {
       throw const FormatException('Bridge event name is missing.');
     }
+    final event = vrmProtocolEventFromWireName(eventName);
+    if (event == null) {
+      throw FormatException('Unknown VRM runtime event: $eventName.');
+    }
     final rawPayload = decoded['payload'];
-    final payload = rawPayload is Map<String, dynamic>
-        ? rawPayload
-        : const <String, dynamic>{};
+    if (rawPayload is! Map<String, dynamic>) {
+      throw FormatException('VRM runtime event $eventName payload is invalid.');
+    }
+    final payload = rawPayload;
 
     switch (event) {
-      case 'onModelLoaded':
+      case VrmProtocolEvent.onModelLoaded:
         _eventController.add(
           VrmModelLoadedEvent(
             name: payload['name'] as String? ?? 'VRM Model',
             version: payload['version'] as String? ?? '1.0',
           ),
         );
-      case 'onModelLoadProgress':
+      case VrmProtocolEvent.onModelLoadProgress:
         _eventController.add(
           VrmModelLoadProgressEvent(
             percent: (payload['percent'] as num?)?.toInt() ?? 0,
@@ -158,13 +163,13 @@ final class _VrmBridge {
             total: (payload['total'] as num?)?.toInt() ?? 0,
           ),
         );
-      case 'onModelReport':
+      case VrmProtocolEvent.onModelReport:
         _eventController.add(
           VrmModelReportEvent(report: VrmModelReport.fromJson(payload)),
         );
-      case 'onModelUnloaded':
+      case VrmProtocolEvent.onModelUnloaded:
         _eventController.add(VrmModelUnloadedEvent());
-      case 'onAnimationStarted':
+      case VrmProtocolEvent.onAnimationStarted:
         final playbackId = payload['playbackId'];
         if (playbackId is! String || playbackId.isEmpty) {
           throw const FormatException(
@@ -177,7 +182,7 @@ final class _VrmBridge {
             playbackId: playbackId,
           ),
         );
-      case 'onAnimationFinished':
+      case VrmProtocolEvent.onAnimationFinished:
         final playbackId = payload['playbackId'];
         if (playbackId is! String || playbackId.isEmpty) {
           throw const FormatException(
@@ -190,7 +195,7 @@ final class _VrmBridge {
             playbackId: playbackId,
           ),
         );
-      case 'onExpressionChanged':
+      case VrmProtocolEvent.onExpressionChanged:
         _eventController.add(
           VrmExpressionChangedEvent(
             expression: VrmExpression.fromString(
@@ -201,26 +206,26 @@ final class _VrmBridge {
             ),
           ),
         );
-      case 'onSpeechFinished':
+      case VrmProtocolEvent.onSpeechFinished:
         final sessionId = payload['sessionId'];
         if (sessionId is! String || sessionId.isEmpty) {
           throw const FormatException('Speech event sessionId is missing.');
         }
         _eventController.add(VrmSpeechFinishedEvent(sessionId: sessionId));
-      case 'onError':
+      case VrmProtocolEvent.onError:
         _eventController.add(
           VrmErrorEvent(
             message: payload['message'] as String? ?? 'Unknown WebGL error',
           ),
         );
-      case 'onStateChanged':
+      case VrmProtocolEvent.onStateChanged:
         if (payload['state'] == 'initialized') {
           _runtimeReady = true;
         }
         _eventController.add(
           VrmStateChangedEvent(state: payload['state'] as String? ?? ''),
         );
-      case 'onCameraChanged':
+      case VrmProtocolEvent.onCameraChanged:
         _eventController.add(
           VrmCameraChangedEvent(
             x: (payload['x'] as num?)?.toDouble(),
@@ -229,33 +234,31 @@ final class _VrmBridge {
             userInitiated: payload['userInitiated'] == true,
           ),
         );
-      case 'onPerformance':
+      case VrmProtocolEvent.onPerformance:
         _eventController.add(
           VrmPerformanceEvent(
             snapshot: VrmPerformanceSnapshot.fromJson(payload),
           ),
         );
-      case 'onWebGLContextChanged':
+      case VrmProtocolEvent.onWebGlContextChanged:
         final state = switch (payload['state']) {
           'lost' => VrmWebGlContextState.lost,
           'restored' => VrmWebGlContextState.restored,
           _ => throw const FormatException('Unknown WebGL context state.'),
         };
         _eventController.add(VrmWebGlContextEvent(state: state));
-      case 'onTap':
+      case VrmProtocolEvent.onTap:
         _eventController.add(
           VrmTapEvent(
             x: (payload['x'] as num?)?.toDouble() ?? 0,
             y: (payload['y'] as num?)?.toDouble() ?? 0,
           ),
         );
-      default:
-        debugPrint('Unknown VRM runtime event: $event');
     }
   }
 
   Future<void> sendCommand(
-    String action, [
+    VrmProtocolCommand action, [
     Map<String, dynamic>? payload,
   ]) async {
     await requestCommand(action, payload);
@@ -267,7 +270,7 @@ final class _VrmBridge {
   /// the queued value instead of growing the pending-command map.
   void sendLatestCommand({
     required String channel,
-    required String action,
+    required VrmProtocolCommand action,
     required Map<String, dynamic> payload,
   }) {
     if (_disposed) {
@@ -305,7 +308,7 @@ final class _VrmBridge {
   }
 
   Future<Object?> requestCommand(
-    String action, [
+    VrmProtocolCommand action, [
     Map<String, dynamic>? payload,
   ]) async {
     final runner = _runJavaScript;
@@ -324,7 +327,7 @@ final class _VrmBridge {
       final pending = _pending.remove(id);
       pending?.completer.completeError(
         TimeoutException(
-          'VRM command "$action" did not complete.',
+          'VRM command "${action.name}" did not complete.',
           _commandTimeout,
         ),
       );
@@ -335,7 +338,7 @@ final class _VrmBridge {
       'version': _protocolVersion,
       'id': id,
       'type': 'command',
-      'action': action,
+      'action': action.name,
       'payload': payload ?? const <String, dynamic>{},
     });
 

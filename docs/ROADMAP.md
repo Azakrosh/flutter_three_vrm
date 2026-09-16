@@ -190,6 +190,11 @@ workflow; иначе прямые push могут обходить CI.
 Цель: сделать весь выполняемый web runtime частью строгой типизации, сохранив
 текущее поведение и protocol v3.
 
+Статус: в работе. Первый срез завершён: добавлен общий manifest protocol v3,
+Dart bridge принимает только enum-команды, TypeScript проверяет command/event
+имена и обязательные поля payload, а CI сверяет manifest с dispatcher runner.
+Следующий срез — перенос command dispatcher и затем самого runner в TypeScript.
+
 Работы:
 
 1. Зафиксировать каталог всех command/event, payload и result.

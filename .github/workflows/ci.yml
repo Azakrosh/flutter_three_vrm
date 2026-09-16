@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, master]
   pull_request:
 
 permissions:
@@ -36,6 +36,7 @@ jobs:
         run: |
           pnpm typecheck
           pnpm test
+          pnpm verify:contract
           pnpm build
           pnpm verify:build
       - name: Verify redistributable example assets

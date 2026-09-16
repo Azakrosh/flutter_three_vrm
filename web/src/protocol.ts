@@ -1,11 +1,20 @@
+import {
+  findRuntimeEventPayloadError,
+  findRuntimeCommandPayloadError,
+  isRuntimeCommandName,
+  type RuntimeCommandName,
+  type RuntimeCommandPayload,
+  type RuntimeEventName,
+} from "./protocol-contract";
+
 export const protocolVersion = 3 as const;
 
 export interface CommandEnvelope {
   readonly version: typeof protocolVersion;
   readonly id: string;
   readonly type: "command";
-  readonly action: string;
-  readonly payload: unknown;
+  readonly action: RuntimeCommandName;
+  readonly payload: RuntimeCommandPayload;
 }
 
 export interface SuccessEnvelope {
@@ -31,7 +40,7 @@ export interface FailureEnvelope {
 export interface EventEnvelope {
   readonly version: typeof protocolVersion;
   readonly type: "event";
-  readonly event: string;
+  readonly event: RuntimeEventName;
   readonly payload: unknown;
 }
 
@@ -60,6 +69,25 @@ export function parseCommand(value: string): CommandEnvelope {
       "invalidAction",
       "Command action must be a non-empty string.",
     );
+  }
+  if (!isRuntimeCommandName(decoded.action)) {
+    throw new ProtocolError(
+      "unknownAction",
+      `Unknown VRM command: ${decoded.action}.`,
+    );
+  }
+  if (!isRecord(decoded.payload)) {
+    throw new ProtocolError(
+      "invalidPayload",
+      "Command payload must be an object.",
+    );
+  }
+  const payloadError = findRuntimeCommandPayloadError(
+    decoded.action,
+    decoded.payload,
+  );
+  if (payloadError !== null) {
+    throw new ProtocolError("invalidPayload", payloadError);
   }
 
   return {
@@ -90,7 +118,20 @@ export function failure(
   };
 }
 
-export function event(eventName: string, payload: unknown = null): EventEnvelope {
+export function event(
+  eventName: RuntimeEventName,
+  payload: unknown = {},
+): EventEnvelope {
+  if (!isRecord(payload)) {
+    throw new ProtocolError(
+      "invalidEventPayload",
+      "Event payload must be an object.",
+    );
+  }
+  const payloadError = findRuntimeEventPayloadError(eventName, payload);
+  if (payloadError !== null) {
+    throw new ProtocolError("invalidEventPayload", payloadError);
+  }
   return {
     version: protocolVersion,
     type: "event",
