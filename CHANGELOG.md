@@ -8,6 +8,7 @@
 - Move all 49 command routes out of the JavaScript runner into an exhaustive TypeScript dispatcher backed by correlated command/payload unions.
 - Move shared model, animation, and background fetching into a tested TypeScript resource loader with streaming progress and stable cancellation errors.
 - Move VRM loading, cancellation races, invalid-container cleanup, and model diagnostics into tested TypeScript modules; correctly count Set-based spring-bone joints.
+- Give a typed model session sole ownership of the active VRM, animation mixer, motion transitions, spring-bone attachment, animation-finished listener, and deterministic scene disposal.
 - Scope animation lifecycle events and queues to opaque playback IDs so unrelated or replaced animations cannot advance a queue.
 - Enforce transform, adaptive-quality, recovery, and model-performance configuration contracts in release builds instead of relying on debug-only asserts.
 - Validate animation, pose, expression, gaze, lighting, physics, and renderer inputs synchronously before they can corrupt WebView state.

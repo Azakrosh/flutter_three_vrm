@@ -198,8 +198,9 @@ workflow; иначе прямые push могут обходить CI.
 в исчерпывающий TypeScript dispatcher с коррелированными action/payload union.
 Общая потоковая загрузка ресурсов для model, animation и background вынесена
 в типизированный модуль. Model loading, cancellation races, invalid-container
-cleanup и model report также вынесены в TypeScript. Следующий срез — перенос
-инициализации и освобождения загруженной модели из runner.
+cleanup и model report также вынесены в TypeScript. Ownership активной
+VRM-сессии, mixer, motion transitions, spring bones и scene disposal перенесён
+в отдельный TypeScript-модуль. Следующий срез — scene/camera части.
 
 Работы:
 

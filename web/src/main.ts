@@ -111,6 +111,13 @@ export {
 } from "./model-report";
 
 export {
+  VrmModelSession,
+  type ModelAnimationFinished,
+  type VrmModelAttachOptions,
+  type VrmModelSessionDependencies,
+} from "./model-session";
+
+export {
   GLTFLoader,
   OrbitControls,
   THREE,

@@ -20,6 +20,7 @@ void main() {
     final view = tester.widget<VrmView>(find.byType(VrmView));
     final controller = view.controller;
     await controller.waitUntilReady(timeout: const Duration(seconds: 30));
+    debugPrint('runtime_smoke: initial runtime ready');
 
     final initialHealth = await controller.getRuntimeHealth();
     expect(initialHealth.protocolVersion, 3);
@@ -28,6 +29,7 @@ void main() {
     expect(initialHealth.maxTextureSize, greaterThan(0));
 
     await _waitForModel(tester, controller);
+    debugPrint('runtime_smoke: initial model ready');
     final report = await controller.getModelReport();
     expect(report.meshes, greaterThan(0));
     expect(report.triangles, greaterThan(0));
@@ -35,6 +37,7 @@ void main() {
 
     await _waitForAnimation(tester, controller);
     await _verifyMotionTransitions(tester, controller);
+    debugPrint('runtime_smoke: motion transitions verified');
 
     await controller.setBackground(
       color: const Color(0xFF171823),
@@ -140,8 +143,11 @@ void main() {
 
     await controller.reloadRuntime();
     await controller.waitUntilReady(timeout: const Duration(seconds: 30));
+    debugPrint('runtime_smoke: inactive runtime reload ready');
     await _waitForModel(tester, controller);
+    debugPrint('runtime_smoke: inactive model restored');
     await _waitForRenderingState(tester, controller, paused: !isWindows);
+    debugPrint('runtime_smoke: inactive rendering state restored');
 
     final restoredHealth = await controller.getRuntimeHealth();
     expect(restoredHealth.modelLoaded, isTrue);
@@ -154,20 +160,26 @@ void main() {
 
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await _waitForRenderingState(tester, controller, paused: false);
+    debugPrint('runtime_smoke: resumed rendering');
 
     await controller.unloadModel();
+    debugPrint('runtime_smoke: model unloaded');
     expect(controller.isModelLoaded, isFalse);
     expect((await controller.getRuntimeHealth()).modelLoaded, isFalse);
 
     await controller.loadModel('assets/vrm/', 'sample.vrm');
     await _waitForModel(tester, controller);
+    debugPrint('runtime_smoke: explicit model reload ready');
     expect((await controller.getRuntimeHealth()).contextLost, isFalse);
 
     await controller.setTransform(expectedTransform);
     for (var cycle = 0; cycle < 2; cycle += 1) {
+      debugPrint('runtime_smoke: starting recreation cycle $cycle');
       await controller.reloadRuntime();
       await controller.waitUntilReady(timeout: const Duration(seconds: 30));
+      debugPrint('runtime_smoke: recreation cycle $cycle runtime ready');
       await _waitForModel(tester, controller);
+      debugPrint('runtime_smoke: recreation cycle $cycle model ready');
 
       final cycleHealth = await controller.getRuntimeHealth();
       expect(cycleHealth.modelLoaded, isTrue);
@@ -178,13 +190,14 @@ void main() {
       expect(cycleTransform.x, closeTo(expectedTransform.x, 0.001));
       expect(cycleTransform.y, closeTo(expectedTransform.y, 0.001));
       expect(cycleTransform.zoom, closeTo(expectedTransform.zoom, 0.001));
+      debugPrint('runtime_smoke: recreation cycle $cycle verified');
     }
 
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
     await Future<void>.delayed(const Duration(milliseconds: 250));
     expect(tester.takeException(), isNull);
-  });
+  }, timeout: const Timeout(Duration(minutes: 3)));
 }
 
 Future<void> _verifyMotionTransitions(

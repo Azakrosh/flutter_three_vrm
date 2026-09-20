@@ -8,17 +8,16 @@ import {
   VRMUtils,
   createVRMAnimationClip,
   createHumanoidAnimationClip,
-  createRuntimeModelReport,
   createRuntimeCommandDispatcher,
   createRuntimeCanceledError,
   fetchRuntimeResource,
   getRuntimeInfo,
   isRuntimeCanceledError,
   installRuntimeBridge,
-  MotionTransitionController,
   postRuntimeEvent,
   SpeechTimeline,
   VrmModelLoader,
+  VrmModelSession,
 } from './main';
 // Подавляем безвредные предупреждения от @pixiv/three-vrm-animation для старых vrma файлов
 const originalConsoleWarn = console.warn;
@@ -45,13 +44,8 @@ class VrmRunner {
     this.directionalLight = null;
     this.rimLight = null;
 
-    this.currentVrm = null;
-    this.mixer = null;
-    this.motionTransitions = null;
     this.pendingRestPoseReset = false;
     this.poseSequence = 0;
-    this.modelReport = null;
-    this._cachedSpringBoneManager = null;
     this.modelLoader = new VrmModelLoader();
     this.animationLoadAbortController = null;
     this.backgroundLoadAbortController = null;
@@ -201,6 +195,7 @@ class VrmRunner {
     this._detachRuntimeBridge = null;
 
     this.initScene();
+    this.modelSession = new VrmModelSession(this.scene);
     this.initEvents();
     this.animate();
 
@@ -554,96 +549,43 @@ class VrmRunner {
     if (!vrm) {
       throw new Error('Failed to parse a VRM model from the glTF container.');
     }
+    if (this.currentVrm) this.unloadModel();
 
-    // Выгружаем предыдущую модель и очищаем память WebGL перед добавлением новой
-    if (this.currentVrm) {
-      this.unloadModel();
-    }
-
-    try {
-      if (VRMUtils.removeUnnecessaryVertices) {
-        VRMUtils.removeUnnecessaryVertices(gltf.scene);
-      }
-      if (VRMUtils.rotateVRM0) {
-        VRMUtils.rotateVRM0(vrm);
-      }
-    } catch (utilsErr) {
-      console.warn('VRMUtils warning:', utilsErr);
-    }
-
-    this.currentVrm = vrm;
-    this.scene.add(vrm.scene);
-
-    if (vrm.lookAt) {
-      vrm.lookAt.target = this.lookAtTarget;
-    }
-
-    if (!this.enablePhysics && vrm.springBoneManager) {
-      this._cachedSpringBoneManager = vrm.springBoneManager;
-      vrm.springBoneManager = null;
-    }
-
-    // Включаем тени для всех мешей модели в зависимости от настроек рендерера
-    const shadowsEnabled = this.renderer.shadowMap.enabled;
-    vrm.scene.traverse((obj) => {
-      if (obj.isMesh) {
-        obj.castShadow = shadowsEnabled;
-        obj.receiveShadow = shadowsEnabled;
-      }
-    });
-
-    this.mixer = new THREE.AnimationMixer(vrm.scene);
-    this.motionTransitions = new MotionTransitionController(this.mixer);
-    this.pendingRestPoseReset = false;
-
-    // Вычисляем реальный рост модели через кости скелета (надежнее, чем габариты сетки)
-    let dynamicHeight = 1.6; // Значение по умолчанию
-    try {
-      // Обязательно обновляем мировые матрицы перед чтением позиций
-      vrm.scene.updateMatrixWorld(true);
-      const headBone = vrm.humanoid.getNormalizedBoneNode('head');
-
-      if (headBone) {
-        const headPos = new THREE.Vector3();
-        headBone.getWorldPosition(headPos);
-        // Базовая позиция макушки = позиция кости головы (основание шеи) + примерно 15-20 см головы
-        dynamicHeight = headPos.y + 0.15;
-      }
-    } catch (e) {
-      console.warn("Could not calculate exact VRM height from bones, using default 1.6m", e);
-    }
-    this.modelBoundingHeight = dynamicHeight;
-    this.modelReport = createRuntimeModelReport(
-      vrm,
+    const report = this.modelSession.attach(vrm, {
       sourceBytes,
-      dynamicHeight,
-      this._cachedSpringBoneManager?.joints?.size || 0,
-    );
-
+      lookAtTarget: this.lookAtTarget,
+      physicsEnabled: this.enablePhysics,
+      shadowsEnabled: this.renderer.shadowMap.enabled,
+      onAnimationFinished: (event) => {
+        this.notifyFlutter('onAnimationFinished', event);
+      },
+    });
+    this.pendingRestPoseReset = false;
+    this.modelBoundingHeight = report.height;
     this.frameAvatar(0);
 
-    // Подписываемся на завершение анимации
-    this._onAnimationFinished = (e) => {
-      // Игнорируем события от старых/остановленных экшенов, если они почему-то приходят
-      // И разрешаем отправку только если экшен совпадает с currentAction ИЛИ если currentAction уже очищен.
-      if (!e.action || e.action !== this.currentAction || e.action._hasNotifiedFinished) return;
-      const playbackId = e.action._flutterPlaybackId;
-      if (typeof playbackId !== 'string' || playbackId.length === 0) return;
-      e.action._hasNotifiedFinished = true;
-      this.notifyFlutter('onAnimationFinished', {
-        name: e.action.getClip().name,
-        playbackId,
-      });
-    };
-    this.mixer.addEventListener('finished', this._onAnimationFinished);
-
     this.notifyFlutter('onModelLoaded', {
-      name: vrm.meta?.name || 'VRM Model',
-      version: vrm.meta?.metaVersion || '1.0'
+      name: report.name,
+      version: report.vrmVersion,
     });
-    this.notifyFlutter('onModelReport', this.modelReport);
+    this.notifyFlutter('onModelReport', report);
   }
 
+  get currentVrm() {
+    return this.modelSession?.currentVrm ?? null;
+  }
+
+  get mixer() {
+    return this.modelSession?.mixer ?? null;
+  }
+
+  get motionTransitions() {
+    return this.modelSession?.motionTransitions ?? null;
+  }
+
+  get modelReport() {
+    return this.modelSession?.modelReport ?? null;
+  }
   getRuntimeHealth() {
     const runtimeInfo = getRuntimeInfo();
     const capabilities = this.renderer?.capabilities;
@@ -665,47 +607,26 @@ class VrmRunner {
 
   unloadModel() {
     this.cancelSpeech();
-    if (this.currentVrm) {
-      if (this.mixer) {
-        if (this._onAnimationFinished) {
-          this.mixer.removeEventListener('finished', this._onAnimationFinished);
-          this._onAnimationFinished = null;
-        }
-        this.motionTransitions?.dispose();
-        this.mixer.uncacheRoot(this.currentVrm.scene);
-      }
-      this.clearAllExpressions();
+    if (!this.currentVrm) return;
 
-      this.scene.remove(this.currentVrm.scene);
-      // The official helper disposes geometry, skeletons, every material texture,
-      // shader-uniform textures, and materials without double-disposing them.
-      VRMUtils.deepDispose(this.currentVrm.scene);
-      this.currentVrm = null;
-      this.mixer = null;
-      this.motionTransitions = null;
-      this.pendingRestPoseReset = false;
-      this.modelReport = null;
-      this._cachedSpringBoneManager = null;
-      this.hasCustomCameraTransform = false;
+    this.clearAllExpressions();
+    if (!this.modelSession.detach()) return;
+    this.pendingRestPoseReset = false;
+    this.hasCustomCameraTransform = false;
 
-      // Сбрасываем переменные аддитивного поворота, чтобы при загрузке новой модели голова не принимала ошибочную позу
-      this.baseBonesSaved = false;
-      if (this.neckBaseQuat) this.neckBaseQuat.identity();
-      if (this.headBaseQuat) this.headBaseQuat.identity();
-      if (this.chestBaseQuat) this.chestBaseQuat.identity();
-      this.targetHeadYaw = 0;
-      this.targetHeadPitch = 0;
-      this.proceduralHeadYaw = 0;
-      this.proceduralHeadPitch = 0;
-      this.lookAtTimer = 0;
-      if (this.desiredLookAtPos && this.defaultLookAtPos) {
-        this.desiredLookAtPos.copy(this.defaultLookAtPos);
-      }
+    this.baseBonesSaved = false;
+    this.neckBaseQuat.identity();
+    this.headBaseQuat.identity();
+    this.chestBaseQuat.identity();
+    this.targetHeadYaw = 0;
+    this.targetHeadPitch = 0;
+    this.proceduralHeadYaw = 0;
+    this.proceduralHeadPitch = 0;
+    this.lookAtTimer = 0;
+    this.desiredLookAtPos.copy(this.defaultLookAtPos);
 
-      this.notifyFlutter('onModelUnloaded', {});
-    }
+    this.notifyFlutter('onModelUnloaded', {});
   }
-
   async playAnimationFromUrl(url, options = {}) {
     if (!this.currentVrm || !this.mixer) {
       throw new Error('Load a VRM model before playing an animation.');
@@ -1304,23 +1225,7 @@ class VrmRunner {
 
     if (settings.enablePhysics !== undefined) {
       this.enablePhysics = settings.enablePhysics;
-      if (this.currentVrm) {
-        if (!this.enablePhysics) {
-          // Выключаем физику: сбрасываем кости и временно удаляем менеджер
-          if (this.currentVrm.springBoneManager) {
-            this.currentVrm.springBoneManager.reset();
-            this._cachedSpringBoneManager = this.currentVrm.springBoneManager;
-            this.currentVrm.springBoneManager = null;
-          }
-        } else {
-          // Включаем физику обратно
-          if (this._cachedSpringBoneManager) {
-            this.currentVrm.springBoneManager = this._cachedSpringBoneManager;
-            this.currentVrm.springBoneManager.reset();
-            this._cachedSpringBoneManager = null;
-          }
-        }
-      }
+      this.modelSession.setPhysicsEnabled(this.enablePhysics);
     }
 
     if (settings.fpsCap !== undefined) {
