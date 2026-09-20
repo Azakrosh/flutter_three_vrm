@@ -197,7 +197,9 @@ workflow; иначе прямые push могут обходить CI.
 вынесены из runner в строгий TypeScript. Все 49 command routes также вынесены
 в исчерпывающий TypeScript dispatcher с коррелированными action/payload union.
 Общая потоковая загрузка ресурсов для model, animation и background вынесена
-в типизированный модуль. Следующий срез — перенос model-loading частей runner.
+в типизированный модуль. Model loading, cancellation races, invalid-container
+cleanup и model report также вынесены в TypeScript. Следующий срез — перенос
+инициализации и освобождения загруженной модели из runner.
 
 Работы:
 

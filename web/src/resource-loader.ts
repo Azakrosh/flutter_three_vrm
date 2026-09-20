@@ -19,6 +19,17 @@ export function createRuntimeCanceledError(
   return Object.assign(new Error(message), { code: "canceled" as const });
 }
 
+export function isRuntimeCanceledError(
+  error: unknown,
+): error is RuntimeCanceledError {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    (("code" in error && error.code === "canceled") ||
+      ("name" in error && error.name === "AbortError"))
+  );
+}
+
 export async function fetchRuntimeResource(
   url: string,
   signal: AbortSignal,

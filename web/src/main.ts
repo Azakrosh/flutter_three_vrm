@@ -92,10 +92,23 @@ export {
 export {
   createRuntimeCanceledError,
   fetchRuntimeResource,
+  isRuntimeCanceledError,
   type RuntimeCanceledError,
   type RuntimeResource,
   type RuntimeResourceProgress,
 } from "./resource-loader";
+
+export {
+  VrmModelLoader,
+  type LoadedVrmDocument,
+  type VrmModelLoaderDependencies,
+  type VrmModelLoadProgress,
+} from "./model-loader";
+
+export {
+  createRuntimeModelReport,
+  type RuntimeModelReport,
+} from "./model-report";
 
 export {
   GLTFLoader,

@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createRuntimeCanceledError,
   fetchRuntimeResource,
+  isRuntimeCanceledError,
 } from "../src/resource-loader";
 
 describe("runtime resource loader", () => {
@@ -68,5 +69,10 @@ describe("runtime resource loader", () => {
       message: "Loading was canceled.",
       code: "canceled",
     });
+    expect(isRuntimeCanceledError(error)).toBe(true);
+    expect(
+      isRuntimeCanceledError(new DOMException("Aborted", "AbortError")),
+    ).toBe(true);
+    expect(isRuntimeCanceledError(new Error("Network failed"))).toBe(false);
   });
 });

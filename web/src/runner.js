@@ -4,19 +4,21 @@ import {
   OrbitControls,
   THREE,
   VRMAnimationLoaderPlugin,
-  VRMLoaderPlugin,
   VRMLookAtQuaternionProxy,
   VRMUtils,
   createVRMAnimationClip,
   createHumanoidAnimationClip,
+  createRuntimeModelReport,
   createRuntimeCommandDispatcher,
   createRuntimeCanceledError,
   fetchRuntimeResource,
   getRuntimeInfo,
+  isRuntimeCanceledError,
   installRuntimeBridge,
   MotionTransitionController,
   postRuntimeEvent,
   SpeechTimeline,
+  VrmModelLoader,
 } from './main';
 // Подавляем безвредные предупреждения от @pixiv/three-vrm-animation для старых vrma файлов
 const originalConsoleWarn = console.warn;
@@ -50,10 +52,9 @@ class VrmRunner {
     this.poseSequence = 0;
     this.modelReport = null;
     this._cachedSpringBoneManager = null;
-    this.modelLoadAbortController = null;
+    this.modelLoader = new VrmModelLoader();
     this.animationLoadAbortController = null;
     this.backgroundLoadAbortController = null;
-    this.modelLoadGeneration = 0;
     this.animationLoadGeneration = 0;
     this.backgroundLoadGeneration = 0;
     this.backgroundObjectUrl = null;
@@ -123,7 +124,6 @@ class VrmRunner {
 
     // Animation Action
     this.isAnimationPaused = false;
-    this._lastLoadPercent = -1;
 
     this.windConfig = { type: 'light', direction: 'right' };
     this.currentWindIntensity = 0.0;
@@ -518,49 +518,23 @@ class VrmRunner {
   }
 
   async loadModelFromUrl(url) {
-    this.cancelModelLoad();
-    const generation = ++this.modelLoadGeneration;
-    const abortController = new AbortController();
-    this.modelLoadAbortController = abortController;
-    this._lastLoadPercent = -1;
-
     try {
-      const loader = new GLTFLoader();
-      loader.register((parser) => new VRMLoaderPlugin(parser));
-      const resource = await fetchRuntimeResource(url, abortController.signal, (loaded, total) => {
-        if (total <= 0) return;
-        const percent = Math.round((loaded / total) * 100);
-        if (percent !== this._lastLoadPercent) {
-          this._lastLoadPercent = percent;
-          this.notifyFlutter('onModelLoadProgress', { percent, loaded, total });
-        }
+      const loaded = await this.modelLoader.load(url, (progress) => {
+        this.notifyFlutter('onModelLoadProgress', progress);
       });
-      const gltf = await loader.parseAsync(resource.data, new URL('.', url).href);
-      if (abortController.signal.aborted || generation !== this.modelLoadGeneration) {
-        VRMUtils.deepDispose(gltf.scene);
-        throw createRuntimeCanceledError('Model loading was canceled.');
-      }
-      this._setupLoadedVrm(gltf, resource.byteLength);
+      this._setupLoadedVrm(loaded.gltf, loaded.sourceBytes);
     } catch (error) {
-      this._lastLoadPercent = -1;
-      if (abortController.signal.aborted || error?.name === 'AbortError' || error?.code === 'canceled') {
-        throw createRuntimeCanceledError('Model loading was canceled.');
+      if (!isRuntimeCanceledError(error)) {
+        this.notifyFlutter('onError', {
+          message: error instanceof Error ? error.message : String(error),
+        });
       }
-      this.notifyFlutter('onError', {
-        message: error instanceof Error ? error.message : String(error),
-      });
       throw error;
-    } finally {
-      if (this.modelLoadAbortController === abortController) {
-        this.modelLoadAbortController = null;
-      }
     }
   }
 
   cancelModelLoad() {
-    if (this.modelLoadAbortController) this.modelLoadAbortController.abort();
-    this.modelLoadAbortController = null;
-    this.modelLoadGeneration += 1;
+    this.modelLoader.cancel();
   }
 
   cancelAnimationLoad() {
@@ -639,7 +613,12 @@ class VrmRunner {
       console.warn("Could not calculate exact VRM height from bones, using default 1.6m", e);
     }
     this.modelBoundingHeight = dynamicHeight;
-    this.modelReport = this.createModelReport(vrm, sourceBytes, dynamicHeight);
+    this.modelReport = createRuntimeModelReport(
+      vrm,
+      sourceBytes,
+      dynamicHeight,
+      this._cachedSpringBoneManager?.joints?.size || 0,
+    );
 
     this.frameAvatar(0);
 
@@ -663,69 +642,6 @@ class VrmRunner {
       version: vrm.meta?.metaVersion || '1.0'
     });
     this.notifyFlutter('onModelReport', this.modelReport);
-  }
-
-  createModelReport(vrm, sourceBytes, height) {
-    const geometries = new Set();
-    const materials = new Set();
-    const textures = new Set();
-    let meshes = 0;
-    let skinnedMeshes = 0;
-    let vertices = 0;
-    let triangles = 0;
-    let morphTargets = 0;
-    let maxTextureWidth = 0;
-    let maxTextureHeight = 0;
-    let texturePixels = 0;
-
-    vrm.scene.traverse((object) => {
-      if (!object.isMesh) return;
-      meshes += 1;
-      if (object.isSkinnedMesh) skinnedMeshes += 1;
-      const geometry = object.geometry;
-      if (geometry && !geometries.has(geometry)) {
-        geometries.add(geometry);
-        const vertexCount = geometry.attributes?.position?.count || 0;
-        vertices += vertexCount;
-        triangles += geometry.index ? geometry.index.count / 3 : vertexCount / 3;
-        morphTargets += geometry.morphAttributes?.position?.length || 0;
-      }
-      const objectMaterials = Array.isArray(object.material) ? object.material : [object.material];
-      objectMaterials.filter(Boolean).forEach((material) => {
-        materials.add(material);
-        Object.values(material).forEach((value) => {
-          if (!value?.isTexture || textures.has(value)) return;
-          textures.add(value);
-          const image = value.image;
-          const width = Number(image?.width || 0);
-          const height = Number(image?.height || 0);
-          maxTextureWidth = Math.max(maxTextureWidth, width);
-          maxTextureHeight = Math.max(maxTextureHeight, height);
-          texturePixels += width * height;
-        });
-      });
-    });
-
-    return {
-      name: vrm.meta?.name || 'VRM Model',
-      vrmVersion: vrm.meta?.metaVersion || '1.0',
-      sourceBytes,
-      height,
-      meshes,
-      skinnedMeshes,
-      geometries: geometries.size,
-      materials: materials.size,
-      textures: textures.size,
-      texturePixels: Math.round(texturePixels),
-      estimatedTextureMemoryBytes: Math.round(texturePixels * 4 * 4 / 3),
-      maxTextureWidth,
-      maxTextureHeight,
-      vertices,
-      triangles: Math.round(triangles),
-      morphTargets,
-      humanoidBones: Object.keys(vrm.humanoid?.normalizedHumanBones || {}).length,
-      springBoneJoints: vrm.springBoneManager?.joints?.length || this._cachedSpringBoneManager?.joints?.length || 0,
-    };
   }
 
   getRuntimeHealth() {
