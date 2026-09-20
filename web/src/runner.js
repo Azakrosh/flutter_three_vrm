@@ -1,7 +1,6 @@
 import {
   AdaptiveQualityController,
   GLTFLoader,
-  OrbitControls,
   THREE,
   VRMAnimationLoaderPlugin,
   VRMLookAtQuaternionProxy,
@@ -17,6 +16,7 @@ import {
   postRuntimeEvent,
   SpeechTimeline,
   RuntimeCameraController,
+  RuntimeSceneController,
   VrmModelLoader,
   VrmModelSession,
 } from './main';
@@ -37,13 +37,8 @@ class VrmRunner {
     }
 
     this.container = document.getElementById('canvas-container');
-    this.scene = null;
-    this.camera = null;
-    this.renderer = null;
-    this.controls = null;
-    this.ambientLight = null;
-    this.directionalLight = null;
-    this.rimLight = null;
+    this.sceneController = null;
+    this.cameraController = null;
 
     this.pendingRestPoseReset = false;
     this.poseSequence = 0;
@@ -135,7 +130,6 @@ class VrmRunner {
     this.raycaster = new THREE.Raycaster();
 
     // Graphics and Performance state
-    this.currentAntialias = true;
     this.enablePhysics = true;
     this.fpsCap = 60;
     this.lastFrameTime = 0;
@@ -156,12 +150,10 @@ class VrmRunner {
       textures: 0,
       reason: 'initialized',
     };
-    this._contextLost = false;
     this._isRenderingPaused = false;
     this._animationFrameId = null;
     this._isDisposed = false;
     this._pointerEventCanvas = null;
-    this._rendererEventCanvas = null;
     this._onWindowResize = () => this.onWindowResize();
     this._onPointerDown = (event) => this.onPointerDown(event);
     this._onPointerMove = (event) => this.onPointerMove(event);
@@ -173,8 +165,6 @@ class VrmRunner {
       this.cameraController.captureControlsTransform();
       if (this.cameraController.mode === 'constrained') this.notifyCameraChanged(true);
     };
-    this._onWebGlContextLost = (event) => this.onWebGlContextLost(event);
-    this._onWebGlContextRestored = () => this.onWebGlContextRestored();
     this._onPageHide = () => this.dispose();
     this._detachRuntimeBridge = null;
 
@@ -199,66 +189,32 @@ class VrmRunner {
    * Инициализация базовой 3D сцены Three.js, камеры, света и контроллера вращения
    */
   initScene() {
-    this.scene = new THREE.Scene();
-
-    const aspect = window.innerWidth / window.innerHeight;
-
-    // Перспективная камера с расширенным углом обзора (FOV = 36), чтобы персонаж аккуратно вписывался в сцену
-    this.camera = new THREE.PerspectiveCamera(36, aspect, 0.1, 20.0);
-    // Начальная позиция камеры: по умолчанию режим 'upperBody'
-    this.camera.position.set(0, 1.05, 1.9);
-
-    // Добавляем невидимый таргет взгляда (LookAt)
-    this.scene.add(this.lookAtTarget);
-    this.lookAtTarget.position.set(0, 1.4, 2.1);
-
-    // Рендерер WebGL с поддержкой прозрачности (alpha: true), без премультиплицированного альфа-канала (premultipliedAlpha: false) для чистого сглаживания
-    this.renderer = new THREE.WebGLRenderer({
-      alpha: true,
-      antialias: this.currentAntialias,
-      premultipliedAlpha: false,
-      // ВНИМАНИЕ: preserveDrawingBuffer отключен для повышения производительности (экономит ~20-30% CPU на мобильных).
-      // Если понадобится делать скриншоты (toDataURL), раскомментируйте или установите в true.
-      preserveDrawingBuffer: false
+    this.sceneController = new RuntimeSceneController({
+      container: this.container,
+      lookAtTarget: this.lookAtTarget,
+      antialias: true,
+      onControlsStart: this._onControlsStart,
+      onControlsEnd: this._onControlsEnd,
+      onContextLost: () => this.onWebGlContextLost(),
+      onContextRestored: () => this.onWebGlContextRestored(),
     });
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
-    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-
-    this.renderer.shadowMap.enabled = false;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    this.container.appendChild(this.renderer.domElement);
-    this.attachRendererContextEvents();
-
-    // Орбитальный контроллер вращения модели (OrbitControls)
-    this.controls = new OrbitControls(this.camera, this.renderer.domElement);
-    this.controls.target.set(0, 0.95, 0); // Фокус 'upperBody'
-    this.attachControlsEvents();
     this.cameraController = new RuntimeCameraController(this.camera, this.controls);
+  }
 
-    // Источники света: рассеянный (Ambient), прямой (Directional) и контурный (Rim)
-    this.ambientLight = new THREE.AmbientLight(0xffffff, 1.2);
-    this.scene.add(this.ambientLight);
+  get scene() {
+    return this.sceneController.scene;
+  }
 
-    this.directionalLight = new THREE.DirectionalLight(0xffffff, 1.0);
-    this.directionalLight.position.set(1.0, 2.0, 1.5);
+  get camera() {
+    return this.sceneController.camera;
+  }
 
-    // Настройка теней
-    this.directionalLight.castShadow = true;
-    this.directionalLight.shadow.mapSize.width = 2048;
-    this.directionalLight.shadow.mapSize.height = 2048;
-    this.directionalLight.shadow.camera.near = 0.5;
-    this.directionalLight.shadow.camera.far = 10;
-    this.directionalLight.shadow.camera.left = -1.5;
-    this.directionalLight.shadow.camera.right = 1.5;
-    this.directionalLight.shadow.camera.top = 2.0;
-    this.directionalLight.shadow.camera.bottom = -0.5;
-    this.directionalLight.shadow.bias = -0.001;
-    this.scene.add(this.directionalLight);
+  get renderer() {
+    return this.sceneController.renderer;
+  }
 
-    this.rimLight = new THREE.DirectionalLight(0xffffff, 0.6);
-    this.rimLight.position.set(-1.0, 1.5, -1.5);
-    this.scene.add(this.rimLight);
+  get controls() {
+    return this.sceneController.controls;
   }
 
   initEvents() {
@@ -271,17 +227,6 @@ class VrmRunner {
       dispose: () => this.dispose(),
       isDisposed: () => this._isDisposed,
     });
-  }
-
-  attachControlsEvents() {
-    this.controls.addEventListener('start', this._onControlsStart);
-    this.controls.addEventListener('end', this._onControlsEnd);
-  }
-
-  detachControlsEvents() {
-    if (!this.controls) return;
-    this.controls.removeEventListener('start', this._onControlsStart);
-    this.controls.removeEventListener('end', this._onControlsEnd);
   }
 
   onPointerDown(e) {
@@ -349,9 +294,7 @@ class VrmRunner {
   onWindowResize() {
     const width = window.innerWidth;
     const height = window.innerHeight;
-    this.camera.aspect = width / height;
-    this.camera.updateProjectionMatrix();
-    this.renderer.setSize(width, height);
+    this.sceneController.resize(width, height);
 
     // Автоматически пересчитываем позицию камеры под новые пропорции экрана (без анимации)
     // Только если пользователь еще не двигал камеру вручную!
@@ -423,31 +366,7 @@ class VrmRunner {
   }
 
   setShadows(enabled) {
-    if (this.renderer.shadowMap.enabled === enabled) return;
-
-    this.renderer.shadowMap.enabled = enabled;
-    if (this.directionalLight) {
-      this.directionalLight.castShadow = enabled;
-    }
-
-    // Обновляем материалы на всей сцене, чтобы они скомпилировались с поддержкой теней (или без)
-    this.scene.traverse((child) => {
-      if (child.isMesh) {
-        child.castShadow = enabled;
-        child.receiveShadow = enabled;
-        if (child.material) {
-          // Если у меша массив материалов
-          if (Array.isArray(child.material)) {
-            child.material.forEach(mat => mat.needsUpdate = true);
-          } else {
-            child.material.needsUpdate = true;
-          }
-        }
-      }
-    });
-
-    // Обязательно очищаем кэш шейдеров и перерисовываем, если сцена статична
-    this.renderer.clear();
+    this.sceneController.setShadows(enabled);
   }
 
   async loadModelFromUrl(url) {
@@ -539,7 +458,7 @@ class VrmRunner {
       animationActive: Boolean(this.motionTransitions?.isActive),
       animationPaused: Boolean(this.isAnimationPaused),
       renderingPaused: Boolean(this._isRenderingPaused),
-      contextLost: Boolean(this._contextLost),
+      contextLost: this.sceneController.contextLost,
     };
   }
 
@@ -900,10 +819,7 @@ class VrmRunner {
   }
 
   setLighting(config) {
-    if (config.ambientIntensity !== undefined) this.ambientLight.intensity = config.ambientIntensity;
-    if (config.ambientColor) this.ambientLight.color.set(config.ambientColor);
-    if (config.directionalIntensity !== undefined) this.directionalLight.intensity = config.directionalIntensity;
-    if (config.directionalColor) this.directionalLight.color.set(config.directionalColor);
+    this.sceneController.setLighting(config);
   }
 
 
@@ -968,15 +884,7 @@ class VrmRunner {
   }
 
   setEnvironmentColor(colorHex, intensity = 0.5) {
-    if (!this.rimLight || !this.ambientLight) return;
-
-    // Set rim light completely to the environment color
-    this.rimLight.color.set(colorHex);
-
-    // Tint ambient light to match the environment
-    const baseAmbient = new THREE.Color(0xffffff);
-    const envColor = new THREE.Color(colorHex);
-    this.ambientLight.color.copy(baseAmbient).lerp(envColor, intensity);
+    this.sceneController.setEnvironmentColor(colorHex, intensity);
   }
 
   async setBackground(colorHex, imageUrl, transparent, hostedImage = false) {
@@ -1043,19 +951,16 @@ class VrmRunner {
       document.body.style.backgroundPosition = 'center';
 
       // Make WebGL canvas transparent so the CSS background is visible
-      this.renderer.setClearColor(0x000000, 0);
-      this.scene.background = null;
+      this.sceneController.setCanvasBackground(null, true);
     } else {
       document.body.style.backgroundImage = 'none';
 
       if (transparent) {
         document.body.style.backgroundColor = 'transparent';
-        this.renderer.setClearColor(0x000000, 0);
-        this.scene.background = null;
+        this.sceneController.setCanvasBackground(null, true);
       } else {
         document.body.style.backgroundColor = colorHex;
-        this.renderer.setClearColor(colorHex, 1);
-        this.scene.background = new THREE.Color(colorHex);
+        this.sceneController.setCanvasBackground(colorHex, false);
       }
     }
   }
@@ -1068,12 +973,9 @@ class VrmRunner {
   setGraphicsSettings(settings) {
     if (!settings) return;
 
-    let needsRendererRecreate = false;
-
-    if (settings.antialias !== undefined && settings.antialias !== this.currentAntialias) {
-      this.currentAntialias = settings.antialias;
-      needsRendererRecreate = true;
-    }
+    const needsRendererRecreate =
+      settings.antialias !== undefined &&
+      settings.antialias !== this.sceneController.antialias;
 
     if (settings.enablePhysics !== undefined) {
       this.enablePhysics = settings.enablePhysics;
@@ -1090,7 +992,7 @@ class VrmRunner {
     }
 
     if (needsRendererRecreate) {
-      this._recreateRenderer();
+      this._recreateRenderer(settings.antialias);
     }
 
     if (settings.pixelRatio !== undefined && this.renderer) {
@@ -1098,8 +1000,9 @@ class VrmRunner {
       if (!Number.isFinite(requestedRatio) || requestedRatio <= 0) {
         throw new TypeError('pixelRatio must be a positive finite number.');
       }
-      this.renderer.setPixelRatio(THREE.MathUtils.clamp(requestedRatio, 0.5, 3));
-      this.renderer.setSize(window.innerWidth, window.innerHeight, false);
+      this.sceneController.setPixelRatio(
+        THREE.MathUtils.clamp(requestedRatio, 0.5, 3),
+      );
     }
   }
 
@@ -1137,8 +1040,7 @@ class VrmRunner {
       config.minPixelRatio,
       config.maxPixelRatio,
     );
-    this.renderer.setPixelRatio(ratio);
-    this.renderer.setSize(window.innerWidth, window.innerHeight, false);
+    this.sceneController.setPixelRatio(ratio);
     this.performanceSnapshot = this.getPerformanceSnapshot('configurationChanged');
   }
 
@@ -1173,8 +1075,7 @@ class VrmRunner {
       now,
     );
     if (adjustment) {
-      this.renderer.setPixelRatio(adjustment.pixelRatio);
-      this.renderer.setSize(window.innerWidth, window.innerHeight, false);
+      this.sceneController.setPixelRatio(adjustment.pixelRatio);
     }
 
     this.performanceSnapshot = {
@@ -1190,93 +1091,28 @@ class VrmRunner {
     this.performanceWindowStart = now;
   }
 
-  attachRendererContextEvents() {
-    this.detachRendererContextEvents();
-    const canvas = this.renderer.domElement;
-    this._rendererEventCanvas = canvas;
-    canvas.addEventListener('webglcontextlost', this._onWebGlContextLost);
-    canvas.addEventListener('webglcontextrestored', this._onWebGlContextRestored);
-  }
-
-  detachRendererContextEvents() {
-    const canvas = this._rendererEventCanvas;
-    if (!canvas) return;
-    canvas.removeEventListener('webglcontextlost', this._onWebGlContextLost);
-    canvas.removeEventListener('webglcontextrestored', this._onWebGlContextRestored);
-    this._rendererEventCanvas = null;
-  }
-
-  onWebGlContextLost(event) {
-    event.preventDefault();
-    this._contextLost = true;
+  onWebGlContextLost() {
     this.notifyFlutter('onWebGLContextChanged', { state: 'lost' });
   }
 
   onWebGlContextRestored() {
-    this._contextLost = false;
     this.lastTime = performance.now();
     this.lastFrameTime = 0;
     this.performanceWindowStart = this.lastTime;
     this.performanceFrameCount = 0;
-    this.scene.traverse((child) => {
-      if (!child.isMesh || !child.material) return;
-      const materials = Array.isArray(child.material) ? child.material : [child.material];
-      materials.forEach((material) => { material.needsUpdate = true; });
-    });
     this.notifyFlutter('onWebGLContextChanged', { state: 'restored' });
   }
 
-  _recreateRenderer() {
-    if (!this.renderer || this._isDisposed) return;
-
-    const shadowsEnabled = this.renderer.shadowMap.enabled;
-    const pixelRatio = this.renderer.getPixelRatio();
-    const oldCanvas = this.renderer.domElement;
-    const oldTarget = this.controls.target.clone();
-
+  _recreateRenderer(antialias) {
+    if (this._isDisposed) return;
     this.detachPointerEvents();
-    this.detachRendererContextEvents();
-    this.detachControlsEvents();
-    this.controls.dispose();
-    this.renderer.dispose();
-    this.renderer.forceContextLoss();
-    if (oldCanvas.parentNode === this.container) this.container.removeChild(oldCanvas);
-
-    this.renderer = new THREE.WebGLRenderer({
-      alpha: true,
-      antialias: this.currentAntialias,
-      premultipliedAlpha: false,
-      preserveDrawingBuffer: false
-    });
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.renderer.setPixelRatio(pixelRatio);
-    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.shadowMap.enabled = shadowsEnabled;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-
-    this.container.appendChild(this.renderer.domElement);
-    this.attachRendererContextEvents();
-
-    this.controls = new OrbitControls(this.camera, this.renderer.domElement);
-    this.controls.target.copy(oldTarget);
-    this.attachControlsEvents();
-    this.cameraController.replaceControls(this.controls);
-
-    // Перепривязываем события к новому Canvas
-    this.attachPointerEvents();
-
-    // Заставляем материалы перекомпилироваться для нового WebGL контекста
-    this.scene.traverse((child) => {
-      if (child.isMesh && child.material) {
-        if (Array.isArray(child.material)) {
-          child.material.forEach(mat => mat.needsUpdate = true);
-        } else {
-          child.material.needsUpdate = true;
-        }
+    try {
+      if (this.sceneController.recreateRenderer(antialias)) {
+        this.cameraController.replaceControls(this.controls);
       }
-    });
-
-    this.renderer.clear();
+    } finally {
+      this.attachPointerEvents();
+    }
   }
 
   dispose() {
@@ -1296,23 +1132,7 @@ class VrmRunner {
 
     if (this.currentVrm) this.unloadModel();
     this.detachPointerEvents();
-    this.detachRendererContextEvents();
-    this.detachControlsEvents();
-
-    if (this.controls) {
-      this.controls.dispose();
-      this.controls = null;
-    }
-    if (this.renderer) {
-      const canvas = this.renderer.domElement;
-      this.renderer.dispose();
-      this.renderer.forceContextLoss();
-      if (canvas.parentNode === this.container) this.container.removeChild(canvas);
-      this.renderer = null;
-    }
-    if (this.scene) this.scene.clear();
-    this.scene = null;
-    this.camera = null;
+    this.sceneController.dispose();
   }
 
   pauseRendering() {
@@ -1339,7 +1159,7 @@ class VrmRunner {
     this._animationFrameId = requestAnimationFrame(() => this.animate());
 
     const now = performance.now();
-    if (this._contextLost) return;
+    if (this.sceneController.contextLost) return;
     if (this.fpsCap > 0) {
       const frameInterval = 1000 / this.fpsCap;
       const elapsedSinceFrame = now - this.lastFrameTime;
@@ -1454,8 +1274,7 @@ class VrmRunner {
 
     this.cameraController.updateAnimation(elapsedTime);
 
-    this.controls.update();
-    this.renderer.render(this.scene, this.camera);
+    this.sceneController.updateAndRender();
     this.recordPerformance(now);
   }
 

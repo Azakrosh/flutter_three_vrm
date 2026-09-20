@@ -82,6 +82,7 @@ WebView runtime
                             speech, physics, performance и disposal
           ├─ motion-transition.ts
           ├─ camera-controller.ts
+          ├─ scene-controller.ts
           ├─ humanoid-animation.ts
           ├─ pose.ts
           ├─ speech-timeline.ts
@@ -107,11 +108,11 @@ WebView runtime
 ### Текущий размер и покрытие
 
 - Flutter library: 32 файла, примерно 5800 строк;
-- web source: 16 файлов, примерно 4800 строк;
-- `runner.js`: примерно 1730 строк;
+- web source: 17 файлов, примерно 5000 строк;
+- `runner.js`: примерно 1550 строк;
 - `VrmController`: примерно 1280 строк;
 - Flutter unit tests: 65;
-- web unit tests: 47;
+- web unit tests: 53;
 - один сквозной runtime smoke-сценарий, примерно 388 строк.
 
 Числа нужны как ориентир концентрации ответственности, а не как целевые KPI.
@@ -197,8 +198,12 @@ cleanup и model report также вынесены в TypeScript. Ownership а�
 VRM-сессии, mixer, motion transitions, spring bones и scene disposal перенесён
 в отдельный TypeScript-модуль. Camera modes, automatic framing, constrained
 pan, animated reset, serialized transform и восстановление OrbitControls после
-пересоздания renderer перенесены в типизированный camera controller. Следующий
-срез — ownership сцены, renderer и lighting.
+пересоздания renderer перенесены в типизированный camera controller. Scene,
+renderer, OrbitControls, lighting, shadows, WebGL context listeners и
+детерминированный disposal теперь принадлежат отдельному TypeScript scene
+controller; renderer recreation сохраняет применённое состояние и откатывается
+без разрушения текущего renderer при ошибке. Следующий срез —
+performance/graphics coordination.
 
 Работы:
 

@@ -126,6 +126,13 @@ export {
 } from "./camera-controller";
 
 export {
+  RuntimeSceneController,
+  type RuntimeLightingConfig,
+  type RuntimeSceneControllerOptions,
+  type RuntimeViewport,
+} from "./scene-controller";
+
+export {
   GLTFLoader,
   OrbitControls,
   THREE,
