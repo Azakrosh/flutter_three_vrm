@@ -51,7 +51,145 @@ export const runtimeCommandNames = [
 ] as const;
 
 export type RuntimeCommandName = (typeof runtimeCommandNames)[number];
-export type RuntimeCommandPayload = Readonly<Record<string, unknown>>;
+export type RuntimeRecord = Readonly<Record<string, unknown>>;
+
+export interface RuntimeCommandPayloadMap {
+  readonly loadModelFromUrl: { readonly url: string };
+  readonly cancelModelLoad: RuntimeRecord;
+  readonly getModelReport: RuntimeRecord;
+  readonly getRuntimeHealth: RuntimeRecord;
+  readonly unloadModel: { readonly speechRevision: number };
+  readonly playAnimationFromUrl: {
+    readonly url: string;
+    readonly options: RuntimeRecord;
+  };
+  readonly cancelAnimationLoad: RuntimeRecord;
+  readonly pauseAnimation: RuntimeRecord;
+  readonly resumeAnimation: { readonly speed: number };
+  readonly pauseRendering: RuntimeRecord;
+  readonly resumeRendering: RuntimeRecord;
+  readonly stopAnimation: { readonly fadeDuration: number };
+  readonly setAnimationSpeed: { readonly speed: number };
+  readonly getPose: RuntimeRecord;
+  readonly setPose: {
+    readonly pose: RuntimeRecord;
+    readonly fadeDuration: number;
+  };
+  readonly resetPose: { readonly fadeDuration: number };
+  readonly setShadows: { readonly enabled: boolean };
+  readonly setExpression: {
+    readonly expression: string;
+    readonly layer: string;
+    readonly weight: number;
+    readonly duration: number;
+    readonly disableAutoBlink: boolean;
+    readonly speechRevision?: number;
+  };
+  readonly clearExpressionLayer: {
+    readonly layer: string;
+    readonly speechRevision?: number;
+  };
+  readonly clearAllExpressions: { readonly speechRevision: number };
+  readonly setCustomBlendShape: {
+    readonly name: string;
+    readonly weight: number;
+  };
+  readonly setLipSyncAmplitude: {
+    readonly amplitude: number;
+    readonly speechRevision: number;
+  };
+  readonly setViseme: {
+    readonly viseme: string;
+    readonly weight: number;
+    readonly speechRevision: number;
+  };
+  readonly enqueueSpeechVisemes: SpeechCommandBase & {
+    readonly mode: "viseme";
+    readonly frames: readonly RuntimeRecord[];
+    readonly audioDurationMs?: number;
+  };
+  readonly enqueueSpeechAmplitudes: SpeechCommandBase & {
+    readonly mode: "amplitude";
+    readonly frames: readonly RuntimeRecord[];
+    readonly audioDurationMs?: number;
+  };
+  readonly beginSpeech: SpeechCommandBase;
+  readonly appendSpeechVisemes: {
+    readonly sessionId: string;
+    readonly frames: readonly RuntimeRecord[];
+  };
+  readonly appendSpeechAmplitudes: {
+    readonly sessionId: string;
+    readonly frames: readonly RuntimeRecord[];
+  };
+  readonly finishSpeech: {
+    readonly sessionId: string;
+    readonly audioDurationMs: number;
+  };
+  readonly cancelSpeech: {
+    readonly speechRevision: number;
+    readonly sessionId?: string;
+  };
+  readonly setAutoBlink: { readonly enabled: boolean };
+  readonly setLookAtTarget: {
+    readonly x: number;
+    readonly y: number;
+    readonly z?: number;
+  };
+  readonly setAutoSaccades: { readonly enabled: boolean };
+  readonly setLookAtConfig: {
+    readonly deadZoneX?: number;
+    readonly holdDurationSec?: number;
+  };
+  readonly setCameraMode: { readonly mode: string };
+  readonly resetCamera: { readonly durationMs: number };
+  readonly getTransform: RuntimeRecord;
+  readonly setTransform: { readonly transform: RuntimeRecord };
+  readonly setLighting: RuntimeRecord;
+  readonly setBackground: {
+    readonly color: string;
+    readonly imageUrl?: string | null;
+    readonly transparent: boolean;
+    readonly hostedImage: boolean;
+  };
+  readonly setPhysics: {
+    readonly stiffness: number;
+    readonly gravity: number;
+    readonly drag: number;
+  };
+  readonly stopWind: RuntimeRecord;
+  readonly setWind: {
+    readonly type: string;
+    readonly direction: string;
+  };
+  readonly setEnvironmentColor: {
+    readonly color: string;
+    readonly intensity: number;
+  };
+  readonly setGraphicsSettings: { readonly settings: RuntimeRecord };
+  readonly setGraphicsPreset: { readonly preset: string };
+  readonly setAdaptiveQuality: { readonly settings: RuntimeRecord };
+  readonly getPerformanceSnapshot: RuntimeRecord;
+  readonly setRenderQuality: { readonly pixelRatio: number };
+}
+
+interface SpeechCommandBase {
+  readonly sessionId: string;
+  readonly mode: string;
+  readonly timelineOriginEpochMs: number;
+  readonly speechRevision: number;
+}
+
+export type RuntimeCommandPayload<
+  Name extends RuntimeCommandName = RuntimeCommandName,
+> = RuntimeCommandPayloadMap[Name];
+
+export type RuntimeCommandRequest = {
+  readonly [Name in RuntimeCommandName]: {
+    readonly action: Name;
+    readonly payload: RuntimeCommandPayload<Name>;
+  };
+}[RuntimeCommandName];
 
 const runtimeCommandNameSet = new Set<string>(runtimeCommandNames);
 
@@ -139,7 +277,7 @@ const requiredCommandFields = {
 
 export function findRuntimeCommandPayloadError(
   action: RuntimeCommandName,
-  payload: RuntimeCommandPayload,
+  payload: RuntimeRecord,
 ): string | null {
   const fields =
     requiredCommandFields[action as keyof typeof requiredCommandFields];

@@ -192,10 +192,11 @@ workflow; иначе прямые push могут обходить CI.
 
 Статус: в работе. Добавлен общий manifest protocol v3, Dart bridge принимает
 только enum-команды, TypeScript проверяет command/event имена и обязательные
-поля payload, а CI сверяет manifest с dispatcher runner. Browser transport,
+поля payload, а CI сверяет manifest с TypeScript dispatcher. Browser transport,
 глобальные callbacks, response/error envelopes и platform message sinks уже
-вынесены из runner в строгий TypeScript. Следующий срез — перенос command
-dispatcher и затем scene/model частей runner.
+вынесены из runner в строгий TypeScript. Все 49 command routes также вынесены
+в исчерпывающий TypeScript dispatcher с коррелированными action/payload union.
+Следующий срез — перенос scene/model частей runner.
 
 Работы:
 

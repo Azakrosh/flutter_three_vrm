@@ -13,7 +13,10 @@ describe("runtime bridge", () => {
         action: "getRuntimeHealth",
         payload: {},
       }),
-      (action, payload) => ({ action, payload }),
+      (command) => ({
+        action: command.action,
+        payload: command.payload,
+      }),
     );
 
     expect(response).toEqual({

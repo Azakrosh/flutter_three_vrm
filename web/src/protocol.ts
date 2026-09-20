@@ -2,20 +2,19 @@ import {
   findRuntimeEventPayloadError,
   findRuntimeCommandPayloadError,
   isRuntimeCommandName,
-  type RuntimeCommandName,
-  type RuntimeCommandPayload,
+  type RuntimeCommandRequest,
   type RuntimeEventName,
 } from "./protocol-contract";
 
 export const protocolVersion = 3 as const;
 
-export interface CommandEnvelope {
+interface CommandEnvelopeBase {
   readonly version: typeof protocolVersion;
   readonly id: string;
   readonly type: "command";
-  readonly action: RuntimeCommandName;
-  readonly payload: RuntimeCommandPayload;
 }
+
+export type CommandEnvelope = CommandEnvelopeBase & RuntimeCommandRequest;
 
 export interface SuccessEnvelope {
   readonly version: typeof protocolVersion;
@@ -96,7 +95,7 @@ export function parseCommand(value: string): CommandEnvelope {
     type: "command",
     action: decoded.action,
     payload: decoded.payload,
-  };
+  } as CommandEnvelope;
 }
 
 export function success(id: string, result: unknown = null): SuccessEnvelope {

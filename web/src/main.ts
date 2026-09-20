@@ -33,8 +33,11 @@ export {
   runtimeEventNames,
   type RuntimeCommandName,
   type RuntimeCommandPayload,
+  type RuntimeCommandPayloadMap,
+  type RuntimeCommandRequest,
   type RuntimeEventName,
   type RuntimeEventPayload,
+  type RuntimeRecord,
 } from "./protocol-contract";
 
 export {
@@ -79,6 +82,12 @@ export {
   type RuntimeBridgeOptions,
   type RuntimeCommandExecutor,
 } from "./runtime-bridge";
+
+export {
+  createRuntimeCommandDispatcher,
+  type RuntimeCommandDispatcher,
+  type RuntimeCommandHost,
+} from "./command-dispatcher";
 
 export {
   GLTFLoader,

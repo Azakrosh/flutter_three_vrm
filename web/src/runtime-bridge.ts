@@ -3,17 +3,15 @@ import {
   failure,
   parseCommand,
   success,
+  type CommandEnvelope,
   type ResponseEnvelope,
 } from "./protocol";
 import type {
-  RuntimeCommandName,
-  RuntimeCommandPayload,
   RuntimeEventName,
 } from "./protocol-contract";
 
 export type RuntimeCommandExecutor = (
-  action: RuntimeCommandName,
-  payload: RuntimeCommandPayload,
+  command: CommandEnvelope,
 ) => unknown | Promise<unknown>;
 
 export interface RuntimeBridgeOptions {
@@ -45,7 +43,7 @@ export async function createRuntimeCommandResponse(
   try {
     const command = parseCommand(commandJson);
     id = command.id;
-    const result = await executeCommand(command.action, command.payload);
+    const result = await executeCommand(command);
     return success(id, result ?? null);
   } catch (error) {
     return failure(id, readErrorCode(error), readErrorMessage(error));
