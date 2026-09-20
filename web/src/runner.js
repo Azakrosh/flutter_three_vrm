@@ -16,6 +16,7 @@ import {
   installRuntimeBridge,
   postRuntimeEvent,
   SpeechTimeline,
+  RuntimeCameraController,
   VrmModelLoader,
   VrmModelSession,
 } from './main';
@@ -105,17 +106,6 @@ class VrmRunner {
     this.isBlinking = false;
     this.blinkProgress = 0;
 
-    // Camera interaction and automatic framing
-    this.cameraMode = 'constrained';
-    this.targetCameraPos = new THREE.Vector3();
-    this.targetCameraTarget = new THREE.Vector3();
-    this.isCameraAnimating = false;
-    this.cameraAnimDuration = 0.5;
-    this.cameraAnimStartTime = 0;
-    this.hasCustomCameraTransform = false;
-    this.startCameraPos = new THREE.Vector3();
-    this.startCameraTarget = new THREE.Vector3();
-
     // Animation Action
     this.isAnimationPaused = false;
 
@@ -134,20 +124,13 @@ class VrmRunner {
     // Custom Camera Panning
     this.isDragging = false;
     this.dragStartPoint = new THREE.Vector2();
-    this.cameraStartPos = new THREE.Vector3();
     this.controlsStartPos = new THREE.Vector3();
-    this.targetCameraTarget = new THREE.Vector3(0, 0.95, 0);
 
     // Head Tracking
     this.targetHeadYaw = 0;
     this.targetHeadPitch = 0;
     this.proceduralHeadYaw = 0;
     this.proceduralHeadPitch = 0;
-
-    // Animation state
-    this.startCameraPos = new THREE.Vector3();
-    this.startCameraTarget = new THREE.Vector3();
-    this.targetCameraPos = new THREE.Vector3();
 
     this.raycaster = new THREE.Raycaster();
 
@@ -184,10 +167,11 @@ class VrmRunner {
     this._onPointerMove = (event) => this.onPointerMove(event);
     this._onPointerUp = (event) => this.onPointerUp(event);
     this._onControlsStart = () => {
-      this.hasCustomCameraTransform = true;
+      this.cameraController.markCustomTransform();
     };
     this._onControlsEnd = () => {
-      if (this.cameraMode === 'constrained') this.notifyCameraChanged(true);
+      this.cameraController.captureControlsTransform();
+      if (this.cameraController.mode === 'constrained') this.notifyCameraChanged(true);
     };
     this._onWebGlContextLost = (event) => this.onWebGlContextLost(event);
     this._onWebGlContextRestored = () => this.onWebGlContextRestored();
@@ -250,7 +234,7 @@ class VrmRunner {
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.target.set(0, 0.95, 0); // Фокус 'upperBody'
     this.attachControlsEvents();
-    this.setupCharacterCreatorControls();
+    this.cameraController = new RuntimeCameraController(this.camera, this.controls);
 
     // Источники света: рассеянный (Ambient), прямой (Directional) и контурный (Rim)
     this.ambientLight = new THREE.AmbientLight(0xffffff, 1.2);
@@ -275,26 +259,6 @@ class VrmRunner {
     this.rimLight = new THREE.DirectionalLight(0xffffff, 0.6);
     this.rimLight.position.set(-1.0, 1.5, -1.5);
     this.scene.add(this.rimLight);
-  }
-
-  setupCharacterCreatorControls() {
-    this.controls.enablePan = false;
-    this.controls.enableRotate = false;
-    this.controls.enableZoom = true;
-
-    // Fix the camera angle to look straight ahead
-    this.controls.minPolarAngle = Math.PI / 2;
-    this.controls.maxPolarAngle = Math.PI / 2;
-    this.controls.minAzimuthAngle = 0;
-    this.controls.maxAzimuthAngle = 0;
-
-    // Zoom limits (от максимального приближения до отдаления)
-    this.controls.minDistance = 0.5;
-    this.controls.maxDistance = 6.6; // Ограничили минимальный размер модели в 1.5 раза (было 10.0)
-
-    this.controls.enableDamping = true;
-    this.controls.dampingFactor = 0.08;
-    this.controls.update();
   }
 
   initEvents() {
@@ -324,7 +288,6 @@ class VrmRunner {
     if (e.isPrimary) {
       this.isDragging = true;
       this.dragStartPoint.set(e.clientX, e.clientY);
-      this.cameraStartPos.copy(this.camera.position);
       this.controlsStartPos.copy(this.controls.target);
 
       // Reset LookAt on drag start
@@ -336,40 +299,15 @@ class VrmRunner {
   }
 
   onPointerMove(e) {
-    if (!this.isDragging || !e.isPrimary || this.cameraMode !== 'constrained') return;
-
-    const deltaX = e.clientX - this.dragStartPoint.x;
-    const deltaY = e.clientY - this.dragStartPoint.y;
-
-    const distance = this.controls.getDistance();
-    const vFov = (this.camera.fov * Math.PI) / 180;
-    const heightAtDepth = 2 * Math.tan(vFov / 2) * distance;
-    const widthAtDepth = heightAtDepth * this.camera.aspect;
-
-    const worldDeltaX = (deltaX / window.innerWidth) * widthAtDepth;
-    const worldDeltaY = -(deltaY / window.innerHeight) * heightAtDepth;
-
-    // ВЫЧИТАЕМ дельту из камеры. Свайп вправо (worldDeltaX > 0) должен двигать камеру влево.
-    let targetX = this.controlsStartPos.x - worldDeltaX;
-    let targetY = this.controlsStartPos.y - worldDeltaY;
-
-    // Лимиты по X (камера не должна улетать далеко от центра модели X=0)
-    const clampX = (widthAtDepth / 2) + 0.2;
-
-    // Лимиты по Y. Модель стоит в Y=0 (ступни), макушка на Y=modelHeight.
-    const modelHeight = this.modelBoundingHeight || 1.6;
-
-    // Чтобы посмотреть на макушку, нужно поднять фокус камеры (targetY) вверх.
-    const maxY = modelHeight + 0.2 + (heightAtDepth / 2);
-
-    // Чтобы посмотреть на ступни, нужно опустить фокус камеры (targetY) вниз.
-    const minY = -0.7 - (heightAtDepth / 2);
-
-    targetX = Math.max(-clampX, Math.min(clampX, targetX));
-    targetY = Math.max(minY, Math.min(maxY, targetY));
-
-    // Вычисляем абсолютный таргет фокуса камеры
-    this.targetCameraTarget.set(targetX, targetY, this.controlsStartPos.z);
+    if (!this.isDragging || !e.isPrimary) return;
+    this.cameraController.setConstrainedPanTarget({
+      deltaX: e.clientX - this.dragStartPoint.x,
+      deltaY: e.clientY - this.dragStartPoint.y,
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+      startTarget: this.controlsStartPos,
+      modelHeight: this.modelBoundingHeight || 1.6,
+    });
   }
 
   onPointerUp(e) {
@@ -382,7 +320,7 @@ class VrmRunner {
       const dist = Math.hypot(e.clientX - this.dragStartPoint.x, e.clientY - this.dragStartPoint.y);
       if (dist < 10) {
         this.handleScreenTap(e.clientX, e.clientY);
-      } else if (this.cameraMode === 'constrained') {
+      } else if (this.cameraController.mode === 'constrained') {
         this.notifyCameraChanged(true);
       }
     }
@@ -418,7 +356,7 @@ class VrmRunner {
     // Автоматически пересчитываем позицию камеры под новые пропорции экрана (без анимации)
     // Только если пользователь еще не двигал камеру вручную!
     // Передаем resetPosition = false, чтобы избежать сброса физики при открытии клавиатуры
-    if (!this.hasCustomCameraTransform) {
+    if (!this.cameraController.hasCustomTransform) {
       this.frameAvatar(0, false);
     }
   }
@@ -612,7 +550,7 @@ class VrmRunner {
     this.clearAllExpressions();
     if (!this.modelSession.detach()) return;
     this.pendingRestPoseReset = false;
-    this.hasCustomCameraTransform = false;
+    this.cameraController.clearCustomTransform();
 
     this.baseBonesSaved = false;
     this.neckBaseQuat.identity();
@@ -932,80 +870,15 @@ class VrmRunner {
   // ПРЕСЕТЫ И РЕЖИМЫ КАМЕРЫ
   // ==========================================
 
-  getBoneWorldY(boneName, defaultY) {
-    if (!this.currentVrm || !this.currentVrm.humanoid) return defaultY;
-    const node = this.currentVrm.humanoid.getNormalizedBoneNode(boneName) ||
-      this.currentVrm.humanoid.getRawBoneNode(boneName);
-    if (!node) return defaultY;
-
-    const vec = new THREE.Vector3();
-    node.getWorldPosition(vec);
-    return vec.y;
-  }
-
   frameAvatar(durationMs = 500, resetPosition = true) {
-    if (!this.currentVrm || !this.currentVrm.humanoid) return;
-
-    if (resetPosition) {
-      this.currentVrm.scene.position.set(0, 0, 0);
-      if (this.currentVrm.springBoneManager) {
-        this.currentVrm.springBoneManager.reset();
-      }
+    if (this.cameraController.frameAvatar(
+      this.currentVrm,
+      this.elapsedTime || 0,
+      durationMs,
+      resetPosition,
+    )) {
+      this.notifyCameraChanged(false);
     }
-    this.currentVrm.scene.updateMatrixWorld(true);
-
-    this.controls.enabled = false;
-
-    // Calculate model height (head bone + small offset for hair)
-    // If the model was moved by Pan, getBoneWorldY will include that offset.
-    // So we calculate relative to the model's local space to get pure height.
-    const headNode = this.currentVrm.humanoid.getNormalizedBoneNode('head') || this.currentVrm.humanoid.getRawBoneNode('head');
-    let modelHeight = 1.45; // Fallback
-    if (headNode) {
-      const vec = new THREE.Vector3();
-      headNode.getWorldPosition(vec);
-      // Subtract current scene Y to get the raw height of the avatar
-      modelHeight = (vec.y - this.currentVrm.scene.position.y) + 0.15; // +15cm for top of head
-    }
-
-    const centerY = modelHeight / 2;
-
-    // We want the model to occupy 80% of the screen height (10% padding top and bottom)
-    const targetFrustumHeight = modelHeight / 0.8;
-    const vFov = (this.camera.fov * Math.PI) / 180;
-    let distance = (targetFrustumHeight / 2) / Math.tan(vFov / 2);
-
-    // If screen is very narrow (portrait), we might need to fit by width instead of height
-    const targetFrustumWidth = modelHeight * 0.5; // roughly avatar width
-    const aspect = this.camera.aspect;
-    if (aspect < 1.0) {
-      // if width-constrained
-      const distanceForWidth = (targetFrustumWidth / 2) / (Math.tan(vFov / 2) * aspect);
-      distance = Math.max(distance, distanceForWidth);
-    }
-
-    // Set starting states for animation
-    this.startCameraPos.copy(this.camera.position);
-    this.startCameraTarget.copy(this.controls.target);
-
-    // Target positions
-    if (!this.hasCustomCameraTransform) {
-      this.targetCameraTarget.set(0, centerY, 0);
-      this.targetCameraPos.set(0, centerY, distance);
-    }
-
-    if (durationMs <= 0) {
-      this.camera.position.copy(this.targetCameraPos);
-      this.controls.target.copy(this.targetCameraTarget);
-      this.controls.enabled = true;
-      this.applyCameraMode();
-    } else {
-      this.isCameraAnimating = true;
-      this.cameraAnimDuration = durationMs / 1000.0;
-      this.cameraAnimStartTime = this.elapsedTime || 0;
-    }
-
-    this.notifyCameraChanged(false);
   }
 
   /**
@@ -1013,38 +886,17 @@ class VrmRunner {
    * @param {string} mode Режим камеры
    */
   setCameraMode(mode) {
-    if (mode !== 'constrained' && mode !== 'free') {
-      throw new TypeError(`Unknown camera mode: ${mode}`);
-    }
-    this.cameraMode = mode;
-    this.applyCameraMode();
-  }
-
-  applyCameraMode() {
-    this.controls.enabled = true;
-    if (this.cameraMode === 'constrained') {
-      this.setupCharacterCreatorControls();
-    } else {
-      this.controls.enablePan = true;
-      this.controls.enableRotate = true;
-      this.controls.enableZoom = true;
-      this.controls.minPolarAngle = 0.01;
-      this.controls.maxPolarAngle = Math.PI - 0.01;
-      this.controls.minAzimuthAngle = -Infinity;
-      this.controls.maxAzimuthAngle = Infinity;
-      this.controls.enableDamping = true;
-      this.controls.dampingFactor = 0.08;
-    }
-    this.controls.update();
+    this.cameraController.setMode(mode);
   }
 
   resetCamera(durationMs = 500) {
-    const duration = Number(durationMs);
-    if (!Number.isFinite(duration) || duration < 0) {
-      throw new TypeError('Camera reset duration must be a non-negative number.');
+    if (this.cameraController.reset(
+      this.currentVrm,
+      durationMs,
+      this.elapsedTime || 0,
+    )) {
+      this.notifyCameraChanged(false);
     }
-    this.hasCustomCameraTransform = false;
-    this.frameAvatar(duration, false);
   }
 
   setLighting(config) {
@@ -1408,7 +1260,7 @@ class VrmRunner {
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.target.copy(oldTarget);
     this.attachControlsEvents();
-    this.applyCameraMode();
+    this.cameraController.replaceControls(this.controls);
 
     // Перепривязываем события к новому Canvas
     this.attachPointerEvents();
@@ -1536,15 +1388,7 @@ class VrmRunner {
       this.updateMicroMovements(elapsedTime, delta);
 
       // Плавное следование камеры (Pan) за пальцем без изменения угла
-      if (!this.isCameraAnimating) {
-        this._tmpVec3C.copy(this.targetCameraTarget).sub(this.controls.target);
-        if (this._tmpVec3C.lengthSq() > 0.000001) {
-          const lerpFactor = 1.0 - Math.exp(-25.0 * delta);
-          this._tmpVec3C.multiplyScalar(lerpFactor);
-          this.camera.position.add(this._tmpVec3C);
-          this.controls.target.add(this._tmpVec3C);
-        }
-      }
+      this.cameraController.updatePanFollowing(delta);
 
       this.updateProceduralHeadRotation(delta);
 
@@ -1608,9 +1452,7 @@ class VrmRunner {
       this.currentVrm.update(delta);
     }
 
-    if (this.isCameraAnimating) {
-      this.updateCameraAnimation(elapsedTime);
-    }
+    this.cameraController.updateAnimation(elapsedTime);
 
     this.controls.update();
     this.renderer.render(this.scene, this.camera);
@@ -1853,36 +1695,11 @@ class VrmRunner {
     if (head) head.quaternion.copy(this.headBaseQuat);
   }
 
-  updateCameraAnimation(elapsedTime) {
-    const progress = Math.min((elapsedTime - this.cameraAnimStartTime) / this.cameraAnimDuration, 1.0);
-    const easeProgress = 0.5 - Math.cos(progress * Math.PI) / 2;
-
-    this.camera.position.lerpVectors(this.startCameraPos, this.targetCameraPos, easeProgress);
-    this.controls.target.lerpVectors(this.startCameraTarget, this.targetCameraTarget, easeProgress);
-
-    // Обязательно заставляем камеру смотреть на новую интерполируемую цель во время полета
-    this.camera.lookAt(this.controls.target);
-
-    if (progress >= 1.0) {
-      this.isCameraAnimating = false;
-      this.camera.position.copy(this.targetCameraPos);
-      this.controls.target.copy(this.targetCameraTarget);
-      this.controls.enabled = true;
-      this.applyCameraMode();
-    }
-  }
-
   getAvatarTransform() {
     if (!this.currentVrm) {
       throw new Error('A VRM model must be loaded before reading camera state.');
     }
-
-    const target = this.targetCameraTarget;
-    return {
-      x: -target.x,
-      y: 0.95 - target.y,
-      zoom: this.controls.getDistance(),
-    };
+    return this.cameraController.getTransform();
   }
 
   notifyCameraChanged(userInitiated) {
@@ -1894,32 +1711,7 @@ class VrmRunner {
   }
 
   setAvatarTransform(data) {
-    if (!data || typeof data !== 'object') {
-      throw new TypeError('Camera transform must be an object.');
-    }
-    const x = Number(data.x);
-    const y = Number(data.y);
-    const zoom = Number(data.zoom);
-    if (![x, y, zoom].every(Number.isFinite)) {
-      throw new TypeError('Camera transform components must be finite numbers.');
-    }
-
-    this.hasCustomCameraTransform = true;
-    const targetX = -x;
-    const targetY = 0.95 - y;
-    this.targetCameraTarget.set(targetX, targetY, 0);
-    this.controls.target.set(targetX, targetY, 0);
-
-    if (zoom > 0) {
-      const distance = THREE.MathUtils.clamp(
-        zoom,
-        this.controls.minDistance,
-        this.controls.maxDistance,
-      );
-      const target = this.controls.target;
-      this.camera.position.set(target.x, target.y, target.z + distance);
-      this.controls.update();
-    }
+    this.cameraController.setTransform(data);
   }
 
   notifyFlutter(eventName, payload) {

@@ -118,6 +118,14 @@ export {
 } from "./model-session";
 
 export {
+  RuntimeCameraController,
+  type ConstrainedPanInput,
+  type RuntimeCameraControls,
+  type RuntimeCameraMode,
+  type RuntimeCameraTransform,
+} from "./camera-controller";
+
+export {
   GLTFLoader,
   OrbitControls,
   THREE,

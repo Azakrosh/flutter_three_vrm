@@ -81,6 +81,7 @@ WebView runtime
       └─ runner.js           сцена, модель, камера, animation, expressions,
                             speech, physics, performance и disposal
           ├─ motion-transition.ts
+          ├─ camera-controller.ts
           ├─ humanoid-animation.ts
           ├─ pose.ts
           ├─ speech-timeline.ts
@@ -105,13 +106,13 @@ WebView runtime
 
 ### Текущий размер и покрытие
 
-- Flutter library: 31 файл, примерно 5100 строк;
-- web source: 8 файлов, примерно 3200 строк;
-- `runner.js`: примерно 2100 строк;
+- Flutter library: 32 файла, примерно 5800 строк;
+- web source: 16 файлов, примерно 4800 строк;
+- `runner.js`: примерно 1730 строк;
 - `VrmController`: примерно 1280 строк;
-- Flutter unit tests: 63;
-- web unit tests: 21;
-- один сквозной runtime smoke-сценарий, примерно 337 строк.
+- Flutter unit tests: 65;
+- web unit tests: 47;
+- один сквозной runtime smoke-сценарий, примерно 388 строк.
 
 Числа нужны как ориентир концентрации ответственности, а не как целевые KPI.
 
@@ -156,12 +157,6 @@ Smoke-тест покрывает много важных сценариев, н
 GitHub Actions; Windows smoke запускается. Нужны отдельные contract/race/soak
 сценарии, при этом физический Android остаётся release gate.
 
-### P1 — CI branch должен соответствовать реальной основной ветке
-
-Workflow запускается на push в `main`, а текущая локальная ветка называется
-`master`. Перед использованием GitHub нужно выбрать одно имя и синхронизировать
-workflow; иначе прямые push могут обходить CI.
-
 ### P2 — публикационная готовность отложена
 
 В `pubspec.yaml` установлен `publish_to: none`. Это соответствует принятому
@@ -200,7 +195,10 @@ workflow; иначе прямые push могут обходить CI.
 в типизированный модуль. Model loading, cancellation races, invalid-container
 cleanup и model report также вынесены в TypeScript. Ownership активной
 VRM-сессии, mixer, motion transitions, spring bones и scene disposal перенесён
-в отдельный TypeScript-модуль. Следующий срез — scene/camera части.
+в отдельный TypeScript-модуль. Camera modes, automatic framing, constrained
+pan, animated reset, serialized transform и восстановление OrbitControls после
+пересоздания renderer перенесены в типизированный camera controller. Следующий
+срез — ownership сцены, renderer и lighting.
 
 Работы:
 
@@ -213,7 +211,8 @@ VRM-сессии, mixer, motion transitions, spring bones и scene disposal пе
    face/speech, performance и resource lifecycle.
 6. Оставить один facade, который принимает protocol-команды и координирует
    модули.
-7. Исправить CI branch trigger после выбора основной ветки.
+7. Сохранить CI triggers для `main` и `master` до окончательного выбора
+   основной ветки.
 
 Критерии готовности:
 
