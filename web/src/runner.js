@@ -10,6 +10,8 @@ import {
   createVRMAnimationClip,
   createHumanoidAnimationClip,
   createRuntimeCommandDispatcher,
+  createRuntimeCanceledError,
+  fetchRuntimeResource,
   getRuntimeInfo,
   installRuntimeBridge,
   MotionTransitionController,
@@ -525,7 +527,7 @@ class VrmRunner {
     try {
       const loader = new GLTFLoader();
       loader.register((parser) => new VRMLoaderPlugin(parser));
-      const resource = await this.fetchResource(url, abortController.signal, (loaded, total) => {
+      const resource = await fetchRuntimeResource(url, abortController.signal, (loaded, total) => {
         if (total <= 0) return;
         const percent = Math.round((loaded / total) * 100);
         if (percent !== this._lastLoadPercent) {
@@ -536,13 +538,13 @@ class VrmRunner {
       const gltf = await loader.parseAsync(resource.data, new URL('.', url).href);
       if (abortController.signal.aborted || generation !== this.modelLoadGeneration) {
         VRMUtils.deepDispose(gltf.scene);
-        throw this.createCanceledError('Model loading was canceled.');
+        throw createRuntimeCanceledError('Model loading was canceled.');
       }
       this._setupLoadedVrm(gltf, resource.byteLength);
     } catch (error) {
       this._lastLoadPercent = -1;
       if (abortController.signal.aborted || error?.name === 'AbortError' || error?.code === 'canceled') {
-        throw this.createCanceledError('Model loading was canceled.');
+        throw createRuntimeCanceledError('Model loading was canceled.');
       }
       this.notifyFlutter('onError', {
         message: error instanceof Error ? error.message : String(error),
@@ -571,49 +573,6 @@ class VrmRunner {
     if (this.backgroundLoadAbortController) this.backgroundLoadAbortController.abort();
     this.backgroundLoadAbortController = null;
     this.backgroundLoadGeneration += 1;
-  }
-
-  createCanceledError(message) {
-    const error = new Error(message);
-    error.code = 'canceled';
-    return error;
-  }
-
-  async fetchResource(url, signal, onProgress) {
-    const response = await fetch(url, { signal, credentials: 'omit' });
-    if (!response.ok) {
-      throw new Error(`Resource request failed with HTTP ${response.status}.`);
-    }
-    const declaredLength = Number(response.headers.get('content-length') || 0);
-    if (!response.body) {
-      const data = await response.arrayBuffer();
-      onProgress?.(data.byteLength, data.byteLength);
-      return { data, byteLength: data.byteLength, contentType: response.headers.get('content-type') || '' };
-    }
-
-    const reader = response.body.getReader();
-    let capacity = declaredLength > 0 ? declaredLength : 1024 * 1024;
-    let bytes = new Uint8Array(capacity);
-    let loaded = 0;
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (loaded + value.length > capacity) {
-        capacity = Math.max(capacity * 2, loaded + value.length);
-        const expanded = new Uint8Array(capacity);
-        expanded.set(bytes.subarray(0, loaded));
-        bytes = expanded;
-      }
-      bytes.set(value, loaded);
-      loaded += value.length;
-      onProgress?.(loaded, declaredLength);
-    }
-    const data = loaded === bytes.byteLength ? bytes.buffer : bytes.buffer.slice(0, loaded);
-    return {
-      data,
-      byteLength: loaded,
-      contentType: response.headers.get('content-type') || '',
-    };
   }
 
   _setupLoadedVrm(gltf, sourceBytes) {
@@ -843,13 +802,13 @@ class VrmRunner {
     loader.register((parser) => new VRMAnimationLoaderPlugin(parser));
 
     try {
-      const resource = await this.fetchResource(url, abortController.signal);
+      const resource = await fetchRuntimeResource(url, abortController.signal);
       const isJson = resource.contentType.includes('json') || new URL(url).pathname.toLowerCase().endsWith('.gltf');
       const input = isJson ? new TextDecoder().decode(resource.data) : resource.data;
       const gltf = await loader.parseAsync(input, new URL('.', url).href);
       try {
         if (abortController.signal.aborted || generation !== this.animationLoadGeneration) {
-          throw this.createCanceledError('Animation loading was canceled.');
+          throw createRuntimeCanceledError('Animation loading was canceled.');
         }
         this._playLoadedAnimation(gltf, options);
       } finally {
@@ -857,7 +816,7 @@ class VrmRunner {
       }
     } catch (error) {
       if (abortController.signal.aborted || error?.name === 'AbortError' || error?.code === 'canceled') {
-        throw this.createCanceledError('Animation loading was canceled.');
+        throw createRuntimeCanceledError('Animation loading was canceled.');
       }
       this.notifyFlutter('onError', {
         message: error instanceof Error ? error.message : String(error),
@@ -1346,9 +1305,9 @@ class VrmRunner {
     let objectUrl = null;
 
     try {
-      const resource = await this.fetchResource(imageUrl, abortController.signal);
+      const resource = await fetchRuntimeResource(imageUrl, abortController.signal);
       if (abortController.signal.aborted || generation !== this.backgroundLoadGeneration) {
-        throw this.createCanceledError('Background loading was canceled.');
+        throw createRuntimeCanceledError('Background loading was canceled.');
       }
 
       const blob = new Blob([resource.data], {
@@ -1356,7 +1315,7 @@ class VrmRunner {
       });
       objectUrl = URL.createObjectURL(blob);
       if (abortController.signal.aborted || generation !== this.backgroundLoadGeneration) {
-        throw this.createCanceledError('Background loading was canceled.');
+        throw createRuntimeCanceledError('Background loading was canceled.');
       }
 
       this.applyBackground(colorHex, objectUrl, transparent);
@@ -1370,7 +1329,7 @@ class VrmRunner {
         error?.name === 'AbortError' ||
         error?.code === 'canceled'
       ) {
-        throw this.createCanceledError('Background loading was canceled.');
+        throw createRuntimeCanceledError('Background loading was canceled.');
       }
       throw error;
     } finally {

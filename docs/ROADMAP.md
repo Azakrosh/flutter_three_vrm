@@ -196,7 +196,8 @@ workflow; иначе прямые push могут обходить CI.
 глобальные callbacks, response/error envelopes и platform message sinks уже
 вынесены из runner в строгий TypeScript. Все 49 command routes также вынесены
 в исчерпывающий TypeScript dispatcher с коррелированными action/payload union.
-Следующий срез — перенос scene/model частей runner.
+Общая потоковая загрузка ресурсов для model, animation и background вынесена
+в типизированный модуль. Следующий срез — перенос model-loading частей runner.
 
 Работы:
 

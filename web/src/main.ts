@@ -90,6 +90,14 @@ export {
 } from "./command-dispatcher";
 
 export {
+  createRuntimeCanceledError,
+  fetchRuntimeResource,
+  type RuntimeCanceledError,
+  type RuntimeResource,
+  type RuntimeResourceProgress,
+} from "./resource-loader";
+
+export {
   GLTFLoader,
   OrbitControls,
   THREE,
