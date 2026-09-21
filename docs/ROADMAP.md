@@ -87,6 +87,7 @@ WebView runtime
           ├─ humanoid-animation.ts
           ├─ pose.ts
           ├─ speech-timeline.ts
+          ├─ speech-controller.ts
           └─ performance.ts
 ```
 
@@ -109,11 +110,11 @@ WebView runtime
 ### Текущий размер и покрытие
 
 - Flutter library: 32 файла, примерно 5800 строк;
-- web source: 18 файлов, примерно 5100 строк;
-- `runner.js`: примерно 1430 строк;
+- web source: 19 файлов, примерно 5200 строк;
+- `runner.js`: примерно 1380 строк;
 - `VrmController`: примерно 1280 строк;
 - Flutter unit tests: 65;
-- web unit tests: 58;
+- web unit tests: 63;
 - один сквозной runtime smoke-сценарий, примерно 388 строк.
 
 Числа нужны как ориентир концентрации ответственности, а не как целевые KPI.
@@ -206,7 +207,10 @@ controller; renderer recreation сохраняет применённое сос
 без разрушения текущего renderer при ошибке. FPS cap, graphics presets,
 physics switch, adaptive quality и performance telemetry теперь принадлежат
 типизированному graphics controller; первый кадр после смены FPS cap или resume
-не обходит ограничение частоты. Следующий срез — motion/face и speech ownership.
+не обходит ограничение частоты. Speech timeline, session begin/append/finish/
+cancel, viseme presentation, amplitude smoothing и завершение речевого
+сообщения теперь принадлежат типизированному speech controller. Следующий
+срез — motion и face ownership.
 
 Работы:
 

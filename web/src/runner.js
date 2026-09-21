@@ -13,7 +13,7 @@ import {
   isRuntimeCanceledError,
   installRuntimeBridge,
   postRuntimeEvent,
-  SpeechTimeline,
+  RuntimeSpeechController,
   RuntimeCameraController,
   RuntimeSceneController,
   RuntimeGraphicsController,
@@ -90,9 +90,13 @@ class VrmRunner {
     this.modelBoundingHeight = 1.6;
 
     // Lip Sync & Audio Amplitude
-    this.lipSyncAmplitude = 0.0;
-    this.smoothLipSyncAmplitude = 0.0;
-    this.speechTimeline = new SpeechTimeline();
+    this.speechController = new RuntimeSpeechController({
+      clearMouth: () => this.clearExpressionLayer('mouth'),
+      setMouthExpression: (name, weight, duration) =>
+        this.setExpression(name, 'mouth', weight, duration),
+      onFinished: (sessionId) =>
+        this.notifyFlutter('onSpeechFinished', { sessionId }),
+    });
 
     // Micro-movements
     this.autoBlinkEnabled = true;
@@ -210,6 +214,18 @@ class VrmRunner {
 
   get fpsCap() {
     return this.graphicsController?.fpsCap ?? 60;
+  }
+
+  get speechTimeline() {
+    return this.speechController.timeline;
+  }
+
+  get lipSyncAmplitude() {
+    return this.speechController.amplitude;
+  }
+
+  set lipSyncAmplitude(amplitude) {
+    this.speechController.setAmplitude(amplitude);
   }
 
   initEvents() {
@@ -695,8 +711,7 @@ class VrmRunner {
     }
 
     this.customBlendShapes.clear();
-    this.lipSyncAmplitude = 0.0;
-    this.smoothLipSyncAmplitude = 0.0;
+    this.speechController.resetAmplitude();
     this.autoBlinkEnabled = true;
   }
 
@@ -721,63 +736,31 @@ class VrmRunner {
   }
 
   enqueueSpeechVisemes(payload) {
-    const frames = payload.frames;
-    if (!frames || frames.length === 0) return;
-    if (!this.beginSpeech(payload)) return;
-    this.appendSpeechVisemes(payload.sessionId, frames);
-    const audioDurationMs = frames.reduce((end, frame) => {
-      return Math.max(end, Number(frame.timestampMs || 0) + Number(frame.durationMs || 0));
-    }, 0);
-    this.finishSpeech(payload.sessionId, audioDurationMs);
+    this.speechController.enqueueVisemes(payload);
   }
 
   enqueueSpeechAmplitudes(payload) {
-    const frames = payload.frames;
-    if (!frames || frames.length === 0) return;
-    if (!this.beginSpeech(payload)) return;
-    this.appendSpeechAmplitudes(payload.sessionId, frames);
-    const audioDurationMs = frames.reduce((end, frame) => {
-      return Math.max(end, Number(frame.timestampMs || 0) + Number(frame.durationMs || 0));
-    }, 0);
-    this.finishSpeech(payload.sessionId, audioDurationMs);
+    this.speechController.enqueueAmplitudes(payload);
   }
 
   beginSpeech(payload) {
-    if (!this.speechTimeline.acceptInputRevision(payload.speechRevision)) return false;
-    this.speechTimeline.begin({
-      sessionId: payload.sessionId,
-      mode: payload.mode,
-      timelineOriginEpochMs: payload.timelineOriginEpochMs,
-      nowMs: performance.now(),
-      wallNowEpochMs: Date.now(),
-    });
-    this.resetSpeechPresentation();
-    return true;
+    return this.speechController.begin(payload);
   }
 
   appendSpeechVisemes(sessionId, frames) {
-    this.speechTimeline.appendVisemes(sessionId, frames);
+    this.speechController.appendVisemes(sessionId, frames);
   }
 
   appendSpeechAmplitudes(sessionId, frames) {
-    this.speechTimeline.appendAmplitudes(sessionId, frames);
+    this.speechController.appendAmplitudes(sessionId, frames);
   }
 
   finishSpeech(sessionId, audioDurationMs) {
-    this.speechTimeline.finish(sessionId, audioDurationMs);
+    this.speechController.finish(sessionId, audioDurationMs);
   }
 
   cancelSpeech(sessionId) {
-    const canceled = this.speechTimeline.cancel(sessionId);
-    if (sessionId !== undefined && !canceled) return false;
-    this.resetSpeechPresentation();
-    return canceled;
-  }
-
-  resetSpeechPresentation() {
-    this.lipSyncAmplitude = 0.0;
-    this.smoothLipSyncAmplitude = 0.0;
-    this.clearExpressionLayer('mouth');
+    return this.speechController.cancel(sessionId);
   }
 
   // ==========================================
@@ -1084,7 +1067,7 @@ class VrmRunner {
     }
 
     if (this.currentVrm) {
-      this.updateSpeechTimeline();
+      this.speechController.update();
       this.updateExpressions(delta);
       this.updateMicroMovements(elapsedTime, delta);
 
@@ -1159,37 +1142,6 @@ class VrmRunner {
     this.graphicsController.recordFrame(now);
   }
 
-  updateSpeechTimeline() {
-    const now = performance.now();
-    const update = this.speechTimeline.advance(now);
-
-    if (Object.prototype.hasOwnProperty.call(update, 'viseme')) {
-      if (update.viseme === null) {
-        this.clearExpressionLayer('mouth');
-      } else {
-        const targetViseme = VrmRunner.VISEME_MAP[update.viseme.viseme] || 'aa';
-        const transitionDuration = Math.min(
-          0.08,
-          Math.max(0.02, update.viseme.durationMs / 4000.0),
-        );
-        this.setExpression(
-          targetViseme,
-          'mouth',
-          update.viseme.weight,
-          transitionDuration,
-        );
-      }
-    }
-    if (Object.prototype.hasOwnProperty.call(update, 'amplitude')) {
-      this.lipSyncAmplitude = update.amplitude;
-    }
-    if (update.finishedSessionId !== undefined) {
-      this.notifyFlutter('onSpeechFinished', {
-        sessionId: update.finishedSessionId,
-      });
-    }
-  }
-
   updateExpressions(delta) {
     if (!this.currentVrm || !this.currentVrm.expressionManager) return;
     const em = this.currentVrm.expressionManager;
@@ -1200,10 +1152,7 @@ class VrmRunner {
     }
     em.setValue('blink', blinkWeight);
 
-    this.smoothLipSyncAmplitude = THREE.MathUtils.lerp(this.smoothLipSyncAmplitude, this.lipSyncAmplitude, 0.25);
-    if (this.lipSyncAmplitude > 0.001 || this.smoothLipSyncAmplitude > 0.001) {
-      em.setValue('aa', this.smoothLipSyncAmplitude);
-    }
+    this.speechController.applyAmplitude(em);
 
     // Плавно интерполируем все активные эмоции (кроссфейд угасания и нарастания)
     for (const [name, state] of Object.entries(this.activeExpressions)) {

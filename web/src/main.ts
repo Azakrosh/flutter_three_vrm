@@ -76,6 +76,14 @@ export {
 } from "./speech-timeline";
 
 export {
+  RuntimeSpeechController,
+  type RuntimeSpeechAmplitudeBatch,
+  type RuntimeSpeechBegin,
+  type RuntimeSpeechPresentation,
+  type RuntimeSpeechVisemeBatch,
+} from "./speech-controller";
+
+export {
   createRuntimeCommandResponse,
   installRuntimeBridge,
   postRuntimeEvent,
