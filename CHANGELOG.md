@@ -15,6 +15,7 @@
 - Move speech session presentation, viseme updates, amplitude smoothing, and full-stop cleanup into a tested TypeScript controller without changing Flutter audio ownership.
 - Move layered facial expressions, visemes, custom blend shapes, and automatic blinking into a tested TypeScript face controller.
 - Move VRMA/glTF and Pose playback orchestration, rest transitions, pause/resume, and playback-scoped completion fallback into a tested TypeScript motion controller.
+- Move VRMA/glTF animation fetching, parsing, cancellation races, and temporary-scene cleanup into a tested TypeScript loader; cancel pending animation loads when replacing the avatar.
 - Keep Android hidden-lifecycle smoke polling independent of a rendered frame so model recovery cannot stall the test harness.
 - Scope animation lifecycle events and queues to opaque playback IDs so unrelated or replaced animations cannot advance a queue.
 - Enforce transform, adaptive-quality, recovery, and model-performance configuration contracts in release builds instead of relying on debug-only asserts.

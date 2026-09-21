@@ -125,6 +125,11 @@ export {
 } from "./model-loader";
 
 export {
+  VrmAnimationLoader,
+  type VrmAnimationLoaderDependencies,
+} from "./animation-loader";
+
+export {
   createRuntimeModelReport,
   type RuntimeModelReport,
 } from "./model-report";

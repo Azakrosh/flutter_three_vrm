@@ -78,9 +78,10 @@ Flutter application
 
 WebView runtime
   └─ main.ts / protocol.ts
-      └─ runner.js           facade, input, loading, lookAt, physics и disposal
+      └─ runner.js           facade, input, background, lookAt, physics и disposal
           ├─ motion-transition.ts
           ├─ motion-controller.ts
+          ├─ animation-loader.ts
           ├─ camera-controller.ts
           ├─ scene-controller.ts
           ├─ graphics-controller.ts
@@ -111,11 +112,11 @@ WebView runtime
 ### Текущий размер и покрытие
 
 - Flutter library: 32 файла, примерно 5800 строк;
-- web source: 21 файл, примерно 5400 строк;
-- `runner.js`: примерно 960 строк;
+- web source: 22 файла, примерно 5500 строк;
+- `runner.js`: примерно 940 строк;
 - `VrmController`: примерно 1280 строк;
 - Flutter unit tests: 65;
-- web unit tests: 74;
+- web unit tests: 79;
 - один сквозной runtime smoke-сценарий, примерно 388 строк.
 
 Числа нужны как ориентир концентрации ответственности, а не как целевые KPI.
@@ -141,7 +142,7 @@ payload между Dart и web обнаруживается преимущест
 
 ### P1 — два крупных центра ответственности
 
-`runner.js` всё ещё объединяет input, загрузку анимаций, lookAt, physics
+`runner.js` всё ещё объединяет input, загрузку фонов, lookAt, physics
 и часть disposal.
 `VrmController` одновременно валидирует
 данные, управляет hosted resources, сериализует protocol payload и предоставляет
@@ -215,8 +216,10 @@ cancel, viseme presentation, amplitude smoothing и завершение реч�
 crossfade выражений, direct viseme, custom blend shapes и моргание вынесены
 в типизированный face controller с unit-тестами. Оркестрация VRMA/glTF-клипов,
 Pose, rest transition, pause/resume и fallback события завершения теперь
-принадлежит типизированному motion controller. Следующий срез — загрузка
-анимационных ресурсов и отмена устаревших запросов.
+принадлежит типизированному motion controller. Загрузка VRMA/glTF, отмена
+устаревших запросов и очистка разобранной сцены вынесены в типизированный
+animation loader; замена модели отменяет незавершённую загрузку анимации.
+Следующий срез — загрузка фонов и resource lifecycle.
 
 Работы:
 

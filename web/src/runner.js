@@ -1,8 +1,5 @@
 import {
-  GLTFLoader,
   THREE,
-  VRMAnimationLoaderPlugin,
-  VRMUtils,
   createRuntimeCommandDispatcher,
   createRuntimeCanceledError,
   fetchRuntimeResource,
@@ -17,6 +14,7 @@ import {
   RuntimeSceneController,
   RuntimeGraphicsController,
   VrmModelLoader,
+  VrmAnimationLoader,
   VrmModelSession,
 } from './main';
 // Подавляем безвредные предупреждения от @pixiv/three-vrm-animation для старых vrma файлов
@@ -40,6 +38,7 @@ class VrmRunner {
     this.cameraController = null;
 
     this.modelLoader = new VrmModelLoader();
+    this.animationLoader = new VrmAnimationLoader();
     this.motionController = new RuntimeMotionController({
       getVrm: () => this.currentVrm,
       getTransitions: () => this.modelSession?.motionTransitions ?? null,
@@ -48,9 +47,7 @@ class VrmRunner {
       onStarted: (event) => this.notifyFlutter('onAnimationStarted', event),
       onFinished: (event) => this.notifyFlutter('onAnimationFinished', event),
     });
-    this.animationLoadAbortController = null;
     this.backgroundLoadAbortController = null;
-    this.animationLoadGeneration = 0;
     this.backgroundLoadGeneration = 0;
     this.backgroundObjectUrl = null;
 
@@ -394,9 +391,7 @@ class VrmRunner {
   }
 
   cancelAnimationLoad() {
-    if (this.animationLoadAbortController) this.animationLoadAbortController.abort();
-    this.animationLoadAbortController = null;
-    this.animationLoadGeneration += 1;
+    this.animationLoader.cancel();
   }
 
   cancelBackgroundLoad() {
@@ -463,6 +458,7 @@ class VrmRunner {
   }
 
   unloadModel() {
+    this.cancelAnimationLoad();
     this.cancelSpeech();
     if (!this.currentVrm) return;
 
@@ -488,38 +484,17 @@ class VrmRunner {
     if (!this.currentVrm || !this.mixer) {
       throw new Error('Load a VRM model before playing an animation.');
     }
-    this.cancelAnimationLoad();
-    const generation = ++this.animationLoadGeneration;
-    const abortController = new AbortController();
-    this.animationLoadAbortController = abortController;
-    const loader = new GLTFLoader();
-    loader.register((parser) => new VRMAnimationLoaderPlugin(parser));
-
     try {
-      const resource = await fetchRuntimeResource(url, abortController.signal);
-      const isJson = resource.contentType.includes('json') || new URL(url).pathname.toLowerCase().endsWith('.gltf');
-      const input = isJson ? new TextDecoder().decode(resource.data) : resource.data;
-      const gltf = await loader.parseAsync(input, new URL('.', url).href);
-      try {
-        if (abortController.signal.aborted || generation !== this.animationLoadGeneration) {
-          throw createRuntimeCanceledError('Animation loading was canceled.');
-        }
+      await this.animationLoader.load(url, (gltf) => {
         this.motionController.playLoadedAnimation(gltf, options);
-      } finally {
-        if (gltf.scene) VRMUtils.deepDispose(gltf.scene);
-      }
-    } catch (error) {
-      if (abortController.signal.aborted || error?.name === 'AbortError' || error?.code === 'canceled') {
-        throw createRuntimeCanceledError('Animation loading was canceled.');
-      }
-      this.notifyFlutter('onError', {
-        message: error instanceof Error ? error.message : String(error),
       });
-      throw error;
-    } finally {
-      if (this.animationLoadAbortController === abortController) {
-        this.animationLoadAbortController = null;
+    } catch (error) {
+      if (!isRuntimeCanceledError(error)) {
+        this.notifyFlutter('onError', {
+          message: error instanceof Error ? error.message : String(error),
+        });
       }
+      throw error;
     }
   }
 
