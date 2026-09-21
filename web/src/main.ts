@@ -133,6 +133,13 @@ export {
 } from "./scene-controller";
 
 export {
+  RuntimeGraphicsController,
+  type RuntimeGraphicsDependencies,
+  type RuntimeGraphicsSettings,
+  type RuntimePerformanceSnapshot,
+} from "./graphics-controller";
+
+export {
   GLTFLoader,
   OrbitControls,
   THREE,

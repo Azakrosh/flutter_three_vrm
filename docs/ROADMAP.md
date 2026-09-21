@@ -83,6 +83,7 @@ WebView runtime
           ├─ motion-transition.ts
           ├─ camera-controller.ts
           ├─ scene-controller.ts
+          ├─ graphics-controller.ts
           ├─ humanoid-animation.ts
           ├─ pose.ts
           ├─ speech-timeline.ts
@@ -108,11 +109,11 @@ WebView runtime
 ### Текущий размер и покрытие
 
 - Flutter library: 32 файла, примерно 5800 строк;
-- web source: 17 файлов, примерно 5000 строк;
-- `runner.js`: примерно 1550 строк;
+- web source: 18 файлов, примерно 5100 строк;
+- `runner.js`: примерно 1430 строк;
 - `VrmController`: примерно 1280 строк;
 - Flutter unit tests: 65;
-- web unit tests: 53;
+- web unit tests: 58;
 - один сквозной runtime smoke-сценарий, примерно 388 строк.
 
 Числа нужны как ориентир концентрации ответственности, а не как целевые KPI.
@@ -202,8 +203,10 @@ pan, animated reset, serialized transform и восстановление OrbitC
 renderer, OrbitControls, lighting, shadows, WebGL context listeners и
 детерминированный disposal теперь принадлежат отдельному TypeScript scene
 controller; renderer recreation сохраняет применённое состояние и откатывается
-без разрушения текущего renderer при ошибке. Следующий срез —
-performance/graphics coordination.
+без разрушения текущего renderer при ошибке. FPS cap, graphics presets,
+physics switch, adaptive quality и performance telemetry теперь принадлежат
+типизированному graphics controller; первый кадр после смены FPS cap или resume
+не обходит ограничение частоты. Следующий срез — motion/face и speech ownership.
 
 Работы:
 

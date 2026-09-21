@@ -11,6 +11,7 @@
 - Give a typed model session sole ownership of the active VRM, animation mixer, motion transitions, spring-bone attachment, animation-finished listener, and deterministic scene disposal.
 - Move camera modes, framing, constrained pan, animated reset, serialized transforms, and renderer-control restoration into a tested TypeScript controller.
 - Give a typed scene controller sole ownership of scene, renderer, controls, lighting, shadows, WebGL context listeners, transactional renderer recreation, and disposal.
+- Move FPS gating, graphics presets, adaptive quality, physics toggles, and performance telemetry into a tested TypeScript graphics controller; prevent the first frame from bypassing its FPS cap.
 - Scope animation lifecycle events and queues to opaque playback IDs so unrelated or replaced animations cannot advance a queue.
 - Enforce transform, adaptive-quality, recovery, and model-performance configuration contracts in release builds instead of relying on debug-only asserts.
 - Validate animation, pose, expression, gaze, lighting, physics, and renderer inputs synchronously before they can corrupt WebView state.

@@ -1,5 +1,4 @@
 import {
-  AdaptiveQualityController,
   GLTFLoader,
   THREE,
   VRMAnimationLoaderPlugin,
@@ -17,6 +16,7 @@ import {
   SpeechTimeline,
   RuntimeCameraController,
   RuntimeSceneController,
+  RuntimeGraphicsController,
   VrmModelLoader,
   VrmModelSession,
 } from './main';
@@ -130,26 +130,6 @@ class VrmRunner {
     this.raycaster = new THREE.Raycaster();
 
     // Graphics and Performance state
-    this.enablePhysics = true;
-    this.fpsCap = 60;
-    this.lastFrameTime = 0;
-    this.adaptiveQuality = new AdaptiveQualityController();
-    this.performanceWindowStart = performance.now();
-    this.performanceFrameCount = 0;
-    this.lastPerformanceReport = 0;
-    this.performanceSnapshot = {
-      fps: 0,
-      frameTimeMs: 0,
-      pixelRatio: Math.min(window.devicePixelRatio, 1.5),
-      fpsCap: this.fpsCap,
-      physicsEnabled: this.enablePhysics,
-      adaptiveQualityEnabled: this.adaptiveQuality.config.enabled,
-      drawCalls: 0,
-      triangles: 0,
-      geometries: 0,
-      textures: 0,
-      reason: 'initialized',
-    };
     this._isRenderingPaused = false;
     this._animationFrameId = null;
     this._isDisposed = false;
@@ -170,6 +150,13 @@ class VrmRunner {
 
     this.initScene();
     this.modelSession = new VrmModelSession(this.scene);
+    this.graphicsController = new RuntimeGraphicsController({
+      scene: this.sceneController,
+      recreateRenderer: (antialias) => this._recreateRenderer(antialias),
+      setPhysicsEnabled: (enabled) => this.modelSession.setPhysicsEnabled(enabled),
+      onPerformance: (snapshot) => this.notifyFlutter('onPerformance', snapshot),
+      devicePixelRatio: () => window.devicePixelRatio,
+    }, this.lastTime);
     this.initEvents();
     this.animate();
 
@@ -215,6 +202,14 @@ class VrmRunner {
 
   get controls() {
     return this.sceneController.controls;
+  }
+
+  get enablePhysics() {
+    return this.graphicsController?.physicsEnabled ?? true;
+  }
+
+  get fpsCap() {
+    return this.graphicsController?.fpsCap ?? 60;
   }
 
   initEvents() {
@@ -971,124 +966,19 @@ class VrmRunner {
   }
 
   setGraphicsSettings(settings) {
-    if (!settings) return;
-
-    const needsRendererRecreate =
-      settings.antialias !== undefined &&
-      settings.antialias !== this.sceneController.antialias;
-
-    if (settings.enablePhysics !== undefined) {
-      this.enablePhysics = settings.enablePhysics;
-      this.modelSession.setPhysicsEnabled(this.enablePhysics);
-    }
-
-    if (settings.fpsCap !== undefined) {
-      const requestedFps = Number(settings.fpsCap);
-      if (!Number.isFinite(requestedFps) || requestedFps < 0) {
-        throw new TypeError('fpsCap must be zero or a positive finite number.');
-      }
-      this.fpsCap = requestedFps === 0 ? 0 : THREE.MathUtils.clamp(Math.round(requestedFps), 1, 120);
-      this.lastFrameTime = 0;
-    }
-
-    if (needsRendererRecreate) {
-      this._recreateRenderer(settings.antialias);
-    }
-
-    if (settings.pixelRatio !== undefined && this.renderer) {
-      const requestedRatio = Number(settings.pixelRatio);
-      if (!Number.isFinite(requestedRatio) || requestedRatio <= 0) {
-        throw new TypeError('pixelRatio must be a positive finite number.');
-      }
-      this.sceneController.setPixelRatio(
-        THREE.MathUtils.clamp(requestedRatio, 0.5, 3),
-      );
-    }
+    this.graphicsController.setSettings(settings);
   }
 
   setGraphicsPreset(preset) {
-    switch (preset) {
-      case 'performance':
-        this.setShadows(false);
-        this.setGraphicsSettings({ pixelRatio: 1, antialias: false, enablePhysics: true, fpsCap: 30 });
-        break;
-      case 'balanced':
-        this.setShadows(false);
-        this.setGraphicsSettings({ pixelRatio: 1.5, antialias: true, enablePhysics: true, fpsCap: 60 });
-        break;
-      case 'quality':
-        this.setShadows(true);
-        this.setGraphicsSettings({
-          pixelRatio: Math.min(window.devicePixelRatio, 2),
-          antialias: true,
-          enablePhysics: true,
-          fpsCap: 60,
-        });
-        break;
-      default:
-        throw new TypeError(`Unknown graphics preset: ${preset}.`);
-    }
-    if (this.adaptiveQuality.config.enabled) {
-      this.setAdaptiveQuality(this.adaptiveQuality.config);
-    }
+    this.graphicsController.setPreset(preset);
   }
 
   setAdaptiveQuality(settings) {
-    const config = this.adaptiveQuality.configure(settings);
-    const ratio = THREE.MathUtils.clamp(
-      this.renderer.getPixelRatio(),
-      config.minPixelRatio,
-      config.maxPixelRatio,
-    );
-    this.sceneController.setPixelRatio(ratio);
-    this.performanceSnapshot = this.getPerformanceSnapshot('configurationChanged');
+    this.graphicsController.setAdaptiveQuality(settings);
   }
 
-  getPerformanceSnapshot(reason = this.performanceSnapshot?.reason ?? 'sample') {
-    const renderInfo = this.renderer?.info;
-    return {
-      fps: this.performanceSnapshot?.fps ?? 0,
-      frameTimeMs: this.performanceSnapshot?.frameTimeMs ?? 0,
-      pixelRatio: this.renderer?.getPixelRatio() ?? 0,
-      fpsCap: this.fpsCap,
-      physicsEnabled: this.enablePhysics,
-      adaptiveQualityEnabled: this.adaptiveQuality.config.enabled,
-      drawCalls: renderInfo?.render.calls ?? 0,
-      triangles: renderInfo?.render.triangles ?? 0,
-      geometries: renderInfo?.memory.geometries ?? 0,
-      textures: renderInfo?.memory.textures ?? 0,
-      reason,
-    };
-  }
-
-  recordPerformance(now) {
-    this.performanceFrameCount += 1;
-    const windowDuration = now - this.performanceWindowStart;
-    if (windowDuration < 1000) return;
-
-    const fps = this.performanceFrameCount * 1000 / windowDuration;
-    const frameTimeMs = windowDuration / this.performanceFrameCount;
-    const adjustment = this.adaptiveQuality.evaluate(
-      fps,
-      this.renderer.getPixelRatio(),
-      this.fpsCap,
-      now,
-    );
-    if (adjustment) {
-      this.sceneController.setPixelRatio(adjustment.pixelRatio);
-    }
-
-    this.performanceSnapshot = {
-      ...this.getPerformanceSnapshot(adjustment?.reason ?? 'sample'),
-      fps,
-      frameTimeMs,
-    };
-    if (adjustment || now - this.lastPerformanceReport >= 2000) {
-      this.notifyFlutter('onPerformance', this.performanceSnapshot);
-      this.lastPerformanceReport = now;
-    }
-    this.performanceFrameCount = 0;
-    this.performanceWindowStart = now;
+  getPerformanceSnapshot() {
+    return this.graphicsController.getSnapshot();
   }
 
   onWebGlContextLost() {
@@ -1097,9 +987,7 @@ class VrmRunner {
 
   onWebGlContextRestored() {
     this.lastTime = performance.now();
-    this.lastFrameTime = 0;
-    this.performanceWindowStart = this.lastTime;
-    this.performanceFrameCount = 0;
+    this.graphicsController.resetTiming(this.lastTime);
     this.notifyFlutter('onWebGLContextChanged', { state: 'restored' });
   }
 
@@ -1147,9 +1035,7 @@ class VrmRunner {
     if (this._isRenderingPaused) {
       this._isRenderingPaused = false;
       this.lastTime = performance.now();
-      this.lastFrameTime = 0;
-      this.performanceWindowStart = this.lastTime;
-      this.performanceFrameCount = 0;
+      this.graphicsController.resetTiming(this.lastTime);
       this.animate();
     }
   }
@@ -1160,12 +1046,7 @@ class VrmRunner {
 
     const now = performance.now();
     if (this.sceneController.contextLost) return;
-    if (this.fpsCap > 0) {
-      const frameInterval = 1000 / this.fpsCap;
-      const elapsedSinceFrame = now - this.lastFrameTime;
-      if (this.lastFrameTime > 0 && elapsedSinceFrame < frameInterval * 0.9) return;
-      this.lastFrameTime = now - (elapsedSinceFrame % frameInterval);
-    }
+    if (!this.graphicsController.shouldRender(now)) return;
 
     let delta = (now - this.lastTime) / 1000;
     if (delta > 0.1) delta = 0.1; // Ограничение скачков при лагах (10 fps min)
@@ -1275,7 +1156,7 @@ class VrmRunner {
     this.cameraController.updateAnimation(elapsedTime);
 
     this.sceneController.updateAndRender();
-    this.recordPerformance(now);
+    this.graphicsController.recordFrame(now);
   }
 
   updateSpeechTimeline() {
