@@ -1,8 +1,6 @@
 import {
   THREE,
   createRuntimeCommandDispatcher,
-  createRuntimeCanceledError,
-  fetchRuntimeResource,
   getRuntimeInfo,
   isRuntimeCanceledError,
   installRuntimeBridge,
@@ -12,6 +10,7 @@ import {
   RuntimeMotionController,
   RuntimeCameraController,
   RuntimeSceneController,
+  RuntimeBackgroundController,
   RuntimeGraphicsController,
   VrmModelLoader,
   VrmAnimationLoader,
@@ -47,10 +46,6 @@ class VrmRunner {
       onStarted: (event) => this.notifyFlutter('onAnimationStarted', event),
       onFinished: (event) => this.notifyFlutter('onAnimationFinished', event),
     });
-    this.backgroundLoadAbortController = null;
-    this.backgroundLoadGeneration = 0;
-    this.backgroundObjectUrl = null;
-
     // Вместо устаревшего THREE.Clock используем нативный performance.now()
     this.lastTime = performance.now();
     this.elapsedTime = 0;
@@ -143,6 +138,11 @@ class VrmRunner {
     this._detachRuntimeBridge = null;
 
     this.initScene();
+    this.backgroundController = new RuntimeBackgroundController({
+      style: document.body.style,
+      setCanvasBackground: (colorHex, transparent) =>
+        this.sceneController.setCanvasBackground(colorHex, transparent),
+    });
     this.modelSession = new VrmModelSession(this.scene);
     this.graphicsController = new RuntimeGraphicsController({
       scene: this.sceneController,
@@ -392,12 +392,6 @@ class VrmRunner {
 
   cancelAnimationLoad() {
     this.animationLoader.cancel();
-  }
-
-  cancelBackgroundLoad() {
-    if (this.backgroundLoadAbortController) this.backgroundLoadAbortController.abort();
-    this.backgroundLoadAbortController = null;
-    this.backgroundLoadGeneration += 1;
   }
 
   _setupLoadedVrm(gltf, sourceBytes) {
@@ -702,82 +696,8 @@ class VrmRunner {
     this.sceneController.setEnvironmentColor(colorHex, intensity);
   }
 
-  async setBackground(colorHex, imageUrl, transparent, hostedImage = false) {
-    this.cancelBackgroundLoad();
-
-    if (!imageUrl || !hostedImage) {
-      this.applyBackground(colorHex, imageUrl, transparent);
-      this.replaceBackgroundObjectUrl(null);
-      return;
-    }
-
-    const generation = this.backgroundLoadGeneration;
-    const abortController = new AbortController();
-    this.backgroundLoadAbortController = abortController;
-    let objectUrl = null;
-
-    try {
-      const resource = await fetchRuntimeResource(imageUrl, abortController.signal);
-      if (abortController.signal.aborted || generation !== this.backgroundLoadGeneration) {
-        throw createRuntimeCanceledError('Background loading was canceled.');
-      }
-
-      const blob = new Blob([resource.data], {
-        type: resource.contentType || 'application/octet-stream',
-      });
-      objectUrl = URL.createObjectURL(blob);
-      if (abortController.signal.aborted || generation !== this.backgroundLoadGeneration) {
-        throw createRuntimeCanceledError('Background loading was canceled.');
-      }
-
-      this.applyBackground(colorHex, objectUrl, transparent);
-      this.replaceBackgroundObjectUrl(objectUrl);
-      objectUrl = null;
-    } catch (error) {
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-      if (
-        abortController.signal.aborted ||
-        generation !== this.backgroundLoadGeneration ||
-        error?.name === 'AbortError' ||
-        error?.code === 'canceled'
-      ) {
-        throw createRuntimeCanceledError('Background loading was canceled.');
-      }
-      throw error;
-    } finally {
-      if (this.backgroundLoadAbortController === abortController) {
-        this.backgroundLoadAbortController = null;
-      }
-    }
-  }
-
-  replaceBackgroundObjectUrl(nextUrl) {
-    const previousUrl = this.backgroundObjectUrl;
-    this.backgroundObjectUrl = nextUrl;
-    if (previousUrl && previousUrl !== nextUrl) URL.revokeObjectURL(previousUrl);
-  }
-
-  applyBackground(colorHex, imageUrl, transparent) {
-    if (imageUrl) {
-      // Use CSS background on document.body for optimal scaling (cover)
-      document.body.style.backgroundColor = colorHex || '#000000';
-      document.body.style.backgroundImage = `url(${JSON.stringify(imageUrl)})`;
-      document.body.style.backgroundSize = 'cover';
-      document.body.style.backgroundPosition = 'center';
-
-      // Make WebGL canvas transparent so the CSS background is visible
-      this.sceneController.setCanvasBackground(null, true);
-    } else {
-      document.body.style.backgroundImage = 'none';
-
-      if (transparent) {
-        document.body.style.backgroundColor = 'transparent';
-        this.sceneController.setCanvasBackground(null, true);
-      } else {
-        document.body.style.backgroundColor = colorHex;
-        this.sceneController.setCanvasBackground(colorHex, false);
-      }
-    }
+  setBackground(colorHex, imageUrl, transparent, hostedImage = false) {
+    return this.backgroundController.setBackground(colorHex, imageUrl, transparent, hostedImage);
   }
 
   setRenderQuality(pixelRatio) {
@@ -829,9 +749,7 @@ class VrmRunner {
     this.pauseRendering();
     this.cancelModelLoad();
     this.cancelAnimationLoad();
-    this.cancelBackgroundLoad();
-    this.replaceBackgroundObjectUrl(null);
-    document.body.style.backgroundImage = 'none';
+    this.backgroundController.dispose();
 
     window.removeEventListener('resize', this._onWindowResize);
     window.removeEventListener('pagehide', this._onPageHide);

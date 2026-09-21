@@ -157,6 +157,12 @@ export {
 } from "./scene-controller";
 
 export {
+  RuntimeBackgroundController,
+  type RuntimeBackgroundDependencies,
+  type RuntimeBackgroundStyle,
+} from "./background-controller";
+
+export {
   RuntimeGraphicsController,
   type RuntimeGraphicsDependencies,
   type RuntimeGraphicsSettings,

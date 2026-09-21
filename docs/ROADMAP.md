@@ -78,12 +78,13 @@ Flutter application
 
 WebView runtime
   └─ main.ts / protocol.ts
-      └─ runner.js           facade, input, background, lookAt, physics и disposal
+      └─ runner.js           facade, input, lookAt, physics и disposal
           ├─ motion-transition.ts
           ├─ motion-controller.ts
           ├─ animation-loader.ts
           ├─ camera-controller.ts
           ├─ scene-controller.ts
+          ├─ background-controller.ts
           ├─ graphics-controller.ts
           ├─ humanoid-animation.ts
           ├─ pose.ts
@@ -112,11 +113,11 @@ WebView runtime
 ### Текущий размер и покрытие
 
 - Flutter library: 32 файла, примерно 5800 строк;
-- web source: 22 файла, примерно 5500 строк;
-- `runner.js`: примерно 940 строк;
+- web source: 23 файла, примерно 5600 строк;
+- `runner.js`: примерно 870 строк;
 - `VrmController`: примерно 1280 строк;
 - Flutter unit tests: 65;
-- web unit tests: 79;
+- web unit tests: 84;
 - один сквозной runtime smoke-сценарий, примерно 388 строк.
 
 Числа нужны как ориентир концентрации ответственности, а не как целевые KPI.
@@ -142,7 +143,7 @@ payload между Dart и web обнаруживается преимущест
 
 ### P1 — два крупных центра ответственности
 
-`runner.js` всё ещё объединяет input, загрузку фонов, lookAt, physics
+`runner.js` всё ещё объединяет input, lookAt, physics
 и часть disposal.
 `VrmController` одновременно валидирует
 данные, управляет hosted resources, сериализует protocol payload и предоставляет
@@ -219,7 +220,9 @@ Pose, rest transition, pause/resume и fallback события завершен�
 принадлежит типизированному motion controller. Загрузка VRMA/glTF, отмена
 устаревших запросов и очистка разобранной сцены вынесены в типизированный
 animation loader; замена модели отменяет незавершённую загрузку анимации.
-Следующий срез — загрузка фонов и resource lifecycle.
+Передача фонового ресурса, CSS-представление и жизненный цикл Blob URL теперь
+принадлежат типизированному background controller. Следующий срез — lookAt
+и процедурные микродвижения.
 
 Работы:
 
