@@ -78,8 +78,7 @@ Flutter application
 
 WebView runtime
   └─ main.ts / protocol.ts
-      └─ runner.js           сцена, модель, камера, animation, expressions,
-                            speech, physics, performance и disposal
+      └─ runner.js           facade, input, motion, lookAt, physics и disposal
           ├─ motion-transition.ts
           ├─ camera-controller.ts
           ├─ scene-controller.ts
@@ -88,6 +87,7 @@ WebView runtime
           ├─ pose.ts
           ├─ speech-timeline.ts
           ├─ speech-controller.ts
+          ├─ face-controller.ts
           └─ performance.ts
 ```
 
@@ -110,11 +110,11 @@ WebView runtime
 ### Текущий размер и покрытие
 
 - Flutter library: 32 файла, примерно 5800 строк;
-- web source: 19 файлов, примерно 5200 строк;
-- `runner.js`: примерно 1380 строк;
+- web source: 20 файлов, примерно 5200 строк;
+- `runner.js`: примерно 1040 строк;
 - `VrmController`: примерно 1280 строк;
 - Flutter unit tests: 65;
-- web unit tests: 63;
+- web unit tests: 69;
 - один сквозной runtime smoke-сценарий, примерно 388 строк.
 
 Числа нужны как ориентир концентрации ответственности, а не как целевые KPI.
@@ -140,8 +140,8 @@ payload между Dart и web обнаруживается преимущест
 
 ### P1 — два крупных центра ответственности
 
-`runner.js` объединяет scene, loading, camera, input, motion, face, speech,
-physics, performance и disposal. `VrmController` одновременно валидирует
+`runner.js` всё ещё объединяет input, motion, lookAt, physics и часть disposal.
+`VrmController` одновременно валидирует
 данные, управляет hosted resources, сериализует protocol payload и предоставляет
 публичный API. Любое изменение затрагивает слишком большой контекст.
 
@@ -209,8 +209,9 @@ physics switch, adaptive quality и performance telemetry теперь прин�
 типизированному graphics controller; первый кадр после смены FPS cap или resume
 не обходит ограничение частоты. Speech timeline, session begin/append/finish/
 cancel, viseme presentation, amplitude smoothing и завершение речевого
-сообщения теперь принадлежат типизированному speech controller. Следующий
-срез — motion и face ownership.
+сообщения теперь принадлежат типизированному speech controller. Слои мимики,
+crossfade выражений, direct viseme, custom blend shapes и моргание вынесены
+в типизированный face controller с unit-тестами. Следующий срез — motion ownership.
 
 Работы:
 

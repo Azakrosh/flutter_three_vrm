@@ -84,6 +84,11 @@ export {
 } from "./speech-controller";
 
 export {
+  RuntimeFaceController,
+  type RuntimeFaceDependencies,
+} from "./face-controller";
+
+export {
   createRuntimeCommandResponse,
   installRuntimeBridge,
   postRuntimeEvent,

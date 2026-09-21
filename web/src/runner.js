@@ -14,6 +14,7 @@ import {
   installRuntimeBridge,
   postRuntimeEvent,
   RuntimeSpeechController,
+  RuntimeFaceController,
   RuntimeCameraController,
   RuntimeSceneController,
   RuntimeGraphicsController,
@@ -76,14 +77,12 @@ class VrmRunner {
     this.chestBaseQuat = new THREE.Quaternion(); // Базовая позиция для плеч (груди)
     this.baseBonesSaved = false;
 
-    // Multi-Layer Expressions & Crossfader
-    this.activeExpressions = {};
-    this.expressionLayers = {
-      eyes: { name: null, targetWeight: 0, currentWeight: 0, duration: 0.25 },
-      mouth: { name: null, targetWeight: 0, currentWeight: 0, duration: 0.1 },
-      brows: { name: null, targetWeight: 0, currentWeight: 0, duration: 0.25 }
-    };
-    this.customBlendShapes = new Map();
+    this.faceController = new RuntimeFaceController({
+      getVrm: () => this.currentVrm,
+      applySpeechAmplitude: (manager) => this.speechController.applyAmplitude(manager),
+      onExpressionChanged: (name, layer) =>
+        this.notifyFlutter('onExpressionChanged', { expression: name, layer }),
+    });
 
     // Dynamic Bounding Box
     this.modelBoundingWidth = 0.6;
@@ -97,13 +96,6 @@ class VrmRunner {
       onFinished: (sessionId) =>
         this.notifyFlutter('onSpeechFinished', { sessionId }),
     });
-
-    // Micro-movements
-    this.autoBlinkEnabled = true;
-    this.blinkTimer = 0;
-    this.nextBlinkInterval = 3.0;
-    this.isBlinking = false;
-    this.blinkProgress = 0;
 
     // Animation Action
     this.isAnimationPaused = false;
@@ -633,106 +625,34 @@ class VrmRunner {
   }
 
 
+  get customBlendShapes() {
+    return this.faceController.customBlendShapes;
+  }
+
+  get autoBlinkEnabled() {
+    return this.faceController.autoBlinkEnabled;
+  }
+
+  set autoBlinkEnabled(value) {
+    this.faceController.autoBlinkEnabled = value;
+  }
+
   setExpression(expressionName, layerName = 'eyes', targetWeight = 1.0, durationSec = 0.25, disableAutoBlink = false) {
-    if (!this.expressionLayers[layerName]) return;
-
-    // Автоматически включаем или ставим на паузу автоморгание
-    this.autoBlinkEnabled = !disableAutoBlink;
-
-    const newName = expressionName.toLowerCase();
-    const mainEmotions = ['happy', 'sad', 'angry', 'surprised', 'relaxed', 'neutral'];
-
-    // При вызове новой базовой эмоции плавно уводим все старые эмоции в targetWeight = 0.0 (crossfade out)
-    if (mainEmotions.includes(newName)) {
-      for (const [name, state] of Object.entries(this.activeExpressions)) {
-        if (mainEmotions.includes(name) && name !== newName) {
-          state.targetWeight = 0.0;
-          state.duration = durationSec;
-        }
-      }
-      for (const layer of Object.values(this.expressionLayers)) {
-        if (layer.name && mainEmotions.includes(layer.name) && layer.name !== newName) {
-          layer.name = null;
-        }
-      }
-    } else {
-      // Для слоевого выражения (например, blink) плавно гасим старое выражение этого слоя
-      const oldName = this.expressionLayers[layerName].name;
-      if (oldName && oldName !== newName && this.activeExpressions[oldName]) {
-        this.activeExpressions[oldName].targetWeight = 0.0;
-        this.activeExpressions[oldName].duration = durationSec;
-      }
-    }
-
-    // Регистрируем новую эмоцию для плавного нарастания (crossfade in)
-    if (!this.activeExpressions[newName]) {
-      this.activeExpressions[newName] = {
-        name: newName,
-        currentWeight: 0.0,
-        targetWeight: targetWeight,
-        duration: durationSec
-      };
-    } else {
-      this.activeExpressions[newName].targetWeight = targetWeight;
-      this.activeExpressions[newName].duration = durationSec;
-    }
-
-    this.expressionLayers[layerName].name = newName;
-    this.notifyFlutter('onExpressionChanged', { expression: expressionName, layer: layerName });
+    this.faceController.setExpression(expressionName, layerName, targetWeight, durationSec, disableAutoBlink);
   }
 
   clearExpressionLayer(layerName) {
-    if (!this.expressionLayers[layerName]) return;
-    const oldName = this.expressionLayers[layerName].name;
-
-    if (oldName && this.activeExpressions[oldName]) {
-      this.activeExpressions[oldName].targetWeight = 0.0;
-      this.activeExpressions[oldName].duration = layerName === 'mouth' ? 0.06 : 0.25;
-    }
-
-    this.expressionLayers[layerName].name = null;
-
-    if (layerName === 'eyes') {
-      this.autoBlinkEnabled = true;
-    }
+    this.faceController.clearExpressionLayer(layerName);
   }
 
   clearAllExpressions() {
-    if (!this.currentVrm || !this.currentVrm.expressionManager) return;
-
-    // Плавно затухаем все активные мимические эмоции
-    for (const state of Object.values(this.activeExpressions)) {
-      state.targetWeight = 0.0;
-      state.duration = 0.25;
+    if (this.faceController.clearAllExpressions()) {
+      this.speechController.resetAmplitude();
     }
-
-    for (const layer of Object.values(this.expressionLayers)) {
-      layer.name = null;
-    }
-
-    this.customBlendShapes.clear();
-    this.speechController.resetAmplitude();
-    this.autoBlinkEnabled = true;
   }
 
   setViseme(visemeName, weight = 1.0) {
-    if (!this.currentVrm || !this.currentVrm.expressionManager) return;
-    if (visemeName === 'sil' || weight <= 0.001) {
-      this.clearExpressionLayer('mouth');
-      return;
-    }
-    const em = this.currentVrm.expressionManager;
-
-    // Zero out all mouth visemes so they don't overlap or accumulate
-    const visemes = ['aa', 'ih', 'ou', 'ee', 'oh'];
-    for (const v of visemes) {
-      try {
-        em.setValue(v, 0.0);
-      } catch (_) { }
-    }
-
-    const targetViseme = VrmRunner.VISEME_MAP[visemeName] || 'aa';
-    this.setExpression(targetViseme, 'mouth', weight, 0.1);
+    this.faceController.setViseme(visemeName, weight);
   }
 
   enqueueSpeechVisemes(payload) {
@@ -1068,7 +988,7 @@ class VrmRunner {
 
     if (this.currentVrm) {
       this.speechController.update();
-      this.updateExpressions(delta);
+      this.faceController.updateExpressions(delta);
       this.updateMicroMovements(elapsedTime, delta);
 
       // Плавное следование камеры (Pan) за пальцем без изменения угла
@@ -1142,64 +1062,9 @@ class VrmRunner {
     this.graphicsController.recordFrame(now);
   }
 
-  updateExpressions(delta) {
-    if (!this.currentVrm || !this.currentVrm.expressionManager) return;
-    const em = this.currentVrm.expressionManager;
-
-    let blinkWeight = 0;
-    if (this.autoBlinkEnabled && this.isBlinking) {
-      blinkWeight = Math.sin(Math.min(this.blinkProgress, Math.PI));
-    }
-    em.setValue('blink', blinkWeight);
-
-    this.speechController.applyAmplitude(em);
-
-    // Плавно интерполируем все активные эмоции (кроссфейд угасания и нарастания)
-    for (const [name, state] of Object.entries(this.activeExpressions)) {
-      if (name !== 'blink') {
-        const step = delta / Math.max(state.duration, 0.01);
-        state.currentWeight = THREE.MathUtils.lerp(state.currentWeight, state.targetWeight, step);
-
-        let effectiveWeight = state.currentWeight;
-        // Во время автоморгания временно приглушаем эмоцию глаз, чтобы веки закрывались на 100%
-        if (this.isBlinking && blinkWeight > 0.01 && (name === 'happy' || name === 'surprised')) {
-          effectiveWeight *= (1.0 - blinkWeight);
-        }
-
-        em.setValue(name, effectiveWeight);
-
-        // Когда затухающая эмоция полностью угасла (< 0.001), окончательно обнуляем её и удаляем
-        if (state.targetWeight === 0.0 && state.currentWeight < 0.001) {
-          em.setValue(name, 0.0);
-          delete this.activeExpressions[name];
-        }
-      }
-    }
-
-    // Кастомные BlendShapes оптимизация: обновляем только если было изменение (отслеживание состояния можно добавить позже, пока просто перебираем)
-    // Но так как перебор Map из 0 элементов дешев, оставим пока так, но можно отфильтровать.
-    for (const [name, weight] of this.customBlendShapes.entries()) {
-      em.setValue(name, weight);
-    }
-  }
 
   updateMicroMovements(elapsedTime, delta) {
-    if (this.autoBlinkEnabled && this.currentVrm.expressionManager) {
-      this.blinkTimer += delta;
-      if (!this.isBlinking && this.blinkTimer >= this.nextBlinkInterval) {
-        this.isBlinking = true;
-        this.blinkProgress = 0;
-        this.blinkTimer = 0;
-        this.nextBlinkInterval = 2.0 + Math.random() * 4.0;
-      }
-
-      if (this.isBlinking) {
-        this.blinkProgress += delta * 8.0;
-        if (this.blinkProgress >= Math.PI) {
-          this.isBlinking = false;
-        }
-      }
-    }
+    this.faceController.updateBlink(delta);
 
     // Обновляем базовую позицию взгляда (defaultLookAtPos), чтобы она всегда
     // была ровно перед головой модели, даже если мы ее перетащили (Pan)
@@ -1368,13 +1233,6 @@ class VrmRunner {
     postRuntimeEvent(eventName, payload);
   }
 }
-
-// Static viseme mapping used by direct input and the speech timeline.
-VrmRunner.VISEME_MAP = {
-  'aa': 'aa', 'ih': 'ih', 'ou': 'ou', 'ee': 'ee', 'oh': 'oh',
-  'AA': 'aa', 'IH': 'ih', 'OU': 'ou', 'EE': 'ee', 'OH': 'oh',
-  'sil': 'sil'
-};
 
 window.addEventListener('DOMContentLoaded', () => {
   new VrmRunner();
