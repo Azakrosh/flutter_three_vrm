@@ -1,8 +1,5 @@
-import type { VRM } from "@pixiv/three-vrm";
 import type { Vector3 } from "three";
 
-import type { MotionTransitionController } from "./motion-transition";
-import { createNormalizedPoseClip, getNormalizedPose } from "./pose";
 import type {
   RuntimeCommandPayload,
   RuntimeRecord,
@@ -21,16 +18,10 @@ export type RuntimeCommandDispatcher = (
  */
 export interface RuntimeCommandHost {
   modelReport: unknown | null;
-  currentVrm: VRM | null;
-  motionTransitions: MotionTransitionController | null;
   speechTimeline: Pick<SpeechTimeline, "acceptInputRevision">;
   customBlendShapes: Map<string, number>;
   desiredLookAtPos: Pick<Vector3, "set">;
   targetSaccadeOffset: Pick<Vector3, "set">;
-  poseSequence: number;
-  pendingRestPoseReset: boolean;
-  isAnimationPaused: boolean;
-  baseBonesSaved: boolean;
   lipSyncAmplitude: number;
   autoBlinkEnabled: boolean;
   saccadeEnabled: boolean;
@@ -47,7 +38,11 @@ export interface RuntimeCommandHost {
   pauseRendering(): void;
   resumeRendering(): void;
   transitionToRest(fadeDuration: number): void;
-  resetProceduralMotion(): void;
+  pauseAnimation(): void;
+  resumeAnimation(speed: number): void;
+  setAnimationSpeed(speed: number): void;
+  getPose(): unknown;
+  setPose(pose: RuntimeRecord, fadeDuration: number): void;
   setShadows(enabled: boolean): void;
   setExpression(
     expression: string,
@@ -132,12 +127,10 @@ export function createRuntimeCommandDispatcher(
         host.cancelAnimationLoad();
         return null;
       case "pauseAnimation":
-        host.isAnimationPaused = true;
-        host.motionTransitions?.pause();
+        host.pauseAnimation();
         return null;
       case "resumeAnimation":
-        host.isAnimationPaused = false;
-        host.motionTransitions?.resume(command.payload.speed || 1);
+        host.resumeAnimation(command.payload.speed);
         return null;
       case "pauseRendering":
         host.pauseRendering();
@@ -150,39 +143,13 @@ export function createRuntimeCommandDispatcher(
         host.transitionToRest(command.payload.fadeDuration);
         return null;
       case "setAnimationSpeed":
-        host.motionTransitions?.setSpeed(command.payload.speed);
+        host.setAnimationSpeed(command.payload.speed);
         return null;
       case "getPose":
-        return getNormalizedPose(host.currentVrm);
-      case "setPose": {
-        const vrm = host.currentVrm;
-        if (host.motionTransitions === null || vrm === null) {
-          throw new Error("Load a VRM model before using the Pose API.");
-        }
-        const clip = createNormalizedPoseClip(
-          vrm,
-          command.payload.pose,
-          `Pose ${++host.poseSequence}`,
-        );
-        if (clip.tracks.length === 0) {
-          host.transitionToRest(command.payload.fadeDuration);
-        } else {
-          host.motionTransitions.transitionTo(clip, {
-            source: "pose",
-            fadeDuration: command.payload.fadeDuration,
-            loop: true,
-            speed: 1,
-          });
-          host.pendingRestPoseReset = false;
-          host.isAnimationPaused = false;
-          host.resetProceduralMotion();
-          host.motionTransitions.update(0);
-        }
-        host.baseBonesSaved = false;
-        vrm.update(0);
-        vrm.scene.updateMatrixWorld(true);
+        return host.getPose();
+      case "setPose":
+        host.setPose(command.payload.pose, command.payload.fadeDuration);
         return null;
-      }
       case "resetPose":
         host.transitionToRest(command.payload.fadeDuration);
         return null;

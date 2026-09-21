@@ -360,7 +360,9 @@ Future<void> _waitForModel(
 ) async {
   final deadline = DateTime.now().add(const Duration(seconds: 45));
   while (!controller.isModelLoaded && DateTime.now().isBefore(deadline)) {
-    await tester.pump(const Duration(milliseconds: 100));
+    if (tester.binding.lifecycleState != AppLifecycleState.hidden) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
     await Future<void>.delayed(const Duration(milliseconds: 100));
   }
   expect(controller.isModelLoaded, isTrue);

@@ -53,6 +53,25 @@ describe("runtime command dispatcher", () => {
     expect(host.cancelSpeech).not.toHaveBeenCalled();
     expect(host.setViseme).not.toHaveBeenCalled();
   });
+
+  it("routes motion and Pose commands only through the host facade", async () => {
+    const host = createHost();
+    const dispatch = createRuntimeCommandDispatcher(host);
+    await dispatch(command("pauseAnimation", {}));
+    await dispatch(command("resumeAnimation", { speed: 1.5 }));
+    await dispatch(command("setAnimationSpeed", { speed: 0.75 }));
+    await dispatch(command("setPose", {
+      pose: { head: { rotation: [0, 0, 0, 1] } },
+      fadeDuration: 0.3,
+    }));
+    expect(host.pauseAnimation).toHaveBeenCalledOnce();
+    expect(host.resumeAnimation).toHaveBeenCalledWith(1.5);
+    expect(host.setAnimationSpeed).toHaveBeenCalledWith(0.75);
+    expect(host.setPose).toHaveBeenCalledWith(
+      { head: { rotation: [0, 0, 0, 1] } },
+      0.3,
+    );
+  });
 });
 
 function command(action: string, payload: Record<string, unknown>) {
@@ -70,16 +89,10 @@ function command(action: string, payload: Record<string, unknown>) {
 function createHost(): RuntimeCommandHost {
   return {
     modelReport: null,
-    currentVrm: null,
-    motionTransitions: null,
     speechTimeline: { acceptInputRevision: vi.fn(() => true) },
     customBlendShapes: new Map(),
     desiredLookAtPos: new Vector3(),
     targetSaccadeOffset: new Vector3(),
-    poseSequence: 0,
-    pendingRestPoseReset: false,
-    isAnimationPaused: false,
-    baseBonesSaved: false,
     lipSyncAmplitude: 0,
     autoBlinkEnabled: true,
     saccadeEnabled: true,
@@ -95,7 +108,13 @@ function createHost(): RuntimeCommandHost {
     pauseRendering: vi.fn(),
     resumeRendering: vi.fn(),
     transitionToRest: vi.fn(),
-    resetProceduralMotion: vi.fn(),
+    pauseAnimation: vi.fn(),
+    resumeAnimation: vi.fn(),
+    setAnimationSpeed: vi.fn(),
+    getPose: vi.fn(() => {
+      throw new Error("Load a VRM model before using the Pose API.");
+    }),
+    setPose: vi.fn(),
     setShadows: vi.fn(),
     setExpression: vi.fn(),
     clearExpressionLayer: vi.fn(),

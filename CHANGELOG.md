@@ -14,6 +14,8 @@
 - Move FPS gating, graphics presets, adaptive quality, physics toggles, and performance telemetry into a tested TypeScript graphics controller; prevent the first frame from bypassing its FPS cap.
 - Move speech session presentation, viseme updates, amplitude smoothing, and full-stop cleanup into a tested TypeScript controller without changing Flutter audio ownership.
 - Move layered facial expressions, visemes, custom blend shapes, and automatic blinking into a tested TypeScript face controller.
+- Move VRMA/glTF and Pose playback orchestration, rest transitions, pause/resume, and playback-scoped completion fallback into a tested TypeScript motion controller.
+- Keep Android hidden-lifecycle smoke polling independent of a rendered frame so model recovery cannot stall the test harness.
 - Scope animation lifecycle events and queues to opaque playback IDs so unrelated or replaced animations cannot advance a queue.
 - Enforce transform, adaptive-quality, recovery, and model-performance configuration contracts in release builds instead of relying on debug-only asserts.
 - Validate animation, pose, expression, gaze, lighting, physics, and renderer inputs synchronously before they can corrupt WebView state.

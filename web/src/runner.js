@@ -2,10 +2,7 @@ import {
   GLTFLoader,
   THREE,
   VRMAnimationLoaderPlugin,
-  VRMLookAtQuaternionProxy,
   VRMUtils,
-  createVRMAnimationClip,
-  createHumanoidAnimationClip,
   createRuntimeCommandDispatcher,
   createRuntimeCanceledError,
   fetchRuntimeResource,
@@ -15,6 +12,7 @@ import {
   postRuntimeEvent,
   RuntimeSpeechController,
   RuntimeFaceController,
+  RuntimeMotionController,
   RuntimeCameraController,
   RuntimeSceneController,
   RuntimeGraphicsController,
@@ -41,9 +39,15 @@ class VrmRunner {
     this.sceneController = null;
     this.cameraController = null;
 
-    this.pendingRestPoseReset = false;
-    this.poseSequence = 0;
     this.modelLoader = new VrmModelLoader();
+    this.motionController = new RuntimeMotionController({
+      getVrm: () => this.currentVrm,
+      getTransitions: () => this.modelSession?.motionTransitions ?? null,
+      resetProceduralMotion: () => this.resetProceduralMotion(),
+      finalizeRestPose: () => this.finalizeRestPose(),
+      onStarted: (event) => this.notifyFlutter('onAnimationStarted', event),
+      onFinished: (event) => this.notifyFlutter('onAnimationFinished', event),
+    });
     this.animationLoadAbortController = null;
     this.backgroundLoadAbortController = null;
     this.animationLoadGeneration = 0;
@@ -96,9 +100,6 @@ class VrmRunner {
       onFinished: (sessionId) =>
         this.notifyFlutter('onSpeechFinished', { sessionId }),
     });
-
-    // Animation Action
-    this.isAnimationPaused = false;
 
     this.windConfig = { type: 'light', direction: 'right' };
     this.currentWindIntensity = 0.0;
@@ -420,7 +421,7 @@ class VrmRunner {
         this.notifyFlutter('onAnimationFinished', event);
       },
     });
-    this.pendingRestPoseReset = false;
+    this.motionController.resetModelState();
     this.modelBoundingHeight = report.height;
     this.frameAvatar(0);
 
@@ -439,10 +440,6 @@ class VrmRunner {
     return this.modelSession?.mixer ?? null;
   }
 
-  get motionTransitions() {
-    return this.modelSession?.motionTransitions ?? null;
-  }
-
   get modelReport() {
     return this.modelSession?.modelReport ?? null;
   }
@@ -458,8 +455,8 @@ class VrmRunner {
       modelLoaded: Boolean(this.currentVrm),
       // A fade-out remains active after currentAction is cleared, until the
       // retiring action has reached the normalized rest pose.
-      animationActive: Boolean(this.motionTransitions?.isActive),
-      animationPaused: Boolean(this.isAnimationPaused),
+      animationActive: this.motionController.isActive,
+      animationPaused: this.motionController.isPaused,
       renderingPaused: Boolean(this._isRenderingPaused),
       contextLost: this.sceneController.contextLost,
     };
@@ -471,7 +468,7 @@ class VrmRunner {
 
     this.clearAllExpressions();
     if (!this.modelSession.detach()) return;
-    this.pendingRestPoseReset = false;
+    this.motionController.resetModelState();
     this.cameraController.clearCustomTransform();
 
     this.baseBonesSaved = false;
@@ -507,7 +504,7 @@ class VrmRunner {
         if (abortController.signal.aborted || generation !== this.animationLoadGeneration) {
           throw createRuntimeCanceledError('Animation loading was canceled.');
         }
-        this._playLoadedAnimation(gltf, options);
+        this.motionController.playLoadedAnimation(gltf, options);
       } finally {
         if (gltf.scene) VRMUtils.deepDispose(gltf.scene);
       }
@@ -526,88 +523,33 @@ class VrmRunner {
     }
   }
 
-  _playLoadedAnimation(gltf, options) {
-    const playbackId = options.playbackId;
-    if (typeof playbackId !== 'string' || playbackId.length === 0) {
-      throw new TypeError('playbackId must be a non-empty string.');
-    }
-    let clip = null;
-
-    if (gltf.userData.vrmAnimations && gltf.userData.vrmAnimations.length > 0) {
-      try {
-        // Создаем Proxy для управления глазами, если его еще нет (устраняет предупреждение в консоли)
-        if (this.currentVrm && this.currentVrm.lookAt && !this.currentVrm.lookAt.quaternionProxy) {
-          this.currentVrm.lookAt.quaternionProxy = new VRMLookAtQuaternionProxy(this.currentVrm.lookAt);
-          this.currentVrm.lookAt.quaternionProxy.name = 'lookAtQuaternionProxy';
-          this.currentVrm.scene.add(this.currentVrm.lookAt.quaternionProxy);
-        }
-
-        clip = createVRMAnimationClip(gltf.userData.vrmAnimations[0], this.currentVrm);
-      } catch (vrmaErr) {
-        console.warn('createVRMAnimationClip error:', vrmaErr);
-      }
-    }
-
-    if (!clip && gltf.animations && gltf.animations.length > 0) {
-      const sourceClip = options.clipName
-        ? THREE.AnimationClip.findByName(gltf.animations, options.clipName)
-        : gltf.animations[0];
-      if (!sourceClip) {
-        throw new Error(`Animation clip was not found: ${options.clipName}`);
-      }
-      clip = createHumanoidAnimationClip(gltf.scene, sourceClip, this.currentVrm, {
-        rootMotion: options.rootMotion,
-      });
-    }
-
-    if (!clip) {
-      throw new Error('No VRMA or glTF animation clip was found.');
-    }
-
-    if (!this.motionTransitions) {
-      throw new Error('Animation mixer is not initialized.');
-    }
-    const loop = options.loop !== undefined ? options.loop : true;
-    const speed = options.speed || 1.0;
-    const fadeDuration = options.fadeDuration ?? 0.5;
-    const action = this.motionTransitions.transitionTo(clip, {
-      source: 'clip',
-      fadeDuration,
-      loop,
-      speed,
-    });
-    action._flutterPlaybackId = playbackId;
-    action._hasNotifiedFinished = false;
-    this.pendingRestPoseReset = false;
-    this.isAnimationPaused = false;
-    this.resetProceduralMotion();
-    this.motionTransitions.update(0);
-    this.notifyFlutter('onAnimationStarted', {
-      name: clip.name,
-      playbackId,
-    });
+  getPose() {
+    return this.motionController.getPose();
   }
 
-  get currentAction() {
-    return this.motionTransitions?.currentAction ?? null;
+  setPose(pose, fadeDuration) {
+    this.motionController.setPose(pose, fadeDuration);
+  }
+
+  pauseAnimation() {
+    this.motionController.pause();
+  }
+
+  resumeAnimation(speed) {
+    this.motionController.resume(speed);
+  }
+
+  setAnimationSpeed(speed) {
+    this.motionController.setSpeed(speed);
   }
 
   transitionToRest(fadeDuration = 0.5) {
-    if (!this.currentVrm || !this.motionTransitions) {
-      throw new Error('Load a VRM model before stopping its motion.');
-    }
-    this.motionTransitions.transitionToRest(fadeDuration ?? 0.5);
-    this.pendingRestPoseReset = true;
-    this.isAnimationPaused = false;
-    this.resetProceduralMotion();
-    this.motionTransitions.update(0);
-    if (!this.motionTransitions.isActive) this.finalizeRestPose();
+    this.motionController.transitionToRest(fadeDuration);
   }
 
   finalizeRestPose() {
     if (!this.currentVrm?.humanoid) return;
     this.currentVrm.humanoid.resetNormalizedPose();
-    this.pendingRestPoseReset = false;
     this.baseBonesSaved = false;
     this.currentVrm.update(0);
     this.currentVrm.scene.updateMatrixWorld(true);
@@ -960,31 +902,7 @@ class VrmRunner {
 
     this.restoreBaseBoneRotations();
 
-    if (this.motionTransitions) {
-      this.motionTransitions.update(delta);
-
-      if (this.pendingRestPoseReset && !this.motionTransitions.isActive) {
-        this.finalizeRestPose();
-      }
-
-      // Надежный fallback: если Three.js не отправил событие finished (из-за бага или остановки),
-      // отправляем его вручную, когда анимация достигла конца.
-      if (this.currentAction && !this.currentAction.isRunning()) {
-        const clip = this.currentAction.getClip();
-        if (clip && this.currentAction.time >= clip.duration - 0.05) {
-          if (!this.currentAction._hasNotifiedFinished) {
-            const playbackId = this.currentAction._flutterPlaybackId;
-            if (typeof playbackId === 'string' && playbackId.length > 0) {
-              this.currentAction._hasNotifiedFinished = true;
-              this.notifyFlutter('onAnimationFinished', {
-                name: clip.name,
-                playbackId,
-              });
-            }
-          }
-        }
-      }
-    }
+    this.motionController.update(delta);
 
     if (this.currentVrm) {
       this.speechController.update();

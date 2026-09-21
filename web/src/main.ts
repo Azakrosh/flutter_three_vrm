@@ -66,6 +66,12 @@ export {
 } from "./motion-transition";
 
 export {
+  RuntimeMotionController,
+  type RuntimeMotionDependencies,
+  type RuntimeMotionEvent,
+} from "./motion-controller";
+
+export {
   SpeechTimeline,
   type SpeechAmplitudeFrame,
   type SpeechTimelineBeginOptions,

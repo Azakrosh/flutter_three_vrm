@@ -78,8 +78,9 @@ Flutter application
 
 WebView runtime
   └─ main.ts / protocol.ts
-      └─ runner.js           facade, input, motion, lookAt, physics и disposal
+      └─ runner.js           facade, input, loading, lookAt, physics и disposal
           ├─ motion-transition.ts
+          ├─ motion-controller.ts
           ├─ camera-controller.ts
           ├─ scene-controller.ts
           ├─ graphics-controller.ts
@@ -110,11 +111,11 @@ WebView runtime
 ### Текущий размер и покрытие
 
 - Flutter library: 32 файла, примерно 5800 строк;
-- web source: 20 файлов, примерно 5200 строк;
-- `runner.js`: примерно 1040 строк;
+- web source: 21 файл, примерно 5400 строк;
+- `runner.js`: примерно 960 строк;
 - `VrmController`: примерно 1280 строк;
 - Flutter unit tests: 65;
-- web unit tests: 69;
+- web unit tests: 74;
 - один сквозной runtime smoke-сценарий, примерно 388 строк.
 
 Числа нужны как ориентир концентрации ответственности, а не как целевые KPI.
@@ -140,7 +141,8 @@ payload между Dart и web обнаруживается преимущест
 
 ### P1 — два крупных центра ответственности
 
-`runner.js` всё ещё объединяет input, motion, lookAt, physics и часть disposal.
+`runner.js` всё ещё объединяет input, загрузку анимаций, lookAt, physics
+и часть disposal.
 `VrmController` одновременно валидирует
 данные, управляет hosted resources, сериализует protocol payload и предоставляет
 публичный API. Любое изменение затрагивает слишком большой контекст.
@@ -211,7 +213,10 @@ physics switch, adaptive quality и performance telemetry теперь прин�
 cancel, viseme presentation, amplitude smoothing и завершение речевого
 сообщения теперь принадлежат типизированному speech controller. Слои мимики,
 crossfade выражений, direct viseme, custom blend shapes и моргание вынесены
-в типизированный face controller с unit-тестами. Следующий срез — motion ownership.
+в типизированный face controller с unit-тестами. Оркестрация VRMA/glTF-клипов,
+Pose, rest transition, pause/resume и fallback события завершения теперь
+принадлежит типизированному motion controller. Следующий срез — загрузка
+анимационных ресурсов и отмена устаревших запросов.
 
 Работы:
 
