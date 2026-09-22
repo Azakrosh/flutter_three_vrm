@@ -80,7 +80,7 @@ Flutter application
 
 WebView runtime
   └─ main.ts / protocol.ts
-      └─ runner.js           facade, input, physics и disposal
+      └─ runner.js           facade, input и disposal
           ├─ motion-transition.ts
           ├─ motion-controller.ts
           ├─ animation-loader.ts
@@ -94,6 +94,7 @@ WebView runtime
           ├─ speech-controller.ts
           ├─ face-controller.ts
           ├─ gaze-controller.ts
+          ├─ wind-physics-controller.ts
           └─ performance.ts
 ```
 
@@ -116,12 +117,12 @@ WebView runtime
 ### Текущий размер и покрытие
 
 - Flutter library: 32 файла, примерно 5800 строк;
-- web source: 24 файла, примерно 5600 строк;
-- `runner.js`: примерно 780 строк;
+- web source: 25 файлов, примерно 5600 строк;
+- `runner.js`: примерно 670 строк;
 - `VrmController`: примерно 1280 строк;
 - Flutter unit tests: 65;
-- web unit tests: 87;
-- один сквозной runtime smoke-сценарий, примерно 388 строк.
+- web unit tests: 91;
+- один сквозной runtime smoke-сценарий, примерно 426 строк.
 
 Числа нужны как ориентир концентрации ответственности, а не как целевые KPI.
 
@@ -135,18 +136,18 @@ TypeScript не проверяют большую часть runtime. Сущес
 проверяют вынесенные модули, но не сам command dispatcher и полный lifecycle
 runner.
 
-### P0 — wire contract типизирован только на уровне envelope
+### P0 — wire contract ещё не полностью типизирован
 
-Protocol v3 типизирует форму envelope, но `action` и `event` остаются строками,
-а payload/result — `unknown` в TypeScript и `Map<String, dynamic>` в Dart.
-Публичный Flutter API типизирован, однако расхождение имени команды или формы
-payload между Dart и web обнаруживается преимущественно интеграционным тестом.
+Protocol v3 имеет общий каталог 49 command и 14 event, типизированный
+TypeScript dispatcher и enum-команды в Dart. Однако часть payload/result
+остаётся `RuntimeRecord`/`unknown` в TypeScript и `Map<String, dynamic>` в
+Dart. Для них ещё нужны точные codecs и contract tests.
 
 Это незавершённая часть самого первого roadmap-пункта про типизированный bridge.
 
 ### P1 — два крупных центра ответственности
 
-`runner.js` всё ещё объединяет input, physics
+`runner.js` всё ещё объединяет input
 и часть disposal.
 `VrmController` одновременно валидирует
 данные, управляет hosted resources, сериализует protocol payload и предоставляет
@@ -229,8 +230,10 @@ animation loader; замена модели отменяет незавершё�
 автоматические саккады вынесены в типизированный gaze controller. Удалены
 поворот головы и корпуса по клику, связанные raycast и восстановление костей
 каждый кадр; pan/zoom и `onTap` остаются. Регрессия проверена Windows/Android
-smoke-тестом сравнением позы головы и груди. Следующий срез — wind/physics и
-оставшийся input/lifecycle в runner.
+smoke-тестом сравнением позы головы и груди. Множители spring-bone и
+покадровое моделирование ветра вынесены в типизированный wind/physics
+controller; настройка физических параметров больше не теряется при временно
+выключенной симуляции. Следующий срез — оставшийся input/lifecycle в runner.
 
 Работы:
 
@@ -253,7 +256,8 @@ smoke-тестом сравнением позы головы и груди. С�
 - неизвестные или некорректные payload дают стабильный protocol error;
 - generated bundle и protocol version не меняются без необходимости;
 - Flutter/web unit tests и Windows/Android smoke проходят;
-- поведение example не меняется.
+- поведение example не меняется, кроме явно согласованного удаления поворота
+  аватара и взгляда по клику.
 
 ### Stage 27 — единая модель state ownership и recovery
 

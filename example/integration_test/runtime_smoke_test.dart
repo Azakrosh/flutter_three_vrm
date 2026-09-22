@@ -73,6 +73,19 @@ void main() {
     await controller.setGraphicsPreset(VrmGraphicsPreset.balanced);
     expect((await controller.getRuntimeHealth()).contextLost, isFalse);
 
+    await controller.setGraphicsSettings(enablePhysics: false);
+    controller.setPhysics(stiffness: 1.1, gravity: 1.2, drag: 0.9);
+    controller.setWind(
+      type: VrmWindType.light,
+      direction: VrmWindDirection.left,
+    );
+    await controller.setGraphicsSettings(enablePhysics: true);
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+    expect((await controller.getRuntimeHealth()).contextLost, isFalse);
+    controller.stopWind();
+    controller.setPhysics();
+    debugPrint('runtime_smoke: wind and physics toggling verified');
+
     await controller.setCameraMode(VrmCameraMode.free);
     await controller.setCameraMode(VrmCameraMode.constrained);
     await controller.resetCamera(duration: Duration.zero);

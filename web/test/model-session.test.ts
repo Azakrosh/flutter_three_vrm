@@ -44,10 +44,12 @@ describe("VRM model session", () => {
     expect(mesh.castShadow).toBe(true);
     expect(mesh.receiveShadow).toBe(true);
     expect(vrm.springBoneManager).toBeNull();
+    expect(session.springBoneManager).toBe(springBoneManager);
     expect(resetSpringBones).toHaveBeenCalledOnce();
 
     session.setPhysicsEnabled(true);
     expect(vrm.springBoneManager).toBe(springBoneManager);
+    expect(session.springBoneManager).toBe(springBoneManager);
     expect(resetSpringBones).toHaveBeenCalledTimes(2);
 
     const mixer = session.mixer!;
@@ -75,6 +77,7 @@ describe("VRM model session", () => {
     expect(session.mixer).toBeNull();
     expect(session.motionTransitions).toBeNull();
     expect(session.modelReport).toBeNull();
+    expect(session.springBoneManager).toBeNull();
 
     mixer.dispatchEvent({ type: "finished", action, direction: 1 });
     expect(onAnimationFinished).toHaveBeenCalledOnce();

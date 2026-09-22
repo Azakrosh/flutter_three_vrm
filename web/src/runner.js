@@ -8,6 +8,7 @@ import {
   RuntimeSpeechController,
   RuntimeFaceController,
   RuntimeGazeController,
+  RuntimeWindPhysicsController,
   RuntimeMotionController,
   RuntimeCameraController,
   RuntimeSceneController,
@@ -52,6 +53,10 @@ class VrmRunner {
 
     // Explicit eye gaze and automatic saccades are independent of pointer input.
     this.gazeController = new RuntimeGazeController(() => this.currentVrm);
+    this.windPhysicsController = new RuntimeWindPhysicsController({
+      getManager: () => this.modelSession?.springBoneManager ?? null,
+      isPhysicsEnabled: () => this.enablePhysics,
+    });
 
     this.faceController = new RuntimeFaceController({
       getVrm: () => this.currentVrm,
@@ -73,14 +78,6 @@ class VrmRunner {
         this.notifyFlutter('onSpeechFinished', { sessionId }),
     });
 
-    this.windConfig = { type: 'light', direction: 'right' };
-    this.currentWindIntensity = 0.0;
-    this.targetWindIntensity = 0.0;
-
-    // Pre-allocated temporary objects to avoid per-frame GC pressure
-    this._tmpVec3A = new THREE.Vector3();
-    this._tmpVec3B = new THREE.Vector3();
-    this._tmpVec3C = new THREE.Vector3();
     // Custom Camera Panning
     this.isDragging = false;
     this.dragStartPoint = new THREE.Vector2();
@@ -363,6 +360,7 @@ class VrmRunner {
     this.cameraController.clearCustomTransform();
 
     this.gazeController.resetForModel();
+    this.windPhysicsController.resetForModel();
 
     this.notifyFlutter('onModelUnloaded', {});
   }
@@ -511,64 +509,16 @@ class VrmRunner {
   }
 
 
-  setPhysics(stiffnessMultiplier = 1.0, gravityMultiplier = 1.0, dragMultiplier = 1.0) {
-    if (!this.currentVrm || !this.currentVrm.springBoneManager) return;
-    const joints = this.currentVrm.springBoneManager.joints || [];
-    for (const joint of joints) {
-      if (!joint.userData) joint.userData = {};
-
-      // Save original values on first edit
-      if (joint.userData.initialStiffness === undefined) {
-        joint.userData.initialStiffness = joint.settings.stiffness || 0;
-        joint.userData.initialGravityPower = joint.settings.gravityPower || 0;
-        joint.userData.initialDragForce = joint.settings.dragForce || 0;
-      }
-
-      joint.settings.stiffness = joint.userData.initialStiffness * stiffnessMultiplier;
-      joint.settings.gravityPower = joint.userData.initialGravityPower * gravityMultiplier;
-      joint.userData.modifiedGravityPower = joint.settings.gravityPower;
-      joint.settings.dragForce = joint.userData.initialDragForce * dragMultiplier;
-    }
+  setPhysics(stiffnessMultiplier = 1, gravityMultiplier = 1, dragMultiplier = 1) {
+    this.windPhysicsController.setPhysics(stiffnessMultiplier, gravityMultiplier, dragMultiplier);
   }
 
   setWind(type, direction) {
-    if (!this.targetWindVec) {
-      this.targetWindVec = new THREE.Vector3(0, 0, 0);
-      this.currentWindVec = new THREE.Vector3(0, 0, 0);
-      this.targetWindVariation = 0;
-      this.currentWindVariation = 0;
-    }
-
-    if (type === 'none') {
-      this.targetWindVec.set(0, 0, 0);
-      this.targetWindVariation = 0;
-      return;
-    }
-
-    let baseForce = 0;
-    let variation = 0;
-    switch (type) {
-      case 'light': baseForce = 0.05; variation = 0.03; break;
-      case 'strong': baseForce = 0.15; variation = 0.1; break;
-      case 'storm': baseForce = 0.3; variation = 0.25; break;
-    }
-
-    this.targetWindVariation = variation;
-
-    switch (direction) {
-      case 'left': this.targetWindVec.set(1, 0, 0); break;
-      case 'right': this.targetWindVec.set(-1, 0, 0); break;
-      case 'front': this.targetWindVec.set(0, 0, -1); break;
-      case 'back': this.targetWindVec.set(0, 0, 1); break;
-    }
-
-    this.targetWindVec.multiplyScalar(baseForce);
+    this.windPhysicsController.setWind(type, direction);
   }
 
   stopWind() {
-    if (!this.targetWindVec) return;
-    this.targetWindVec.set(0, 0, 0);
-    this.targetWindVariation = 0;
+    this.windPhysicsController.stopWind();
   }
 
   setEnvironmentColor(colorHex, intensity = 0.5) {
@@ -683,62 +633,7 @@ class VrmRunner {
       // Плавное следование камеры (Pan) за пальцем без изменения угла
       this.cameraController.updatePanFollowing(delta);
 
-      // Wind Simulation
-      if (this.currentVrm.springBoneManager && this.enablePhysics) {
-        if (!this.currentWindVec) {
-          this.currentWindVec = new THREE.Vector3(0, 0, 0);
-          this.targetWindVec = new THREE.Vector3(0, 0, 0);
-          this.currentWindVariation = 0;
-          this.targetWindVariation = 0;
-        }
-
-        const windLerpSpeed = 1.5;
-        const windLerpFactor = 1.0 - Math.exp(-windLerpSpeed * delta);
-        this.currentWindVec.lerp(this.targetWindVec, windLerpFactor);
-        this.currentWindVariation += (this.targetWindVariation - this.currentWindVariation) * windLerpFactor;
-
-        this._tmpVec3A.set(0, 0, 0);
-
-        if (this.currentWindVec.lengthSq() > 0.000001 || this.currentWindVariation > 0.001) {
-          const time = this.elapsedTime;
-          let fluctuation = (
-            Math.sin(time * 1.13) * 0.4 +
-            Math.sin(time * 2.71) * 0.3 +
-            Math.sin(time * 4.33) * 0.2 +
-            Math.sin(time * 7.97) * 0.1
-          );
-
-          this._tmpVec3B.copy(this.currentWindVec).normalize();
-          if (this._tmpVec3B.lengthSq() === 0) {
-            this._tmpVec3B.set(1, 0, 0);
-          }
-
-          this._tmpVec3B.multiplyScalar(fluctuation * this.currentWindVariation);
-          this._tmpVec3A.copy(this.currentWindVec).add(this._tmpVec3B);
-        }
-
-        const joints = this.currentVrm.springBoneManager.joints || [];
-        for (const joint of joints) {
-          if (!joint.userData) joint.userData = {};
-          if (joint.userData.initialGravityDir === undefined) {
-            joint.userData.initialGravityDir = joint.settings.gravityDir.clone();
-            joint.userData.initialGravityPower = joint.settings.gravityPower || 0;
-          }
-
-          const currentBasePower = joint.userData.modifiedGravityPower !== undefined ? joint.userData.modifiedGravityPower : joint.userData.initialGravityPower;
-
-          this._tmpVec3C.copy(joint.userData.initialGravityDir).multiplyScalar(currentBasePower);
-          this._tmpVec3C.add(this._tmpVec3A);
-
-          if (this._tmpVec3C.lengthSq() > 0.000001) {
-            joint.settings.gravityPower = this._tmpVec3C.length();
-            joint.settings.gravityDir.copy(this._tmpVec3C).normalize();
-          } else {
-            joint.settings.gravityPower = 0;
-            joint.settings.gravityDir.copy(joint.userData.initialGravityDir);
-          }
-        }
-      }
+      this.windPhysicsController.update(delta, elapsedTime);
 
       this.currentVrm.update(delta);
     }

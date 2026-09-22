@@ -55,6 +55,8 @@ export {
 
 export { RuntimeGazeController } from "./gaze-controller";
 
+export { RuntimeWindPhysicsController } from "./wind-physics-controller";
+
 export {
   AdaptiveQualityController,
   type AdaptiveQualityConfig,

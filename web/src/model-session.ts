@@ -80,6 +80,10 @@ export class VrmModelSession {
   public motionTransitions: MotionTransitionController | null = null;
   public modelReport: RuntimeModelReport | null = null;
 
+  public get springBoneManager(): VRMSpringBoneManager | null {
+    return this.currentVrm?.springBoneManager ?? this.cachedSpringBoneManager;
+  }
+
   public attach(vrm: VRM, options: VrmModelAttachOptions): RuntimeModelReport {
     if (this.currentVrm !== null) {
       throw new Error("Unload the current VRM model before attaching another one.");
