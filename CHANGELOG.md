@@ -23,6 +23,7 @@
 - Move tap/drag/cancel handling and canvas pointer listener ownership into a tested TypeScript controller; clear interrupted gestures when recreating the renderer.
 - Move frame scheduling, pause/resume timing, context-loss gating, and pending-frame cancellation into a tested TypeScript scheduler.
 - Move resize/pagehide listeners and ordered, idempotent resource cleanup into a tested TypeScript page lifecycle controller.
+- Move the remaining runtime facade and frame orchestration from `runner.js` to a strictly checked TypeScript entrypoint implementing the protocol command host.
 - Keep Android hidden-lifecycle smoke polling independent of a rendered frame so model recovery cannot stall the test harness.
 - Scope animation lifecycle events and queues to opaque playback IDs so unrelated or replaced animations cannot advance a queue.
 - Enforce transform, adaptive-quality, recovery, and model-performance configuration contracts in release builds instead of relying on debug-only asserts.
@@ -44,7 +45,7 @@
 - Reset saved camera framing when an avatar is explicitly unloaded while continuing to preserve it across runtime-only reloads.
 - Deterministically tear down animation frames, fetches, DOM listeners, controls, models, and WebGL contexts when a runtime page or `VrmView` is destroyed.
 - Exercise renderer recreation and explicit `VrmView` disposal in the physical-device runtime smoke test.
-- Check the standalone JavaScript runner syntax in CI and run the full runtime smoke test in the Windows job.
+- Type-check the complete browser runtime in CI and run the full runtime smoke test in the Windows job.
 - Add platform-aware render lifecycle policies: Windows keeps visible unfocused avatars alive while Android retains focus-sensitive power saving.
 - Replace imperative render-loop pause/resume calls with declarative `VrmView.renderingEnabled` and serialized latest-state synchronization.
 - Verify Windows runtime reload while inactive remains animated, while Android retains inactive/hidden pause coverage.

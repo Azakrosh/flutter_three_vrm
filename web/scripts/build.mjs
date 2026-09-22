@@ -19,7 +19,7 @@ const outputFile = resolve(outputDirectory, entrypoint);
 await mkdir(outputDirectory, { recursive: true });
 await rm(resolve(outputDirectory, "vrm-engine.js"), { force: true });
 await build({
-  entryPoints: [resolve(webDirectory, "src/runner.js")],
+  entryPoints: [resolve(webDirectory, "src/runner.ts")],
   outfile: outputFile,
   bundle: true,
   format: "iife",

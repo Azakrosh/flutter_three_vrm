@@ -80,7 +80,7 @@ Flutter application
 
 WebView runtime
   └─ main.ts / protocol.ts
-      └─ runner.js           facade и порядок обновления кадра
+      └─ runner.ts           типизированный facade и порядок обновления кадра
           ├─ motion-transition.ts
           ├─ motion-controller.ts
           ├─ animation-loader.ts
@@ -121,7 +121,7 @@ WebView runtime
 
 - Flutter library: 32 файла, примерно 5800 строк;
 - web source: 28 файлов, примерно 5600 строк;
-- `runner.js`: примерно 600 строк;
+- `runner.ts`: примерно 650 строк;
 - `VrmController`: примерно 1280 строк;
 - Flutter unit tests: 65;
 - web unit tests: 101;
@@ -131,13 +131,11 @@ WebView runtime
 
 ## 4. Оставшиеся архитектурные риски
 
-### P0 — ядро runtime не проверяется TypeScript
+### Закрыто в Stage 26.20 — весь runtime проверяется TypeScript
 
-`web/tsconfig.json` включает только `src/**/*.ts` и `test/**/*.ts`.
-Основная реализация находится в `web/src/runner.js`, поэтому строгие настройки
-TypeScript не проверяют оставшийся facade. Web unit tests покрывают вынесенные
-модули и command dispatcher, но не типизируют координацию модели и кадра внутри
-runner.
+`web/tsconfig.json` включает `src/**/*.ts` и `test/**/*.ts`, в том числе
+`web/src/runner.ts`. Facade явно реализует `RuntimeCommandHost`, а координация
+модели, кадра, lifecycle и protocol events проходит строгий `tsc --noEmit`.
 
 ### P0 — wire contract ещё не полностью типизирован
 
@@ -150,8 +148,8 @@ Dart. Для них ещё нужны точные codecs и contract tests.
 
 ### P1 — два крупных центра ответственности
 
-`runner.js` всё ещё объединяет protocol facade, управление активной моделью
-и содержимое кадра, а сам остаётся JavaScript-файлом вне строгой проверки TypeScript.
+`runner.ts` всё ещё объединяет protocol facade, управление активной моделью
+и содержимое кадра, хотя теперь целиком входит в строгую проверку TypeScript.
 `VrmController` одновременно валидирует
 данные, управляет hosted resources, сериализует protocol payload и предоставляет
 публичный API. Любое изменение затрагивает слишком большой контекст.
@@ -244,14 +242,17 @@ listeners к заменяемому canvas вынесены в типизиро�
 pause/dispose игнорируются.
 Подписки на page resize/pagehide и последовательность cleanup теперь принадлежат
 типизированному page lifecycle controller; повторный dispose безопасен, а ошибка
-одного cleanup-шага не блокирует последующие. Следующий срез — типизация
-оставшегося `runner.js` facade и его model/frame orchestration.
+одного cleanup-шага не блокирует последующие. В Stage 26.20 оставшийся facade
+перенесён из `runner.js` в `runner.ts`, явно реализует `RuntimeCommandHost`
+и входит в строгую TypeScript-проверку. Следующий срез — точные codecs для
+оставшихся `RuntimeRecord`/`unknown` payload и result.
 
 Работы:
 
 1. Зафиксировать каталог всех command/event, payload и result.
 2. Добавить contract tests для Dart serializers/parsers и web dispatcher.
-3. Перевести `runner.js` в TypeScript без функциональных изменений.
+3. Перевести `runner.js` в TypeScript без функциональных изменений. Выполнено
+   в Stage 26.20.
 4. Заменить произвольные строки команд внутренними constants/discriminated
    unions и типизированными codecs.
 5. Разделить runner минимум на model loading, scene/camera, motion,

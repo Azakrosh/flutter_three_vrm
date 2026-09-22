@@ -13,7 +13,7 @@ export type RuntimeCommandDispatcher = (
 /**
  * The narrow surface that command routing may use on the runtime facade.
  * Keeping it explicit prevents the protocol layer from depending on the full
- * renderer implementation while runner.js is migrated module by module.
+ * renderer implementation while the runner facade is migrated module by module.
  */
 export interface RuntimeCommandHost {
   modelReport: unknown | null;

@@ -19,7 +19,21 @@ import {
   VrmModelLoader,
   VrmAnimationLoader,
   VrmModelSession,
-} from './main';
+} from "./main";
+import type {
+  LoadedVrm,
+  RuntimeCommandHost,
+  RuntimeCommandPayload,
+  RuntimeEventName,
+  RuntimeGraphicsSettings,
+  RuntimeLightingConfig,
+  RuntimeRecord,
+} from "./main";
+import type { RuntimeFrame } from "./frame-scheduler";
+import type {
+  SpeechAmplitudeFrame,
+  SpeechVisemeFrame,
+} from "./speech-timeline";
 // Подавляем безвредные предупреждения от @pixiv/three-vrm-animation для старых vrma файлов
 const originalConsoleWarn = console.warn;
 console.warn = function (...args) {
@@ -29,16 +43,42 @@ console.warn = function (...args) {
   originalConsoleWarn.apply(console, args);
 };
 
-class VrmRunner {
+class VrmRunner implements RuntimeCommandHost {
+  private readonly container!: HTMLElement;
+  private readonly modelLoader!: VrmModelLoader;
+  private readonly animationLoader!: VrmAnimationLoader;
+  private readonly motionController!: RuntimeMotionController;
+  public readonly gazeController!: RuntimeGazeController;
+  private readonly windPhysicsController!: RuntimeWindPhysicsController;
+  private readonly faceController!: RuntimeFaceController;
+  private readonly speechController!: RuntimeSpeechController;
+  private readonly pointerController!: RuntimePointerController;
+  private readonly backgroundController!: RuntimeBackgroundController;
+  private readonly modelSession!: VrmModelSession;
+  private readonly graphicsController!: RuntimeGraphicsController;
+  private readonly frameScheduler!: RuntimeFrameScheduler;
+  private readonly pageLifecycle!: RuntimePageLifecycle;
+  private sceneController!: RuntimeSceneController;
+  private cameraController!: RuntimeCameraController;
+  private modelBoundingHeight = 1.6;
+  private readonly _onControlsStart!: () => void;
+  private readonly _onControlsEnd!: () => void;
+  private _detachRuntimeBridge: (() => void) | null = null;
+
   constructor() {
     if (!this.isWebGLAvailable()) {
       this.notifyFlutter('onError', { message: 'WebGL not supported on this device/webview.' });
       return;
     }
 
-    this.container = document.getElementById('canvas-container');
-    this.sceneController = null;
-    this.cameraController = null;
+    const container = document.getElementById("canvas-container");
+    if (container === null) {
+      this.notifyFlutter("onError", {
+        message: "Runtime canvas container was not found.",
+      });
+      return;
+    }
+    this.container = container;
 
     this.modelLoader = new VrmModelLoader();
     this.animationLoader = new VrmAnimationLoader();
@@ -65,10 +105,6 @@ class VrmRunner {
         this.notifyFlutter('onExpressionChanged', { expression: name, layer }),
     });
 
-    // Dynamic Bounding Box
-    this.modelBoundingWidth = 0.6;
-    this.modelBoundingHeight = 1.6;
-
     // Lip Sync & Audio Amplitude
     this.speechController = new RuntimeSpeechController({
       clearMouth: () => this.clearExpressionLayer('mouth'),
@@ -86,8 +122,6 @@ class VrmRunner {
       this.cameraController.captureControlsTransform();
       if (this.cameraController.mode === 'constrained') this.notifyCameraChanged(true);
     };
-    this._detachRuntimeBridge = null;
-
     this.initScene();
     this.pointerController = new RuntimePointerController({
       camera: this.cameraController,
@@ -106,7 +140,7 @@ class VrmRunner {
     this.modelSession = new VrmModelSession(this.scene);
     this.graphicsController = new RuntimeGraphicsController({
       scene: this.sceneController,
-      recreateRenderer: (antialias) => this._recreateRenderer(antialias),
+      recreateRenderer: (antialias) => this.recreateRenderer(antialias),
       setPhysicsEnabled: (enabled) => this.modelSession.setPhysicsEnabled(enabled),
       onPerformance: (snapshot) => this.notifyFlutter('onPerformance', snapshot),
       devicePixelRatio: () => window.devicePixelRatio,
@@ -146,7 +180,7 @@ class VrmRunner {
     this.notifyFlutter('onStateChanged', { state: 'initialized' });
   }
 
-  isWebGLAvailable() {
+  private isWebGLAvailable(): boolean {
     try {
       const canvas = document.createElement('canvas');
       return !!(window.WebGLRenderingContext && (canvas.getContext('webgl') || canvas.getContext('experimental-webgl')));
@@ -158,7 +192,7 @@ class VrmRunner {
   /**
    * Инициализация базовой 3D сцены Three.js, камеры, света и контроллера вращения
    */
-  initScene() {
+  private initScene(): void {
     this.sceneController = new RuntimeSceneController({
       container: this.container,
       lookAtTarget: this.gazeController.target,
@@ -211,11 +245,11 @@ class VrmRunner {
     return this.speechController.amplitude;
   }
 
-  set lipSyncAmplitude(amplitude) {
+  public set lipSyncAmplitude(amplitude: number) {
     this.speechController.setAmplitude(amplitude);
   }
 
-  initEvents() {
+  private initEvents(): void {
     this.pageLifecycle.attach();
     this.pointerController.attach(this.renderer.domElement);
 
@@ -226,16 +260,16 @@ class VrmRunner {
     });
   }
 
-  setShadows(enabled) {
+  public setShadows(enabled: boolean): void {
     this.sceneController.setShadows(enabled);
   }
 
-  async loadModelFromUrl(url) {
+  public async loadModelFromUrl(url: string): Promise<void> {
     try {
       const loaded = await this.modelLoader.load(url, (progress) => {
         this.notifyFlutter('onModelLoadProgress', progress);
       });
-      this._setupLoadedVrm(loaded.gltf, loaded.sourceBytes);
+      this.setupLoadedVrm(loaded.vrm, loaded.sourceBytes);
     } catch (error) {
       if (!isRuntimeCanceledError(error)) {
         this.notifyFlutter('onError', {
@@ -246,19 +280,15 @@ class VrmRunner {
     }
   }
 
-  cancelModelLoad() {
+  public cancelModelLoad(): void {
     this.modelLoader.cancel();
   }
 
-  cancelAnimationLoad() {
+  public cancelAnimationLoad(): void {
     this.animationLoader.cancel();
   }
 
-  _setupLoadedVrm(gltf, sourceBytes) {
-    const vrm = gltf.userData.vrm;
-    if (!vrm) {
-      throw new Error('Failed to parse a VRM model from the glTF container.');
-    }
+  private setupLoadedVrm(vrm: LoadedVrm, sourceBytes: number): void {
     if (this.currentVrm) this.unloadModel();
 
     const report = this.modelSession.attach(vrm, {
@@ -292,7 +322,7 @@ class VrmRunner {
   get modelReport() {
     return this.modelSession?.modelReport ?? null;
   }
-  getRuntimeHealth() {
+  public getRuntimeHealth(): RuntimeRecord {
     const runtimeInfo = getRuntimeInfo();
     const capabilities = this.renderer?.capabilities;
     return {
@@ -311,7 +341,7 @@ class VrmRunner {
     };
   }
 
-  unloadModel() {
+  public unloadModel(): void {
     this.cancelAnimationLoad();
     this.cancelSpeech();
     if (!this.currentVrm) return;
@@ -326,7 +356,10 @@ class VrmRunner {
 
     this.notifyFlutter('onModelUnloaded', {});
   }
-  async playAnimationFromUrl(url, options = {}) {
+  public async playAnimationFromUrl(
+    url: string,
+    options: RuntimeRecord = {},
+  ): Promise<void> {
     if (!this.currentVrm || !this.mixer) {
       throw new Error('Load a VRM model before playing an animation.');
     }
@@ -344,31 +377,31 @@ class VrmRunner {
     }
   }
 
-  getPose() {
+  public getPose(): unknown {
     return this.motionController.getPose();
   }
 
-  setPose(pose, fadeDuration) {
+  public setPose(pose: RuntimeRecord, fadeDuration: number): void {
     this.motionController.setPose(pose, fadeDuration);
   }
 
-  pauseAnimation() {
+  public pauseAnimation(): void {
     this.motionController.pause();
   }
 
-  resumeAnimation(speed) {
+  public resumeAnimation(speed: number): void {
     this.motionController.resume(speed);
   }
 
-  setAnimationSpeed(speed) {
+  public setAnimationSpeed(speed: number): void {
     this.motionController.setSpeed(speed);
   }
 
-  transitionToRest(fadeDuration = 0.5) {
+  public transitionToRest(fadeDuration = 0.5): void {
     this.motionController.transitionToRest(fadeDuration);
   }
 
-  finalizeRestPose() {
+  private finalizeRestPose(): void {
     if (!this.currentVrm?.humanoid) return;
     this.currentVrm.humanoid.resetNormalizedPose();
     this.currentVrm.update(0);
@@ -383,61 +416,95 @@ class VrmRunner {
     return this.faceController.autoBlinkEnabled;
   }
 
-  set autoBlinkEnabled(value) {
+  public set autoBlinkEnabled(value: boolean) {
     this.faceController.autoBlinkEnabled = value;
   }
 
-  setExpression(expressionName, layerName = 'eyes', targetWeight = 1.0, durationSec = 0.25, disableAutoBlink = false) {
+  public setExpression(
+    expressionName: string,
+    layerName = "eyes",
+    targetWeight = 1,
+    durationSec = 0.25,
+    disableAutoBlink = false,
+  ): void {
     this.faceController.setExpression(expressionName, layerName, targetWeight, durationSec, disableAutoBlink);
   }
 
-  clearExpressionLayer(layerName) {
+  public clearExpressionLayer(layerName: string): void {
     this.faceController.clearExpressionLayer(layerName);
   }
 
-  clearAllExpressions() {
+  public clearAllExpressions(): void {
     if (this.faceController.clearAllExpressions()) {
       this.speechController.resetAmplitude();
     }
   }
 
-  setViseme(visemeName, weight = 1.0) {
+  public setViseme(visemeName: string, weight = 1): void {
     this.faceController.setViseme(visemeName, weight);
   }
 
-  enqueueSpeechVisemes(payload) {
-    this.speechController.enqueueVisemes(payload);
+  public enqueueSpeechVisemes(
+    payload: RuntimeCommandPayload<"enqueueSpeechVisemes">,
+  ): void {
+    this.speechController.enqueueVisemes({
+      ...payload,
+      frames: payload.frames as readonly unknown[] as readonly SpeechVisemeFrame[],
+    });
   }
 
-  enqueueSpeechAmplitudes(payload) {
-    this.speechController.enqueueAmplitudes(payload);
+  public enqueueSpeechAmplitudes(
+    payload: RuntimeCommandPayload<"enqueueSpeechAmplitudes">,
+  ): void {
+    this.speechController.enqueueAmplitudes({
+      ...payload,
+      frames: payload.frames as readonly unknown[] as readonly SpeechAmplitudeFrame[],
+    });
   }
 
-  beginSpeech(payload) {
-    return this.speechController.begin(payload);
+  public beginSpeech(
+    payload: RuntimeCommandPayload<"beginSpeech">,
+  ): boolean {
+    return this.speechController.begin(
+      payload as RuntimeCommandPayload<"beginSpeech"> & {
+        readonly mode: "viseme" | "amplitude";
+      },
+    );
   }
 
-  appendSpeechVisemes(sessionId, frames) {
-    this.speechController.appendVisemes(sessionId, frames);
+  public appendSpeechVisemes(
+    sessionId: string,
+    frames: readonly RuntimeRecord[],
+  ): void {
+    this.speechController.appendVisemes(
+      sessionId,
+      frames as readonly unknown[] as readonly SpeechVisemeFrame[],
+    );
   }
 
-  appendSpeechAmplitudes(sessionId, frames) {
-    this.speechController.appendAmplitudes(sessionId, frames);
+  public appendSpeechAmplitudes(
+    sessionId: string,
+    frames: readonly RuntimeRecord[],
+  ): void {
+    this.speechController.appendAmplitudes(
+      sessionId,
+      frames as readonly unknown[] as readonly SpeechAmplitudeFrame[],
+    );
   }
 
-  finishSpeech(sessionId, audioDurationMs) {
+  public finishSpeech(sessionId: string, audioDurationMs: number): void {
     this.speechController.finish(sessionId, audioDurationMs);
   }
 
-  cancelSpeech(sessionId) {
-    return this.speechController.cancel(sessionId);
+  public cancelSpeech(sessionId?: string): void {
+    this.speechController.cancel(sessionId);
   }
 
   // ==========================================
   // ПРЕСЕТЫ И РЕЖИМЫ КАМЕРЫ
   // ==========================================
 
-  frameAvatar(durationMs = 500, resetPosition = true) {
+  private frameAvatar(durationMs = 500, resetPosition = true): void {
     if (this.cameraController.frameAvatar(
       this.currentVrm,
       this.elapsedTime || 0,
@@ -452,11 +519,11 @@ class VrmRunner {
    * Устанавливает режим управления камерой (characterCreator или free)
    * @param {string} mode Режим камеры
    */
-  setCameraMode(mode) {
+  public setCameraMode(mode: string): void {
     this.cameraController.setMode(mode);
   }
 
-  resetCamera(durationMs = 500) {
+  public resetCamera(durationMs = 500): void {
     if (this.cameraController.reset(
       this.currentVrm,
       durationMs,
@@ -466,62 +533,71 @@ class VrmRunner {
     }
   }
 
-  setLighting(config) {
-    this.sceneController.setLighting(config);
+  public setLighting(config: RuntimeRecord): void {
+    this.sceneController.setLighting(config as RuntimeLightingConfig);
   }
 
 
-  setPhysics(stiffnessMultiplier = 1, gravityMultiplier = 1, dragMultiplier = 1) {
+  public setPhysics(
+    stiffnessMultiplier = 1,
+    gravityMultiplier = 1,
+    dragMultiplier = 1,
+  ): void {
     this.windPhysicsController.setPhysics(stiffnessMultiplier, gravityMultiplier, dragMultiplier);
   }
 
-  setWind(type, direction) {
+  public setWind(type: string, direction: string): void {
     this.windPhysicsController.setWind(type, direction);
   }
 
-  stopWind() {
+  public stopWind(): void {
     this.windPhysicsController.stopWind();
   }
 
-  setEnvironmentColor(colorHex, intensity = 0.5) {
+  public setEnvironmentColor(colorHex: string, intensity = 0.5): void {
     this.sceneController.setEnvironmentColor(colorHex, intensity);
   }
 
-  setBackground(colorHex, imageUrl, transparent, hostedImage = false) {
+  public setBackground(
+    colorHex: string,
+    imageUrl: string | null | undefined,
+    transparent: boolean,
+    hostedImage = false,
+  ): Promise<void> {
     return this.backgroundController.setBackground(colorHex, imageUrl, transparent, hostedImage);
   }
 
-  setRenderQuality(pixelRatio) {
+  public setRenderQuality(pixelRatio: number): void {
     // Устаревшая функция, сохранена для обратной совместимости
     this.setGraphicsSettings({ pixelRatio: pixelRatio });
   }
 
-  setGraphicsSettings(settings) {
-    this.graphicsController.setSettings(settings);
+  public setGraphicsSettings(settings: RuntimeRecord): void {
+    this.graphicsController.setSettings(settings as RuntimeGraphicsSettings);
   }
 
-  setGraphicsPreset(preset) {
+  public setGraphicsPreset(preset: string): void {
     this.graphicsController.setPreset(preset);
   }
 
-  setAdaptiveQuality(settings) {
+  public setAdaptiveQuality(settings: RuntimeRecord): void {
     this.graphicsController.setAdaptiveQuality(settings);
   }
 
-  getPerformanceSnapshot() {
+  public getPerformanceSnapshot() {
     return this.graphicsController.getSnapshot();
   }
 
-  onWebGlContextLost() {
+  private onWebGlContextLost(): void {
     this.notifyFlutter('onWebGLContextChanged', { state: 'lost' });
   }
 
-  onWebGlContextRestored() {
+  private onWebGlContextRestored(): void {
     this.frameScheduler.resetTiming();
     this.notifyFlutter('onWebGLContextChanged', { state: 'restored' });
   }
 
-  _recreateRenderer(antialias) {
+  private recreateRenderer(antialias: boolean): void {
     if (this.isDisposed) return;
     this.pointerController.detach();
     try {
@@ -533,19 +609,19 @@ class VrmRunner {
     }
   }
 
-  dispose() {
+  private dispose(): void {
     this.pageLifecycle.dispose();
   }
 
-  pauseRendering() {
+  public pauseRendering(): void {
     this.frameScheduler.pause();
   }
 
-  resumeRendering() {
+  public resumeRendering(): void {
     this.frameScheduler.resume();
   }
 
-  renderFrame({ now, delta, elapsedTime }) {
+  private renderFrame({ now, delta, elapsedTime }: RuntimeFrame): void {
     this.motionController.update(delta);
 
     if (this.currentVrm) {
@@ -568,14 +644,14 @@ class VrmRunner {
     this.graphicsController.recordFrame(now);
   }
 
-  getAvatarTransform() {
+  public getAvatarTransform() {
     if (!this.currentVrm) {
       throw new Error('A VRM model must be loaded before reading camera state.');
     }
     return this.cameraController.getTransform();
   }
 
-  notifyCameraChanged(userInitiated) {
+  private notifyCameraChanged(userInitiated: boolean): void {
     if (!this.currentVrm) return;
     this.notifyFlutter('onCameraChanged', {
       ...this.getAvatarTransform(),
@@ -583,13 +659,19 @@ class VrmRunner {
     });
   }
 
-  setAvatarTransform(data) {
+  public setAvatarTransform(data: RuntimeRecord): void {
     this.cameraController.setTransform(data);
   }
 
-  notifyFlutter(eventName, payload) {
+  private notifyFlutter(
+    eventName: RuntimeEventName,
+    payload: object,
+  ): void {
     if (this.isDisposed) return;
-    postRuntimeEvent(eventName, payload);
+    postRuntimeEvent(
+      eventName,
+      payload as Readonly<Record<string, unknown>>,
+    );
   }
 }
 
