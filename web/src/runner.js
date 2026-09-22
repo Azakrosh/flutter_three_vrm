@@ -9,6 +9,7 @@ import {
   RuntimeGazeController,
   RuntimeWindPhysicsController,
   RuntimePointerController,
+  RuntimeFrameScheduler,
   RuntimeMotionController,
   RuntimeCameraController,
   RuntimeSceneController,
@@ -47,9 +48,7 @@ class VrmRunner {
       onStarted: (event) => this.notifyFlutter('onAnimationStarted', event),
       onFinished: (event) => this.notifyFlutter('onAnimationFinished', event),
     });
-    // Вместо устаревшего THREE.Clock используем нативный performance.now()
-    this.lastTime = performance.now();
-    this.elapsedTime = 0;
+    const startTime = performance.now();
 
     // Explicit eye gaze and automatic saccades are independent of pointer input.
     this.gazeController = new RuntimeGazeController(() => this.currentVrm);
@@ -79,8 +78,6 @@ class VrmRunner {
     });
 
     // Graphics and Performance state
-    this._isRenderingPaused = false;
-    this._animationFrameId = null;
     this._isDisposed = false;
     this._onWindowResize = () => this.onWindowResize();
     this._onControlsStart = () => {
@@ -115,9 +112,18 @@ class VrmRunner {
       setPhysicsEnabled: (enabled) => this.modelSession.setPhysicsEnabled(enabled),
       onPerformance: (snapshot) => this.notifyFlutter('onPerformance', snapshot),
       devicePixelRatio: () => window.devicePixelRatio,
-    }, this.lastTime);
+    }, startTime);
+    this.frameScheduler = new RuntimeFrameScheduler({
+      now: () => performance.now(),
+      requestFrame: (callback) => window.requestAnimationFrame(callback),
+      cancelFrame: (id) => window.cancelAnimationFrame(id),
+      shouldRender: (now) => this.graphicsController.shouldRender(now),
+      isContextLost: () => this.sceneController.contextLost,
+      resetGraphicsTiming: (now) => this.graphicsController.resetTiming(now),
+      onFrame: (frame) => this.renderFrame(frame),
+    }, startTime);
     this.initEvents();
-    this.animate();
+    this.frameScheduler.start();
 
     this.notifyFlutter('onStateChanged', { state: 'initialized' });
   }
@@ -169,6 +175,10 @@ class VrmRunner {
 
   get fpsCap() {
     return this.graphicsController?.fpsCap ?? 60;
+  }
+
+  get elapsedTime() {
+    return this.frameScheduler?.elapsedTime ?? 0;
   }
 
   get speechTimeline() {
@@ -288,7 +298,7 @@ class VrmRunner {
       // retiring action has reached the normalized rest pose.
       animationActive: this.motionController.isActive,
       animationPaused: this.motionController.isPaused,
-      renderingPaused: Boolean(this._isRenderingPaused),
+      renderingPaused: this.frameScheduler.isPaused,
       contextLost: this.sceneController.contextLost,
     };
   }
@@ -499,8 +509,7 @@ class VrmRunner {
   }
 
   onWebGlContextRestored() {
-    this.lastTime = performance.now();
-    this.graphicsController.resetTiming(this.lastTime);
+    this.frameScheduler.resetTiming();
     this.notifyFlutter('onWebGLContextChanged', { state: 'restored' });
   }
 
@@ -519,7 +528,7 @@ class VrmRunner {
   dispose() {
     if (this._isDisposed) return;
     this._isDisposed = true;
-    this.pauseRendering();
+    this.frameScheduler.dispose();
     this.cancelModelLoad();
     this.cancelAnimationLoad();
     this.backgroundController.dispose();
@@ -535,37 +544,14 @@ class VrmRunner {
   }
 
   pauseRendering() {
-    this._isRenderingPaused = true;
-    if (this._animationFrameId) {
-      cancelAnimationFrame(this._animationFrameId);
-      this._animationFrameId = null;
-    }
+    this.frameScheduler.pause();
   }
 
   resumeRendering() {
-    if (this._isRenderingPaused) {
-      this._isRenderingPaused = false;
-      this.lastTime = performance.now();
-      this.graphicsController.resetTiming(this.lastTime);
-      this.animate();
-    }
+    this.frameScheduler.resume();
   }
 
-  animate() {
-    if (this._isRenderingPaused || this._isDisposed) return;
-    this._animationFrameId = requestAnimationFrame(() => this.animate());
-
-    const now = performance.now();
-    if (this.sceneController.contextLost) return;
-    if (!this.graphicsController.shouldRender(now)) return;
-
-    let delta = (now - this.lastTime) / 1000;
-    if (delta > 0.1) delta = 0.1; // Ограничение скачков при лагах (10 fps min)
-    this.lastTime = now;
-    this.elapsedTime += delta;
-
-    const elapsedTime = this.elapsedTime;
-
+  renderFrame({ now, delta, elapsedTime }) {
     this.motionController.update(delta);
 
     if (this.currentVrm) {
@@ -587,6 +573,7 @@ class VrmRunner {
     this.sceneController.updateAndRender();
     this.graphicsController.recordFrame(now);
   }
+
   getAvatarTransform() {
     if (!this.currentVrm) {
       throw new Error('A VRM model must be loaded before reading camera state.');

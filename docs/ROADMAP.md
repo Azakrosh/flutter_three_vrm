@@ -80,7 +80,7 @@ Flutter application
 
 WebView runtime
   └─ main.ts / protocol.ts
-      └─ runner.js           facade, render lifecycle и disposal
+      └─ runner.js           facade, page events и disposal
           ├─ motion-transition.ts
           ├─ motion-controller.ts
           ├─ animation-loader.ts
@@ -96,6 +96,7 @@ WebView runtime
           ├─ gaze-controller.ts
           ├─ wind-physics-controller.ts
           ├─ pointer-controller.ts
+          ├─ frame-scheduler.ts
           └─ performance.ts
 ```
 
@@ -118,11 +119,11 @@ WebView runtime
 ### Текущий размер и покрытие
 
 - Flutter library: 32 файла, примерно 5800 строк;
-- web source: 26 файлов, примерно 5600 строк;
-- `runner.js`: примерно 620 строк;
+- web source: 27 файлов, примерно 5600 строк;
+- `runner.js`: примерно 600 строк;
 - `VrmController`: примерно 1280 строк;
 - Flutter unit tests: 65;
-- web unit tests: 95;
+- web unit tests: 98;
 - один сквозной runtime smoke-сценарий, примерно 435 строк.
 
 Числа нужны как ориентир концентрации ответственности, а не как целевые KPI.
@@ -148,7 +149,7 @@ Dart. Для них ещё нужны точные codecs и contract tests.
 
 ### P1 — два крупных центра ответственности
 
-`runner.js` всё ещё объединяет render lifecycle и часть disposal.
+`runner.js` всё ещё объединяет page events, содержимое кадра и часть disposal.
 `VrmController` одновременно валидирует
 данные, управляет hosted resources, сериализует protocol payload и предоставляет
 публичный API. Любое изменение затрагивает слишком большой контекст.
@@ -236,7 +237,9 @@ controller; настройка физических параметров бол�
 выключенной симуляции. Обработка primary pointer, tap/drag/cancel и привязка
 listeners к заменяемому canvas вынесены в типизированный pointer controller.
 Поведение проверено Windows/Android smoke-тестом, включая renderer recreation.
-Следующий срез — render lifecycle/disposal в runner.
+Планирование кадров, пауза/возобновление и сброс времени после WebGL recovery
+теперь принадлежат типизированному frame scheduler; поздние callbacks после
+pause/dispose игнорируются. Следующий срез — page events/disposal в runner.
 
 Работы:
 

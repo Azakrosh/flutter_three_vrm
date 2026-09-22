@@ -59,6 +59,8 @@ export { RuntimeWindPhysicsController } from "./wind-physics-controller";
 
 export { RuntimePointerController } from "./pointer-controller";
 
+export { RuntimeFrameScheduler } from "./frame-scheduler";
+
 export {
   AdaptiveQualityController,
   type AdaptiveQualityConfig,
