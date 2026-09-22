@@ -22,6 +22,7 @@
 - Move spring-bone multipliers and wind simulation into a tested TypeScript controller; keep physics edits effective while simulation is temporarily disabled and avoid storing baseline data on joints.
 - Move tap/drag/cancel handling and canvas pointer listener ownership into a tested TypeScript controller; clear interrupted gestures when recreating the renderer.
 - Move frame scheduling, pause/resume timing, context-loss gating, and pending-frame cancellation into a tested TypeScript scheduler.
+- Move resize/pagehide listeners and ordered, idempotent resource cleanup into a tested TypeScript page lifecycle controller.
 - Keep Android hidden-lifecycle smoke polling independent of a rendered frame so model recovery cannot stall the test harness.
 - Scope animation lifecycle events and queues to opaque playback IDs so unrelated or replaced animations cannot advance a queue.
 - Enforce transform, adaptive-quality, recovery, and model-performance configuration contracts in release builds instead of relying on debug-only asserts.

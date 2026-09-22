@@ -10,6 +10,7 @@ import {
   RuntimeWindPhysicsController,
   RuntimePointerController,
   RuntimeFrameScheduler,
+  RuntimePageLifecycle,
   RuntimeMotionController,
   RuntimeCameraController,
   RuntimeSceneController,
@@ -78,8 +79,6 @@ class VrmRunner {
     });
 
     // Graphics and Performance state
-    this._isDisposed = false;
-    this._onWindowResize = () => this.onWindowResize();
     this._onControlsStart = () => {
       this.cameraController.markCustomTransform();
     };
@@ -87,7 +86,6 @@ class VrmRunner {
       this.cameraController.captureControlsTransform();
       if (this.cameraController.mode === 'constrained') this.notifyCameraChanged(true);
     };
-    this._onPageHide = () => this.dispose();
     this._detachRuntimeBridge = null;
 
     this.initScene();
@@ -122,6 +120,26 @@ class VrmRunner {
       resetGraphicsTiming: (now) => this.graphicsController.resetTiming(now),
       onFrame: (frame) => this.renderFrame(frame),
     }, startTime);
+    this.pageLifecycle = new RuntimePageLifecycle({
+      page: window,
+      getViewport: () => ({ width: window.innerWidth, height: window.innerHeight }),
+      resizeScene: (width, height) => this.sceneController.resize(width, height),
+      hasCustomCameraTransform: () => this.cameraController.hasCustomTransform,
+      frameAvatar: () => this.frameAvatar(0, false),
+      cleanupSteps: [
+        () => this.frameScheduler.dispose(),
+        () => this.cancelModelLoad(),
+        () => this.cancelAnimationLoad(),
+        () => this.backgroundController.dispose(),
+        () => {
+          this._detachRuntimeBridge?.();
+          this._detachRuntimeBridge = null;
+        },
+        () => { if (this.currentVrm) this.unloadModel(); },
+        () => this.pointerController.detach(),
+        () => this.sceneController.dispose(),
+      ],
+    });
     this.initEvents();
     this.frameScheduler.start();
 
@@ -181,6 +199,10 @@ class VrmRunner {
     return this.frameScheduler?.elapsedTime ?? 0;
   }
 
+  get isDisposed() {
+    return this.pageLifecycle?.isDisposed ?? false;
+  }
+
   get speechTimeline() {
     return this.speechController.timeline;
   }
@@ -194,28 +216,14 @@ class VrmRunner {
   }
 
   initEvents() {
-    window.addEventListener('resize', this._onWindowResize);
-    window.addEventListener('pagehide', this._onPageHide);
+    this.pageLifecycle.attach();
     this.pointerController.attach(this.renderer.domElement);
 
     this._detachRuntimeBridge = installRuntimeBridge({
       executeCommand: createRuntimeCommandDispatcher(this),
       dispose: () => this.dispose(),
-      isDisposed: () => this._isDisposed,
+      isDisposed: () => this.isDisposed,
     });
-  }
-
-  onWindowResize() {
-    const width = window.innerWidth;
-    const height = window.innerHeight;
-    this.sceneController.resize(width, height);
-
-    // Автоматически пересчитываем позицию камеры под новые пропорции экрана (без анимации)
-    // Только если пользователь еще не двигал камеру вручную!
-    // Передаем resetPosition = false, чтобы избежать сброса физики при открытии клавиатуры
-    if (!this.cameraController.hasCustomTransform) {
-      this.frameAvatar(0, false);
-    }
   }
 
   setShadows(enabled) {
@@ -514,7 +522,7 @@ class VrmRunner {
   }
 
   _recreateRenderer(antialias) {
-    if (this._isDisposed) return;
+    if (this.isDisposed) return;
     this.pointerController.detach();
     try {
       if (this.sceneController.recreateRenderer(antialias)) {
@@ -526,21 +534,7 @@ class VrmRunner {
   }
 
   dispose() {
-    if (this._isDisposed) return;
-    this._isDisposed = true;
-    this.frameScheduler.dispose();
-    this.cancelModelLoad();
-    this.cancelAnimationLoad();
-    this.backgroundController.dispose();
-
-    window.removeEventListener('resize', this._onWindowResize);
-    window.removeEventListener('pagehide', this._onPageHide);
-    this._detachRuntimeBridge?.();
-    this._detachRuntimeBridge = null;
-
-    if (this.currentVrm) this.unloadModel();
-    this.pointerController.detach();
-    this.sceneController.dispose();
+    this.pageLifecycle.dispose();
   }
 
   pauseRendering() {
@@ -594,7 +588,7 @@ class VrmRunner {
   }
 
   notifyFlutter(eventName, payload) {
-    if (this._isDisposed) return;
+    if (this.isDisposed) return;
     postRuntimeEvent(eventName, payload);
   }
 }

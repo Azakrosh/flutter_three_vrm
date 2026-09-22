@@ -80,7 +80,7 @@ Flutter application
 
 WebView runtime
   └─ main.ts / protocol.ts
-      └─ runner.js           facade, page events и disposal
+      └─ runner.js           facade и порядок обновления кадра
           ├─ motion-transition.ts
           ├─ motion-controller.ts
           ├─ animation-loader.ts
@@ -97,6 +97,7 @@ WebView runtime
           ├─ wind-physics-controller.ts
           ├─ pointer-controller.ts
           ├─ frame-scheduler.ts
+          ├─ page-lifecycle.ts
           └─ performance.ts
 ```
 
@@ -119,11 +120,11 @@ WebView runtime
 ### Текущий размер и покрытие
 
 - Flutter library: 32 файла, примерно 5800 строк;
-- web source: 27 файлов, примерно 5600 строк;
+- web source: 28 файлов, примерно 5600 строк;
 - `runner.js`: примерно 600 строк;
 - `VrmController`: примерно 1280 строк;
 - Flutter unit tests: 65;
-- web unit tests: 98;
+- web unit tests: 101;
 - один сквозной runtime smoke-сценарий, примерно 435 строк.
 
 Числа нужны как ориентир концентрации ответственности, а не как целевые KPI.
@@ -134,8 +135,8 @@ WebView runtime
 
 `web/tsconfig.json` включает только `src/**/*.ts` и `test/**/*.ts`.
 Основная реализация находится в `web/src/runner.js`, поэтому строгие настройки
-TypeScript не проверяют большую часть runtime. Существующие web unit tests
-проверяют вынесенные модули, но не сам command dispatcher и полный lifecycle
+TypeScript не проверяют оставшийся facade. Web unit tests покрывают вынесенные
+модули и command dispatcher, но не типизируют координацию модели и кадра внутри
 runner.
 
 ### P0 — wire contract ещё не полностью типизирован
@@ -149,7 +150,8 @@ Dart. Для них ещё нужны точные codecs и contract tests.
 
 ### P1 — два крупных центра ответственности
 
-`runner.js` всё ещё объединяет page events, содержимое кадра и часть disposal.
+`runner.js` всё ещё объединяет protocol facade, управление активной моделью
+и содержимое кадра, а сам остаётся JavaScript-файлом вне строгой проверки TypeScript.
 `VrmController` одновременно валидирует
 данные, управляет hosted resources, сериализует protocol payload и предоставляет
 публичный API. Любое изменение затрагивает слишком большой контекст.
@@ -239,7 +241,11 @@ listeners к заменяемому canvas вынесены в типизиро�
 Поведение проверено Windows/Android smoke-тестом, включая renderer recreation.
 Планирование кадров, пауза/возобновление и сброс времени после WebGL recovery
 теперь принадлежат типизированному frame scheduler; поздние callbacks после
-pause/dispose игнорируются. Следующий срез — page events/disposal в runner.
+pause/dispose игнорируются.
+Подписки на page resize/pagehide и последовательность cleanup теперь принадлежат
+типизированному page lifecycle controller; повторный dispose безопасен, а ошибка
+одного cleanup-шага не блокирует последующие. Следующий срез — типизация
+оставшегося `runner.js` facade и его model/frame orchestration.
 
 Работы:
 

@@ -61,6 +61,8 @@ export { RuntimePointerController } from "./pointer-controller";
 
 export { RuntimeFrameScheduler } from "./frame-scheduler";
 
+export { RuntimePageLifecycle } from "./page-lifecycle";
+
 export {
   AdaptiveQualityController,
   type AdaptiveQualityConfig,
