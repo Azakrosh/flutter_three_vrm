@@ -1,11 +1,10 @@
-import type { Vector3 } from "three";
-
 import type {
   RuntimeCommandPayload,
   RuntimeRecord,
 } from "./protocol-contract";
 import type { CommandEnvelope } from "./protocol";
 import type { SpeechTimeline } from "./speech-timeline";
+import type { RuntimeGazeController } from "./gaze-controller";
 
 export type RuntimeCommandDispatcher = (
   command: CommandEnvelope,
@@ -20,14 +19,12 @@ export interface RuntimeCommandHost {
   modelReport: unknown | null;
   speechTimeline: Pick<SpeechTimeline, "acceptInputRevision">;
   customBlendShapes: Map<string, number>;
-  desiredLookAtPos: Pick<Vector3, "set">;
-  targetSaccadeOffset: Pick<Vector3, "set">;
+  gazeController: Pick<
+    RuntimeGazeController,
+    "setTarget" | "setAutoSaccades" | "setHoldDuration"
+  >;
   lipSyncAmplitude: number;
   autoBlinkEnabled: boolean;
-  saccadeEnabled: boolean;
-  lookAtTimer: number;
-  lookAtHoldDurationSec: number;
-  lookAtBodyDeadZoneX: number;
 
   loadModelFromUrl(url: string): Promise<void>;
   cancelModelLoad(): void;
@@ -267,23 +264,20 @@ export function createRuntimeCommandDispatcher(
         host.autoBlinkEnabled = command.payload.enabled;
         return null;
       case "setLookAtTarget":
-        host.desiredLookAtPos.set(
-          -command.payload.x,
+        host.gazeController.setTarget(
+          command.payload.x,
           command.payload.y,
-          command.payload.z || 2.1,
+          command.payload.z,
         );
-        host.lookAtTimer = host.lookAtHoldDurationSec;
         return null;
       case "setAutoSaccades":
-        host.saccadeEnabled = command.payload.enabled;
-        if (!command.payload.enabled) host.targetSaccadeOffset.set(0, 0, 0);
+        host.gazeController.setAutoSaccades(command.payload.enabled);
         return null;
       case "setLookAtConfig":
-        if (command.payload.deadZoneX !== undefined) {
-          host.lookAtBodyDeadZoneX = command.payload.deadZoneX;
-        }
         if (command.payload.holdDurationSec !== undefined) {
-          host.lookAtHoldDurationSec = command.payload.holdDurationSec;
+          host.gazeController.setHoldDuration(
+            command.payload.holdDurationSec,
+          );
         }
         return null;
       case "setCameraMode":

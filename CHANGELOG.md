@@ -17,6 +17,8 @@
 - Move VRMA/glTF and Pose playback orchestration, rest transitions, pause/resume, and playback-scoped completion fallback into a tested TypeScript motion controller.
 - Move VRMA/glTF animation fetching, parsing, cancellation races, and temporary-scene cleanup into a tested TypeScript loader; cancel pending animation loads when replacing the avatar.
 - Move background fetching, CSS presentation, stale-request cancellation, and Blob URL cleanup into a tested TypeScript controller.
+- Remove click-driven head/body rotation and gaze changes while preserving camera gestures and `onTap`; move programmatic eye gaze and auto-saccades into a tested TypeScript controller.
+- Remove the ineffective `deadZoneX` argument from `setLookAtConfig()`.
 - Keep Android hidden-lifecycle smoke polling independent of a rendered frame so model recovery cannot stall the test harness.
 - Scope animation lifecycle events and queues to opaque playback IDs so unrelated or replaced animations cannot advance a queue.
 - Enforce transform, adaptive-quality, recovery, and model-performance configuration contracts in release builds instead of relying on debug-only asserts.

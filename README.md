@@ -404,6 +404,9 @@ Viseme и amplitude нельзя смешивать внутри одной се
 `setLipSyncAmplitude()`, прямой `setViseme()` и `setLookAtTarget()` используют
 latest-value backpressure: в WebView одновременно отправляется не более одного
 значения каждого типа, а накопившиеся устаревшие samples заменяются самым новым.
+`setLookAtTarget()` управляет только взглядом глаз. Клик или касание не поворачивает
+голову, корпус или взгляд аватара; `onTap` остаётся событием для приложения,
+а жесты pan/zoom управляют камерой.
 `beginSpeech()` и методы `VrmSpeechSession.appendVisemes()`,
 `appendAmplitudes()`, `finish()` и `cancel()` используют упорядоченную
 session-safe timeline.

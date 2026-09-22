@@ -84,10 +84,6 @@ void main() {
 
     test('rejects invalid scene and renderer values synchronously', () {
       expect(
-        () => controller.setLookAtConfig(deadZoneX: 1.1),
-        throwsArgumentError,
-      );
-      expect(
         () => controller.setLookAtConfig(
           holdDuration: const Duration(milliseconds: -1),
         ),

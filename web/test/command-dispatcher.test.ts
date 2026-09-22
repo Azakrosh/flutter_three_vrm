@@ -1,4 +1,3 @@
-import { Vector3 } from "three";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -16,12 +15,9 @@ describe("runtime command dispatcher", () => {
     await dispatch(command("setLookAtTarget", { x: 0.25, y: 0.75 }));
 
     expect(host.setWind).toHaveBeenCalledWith("light", "left");
-    expect(host.desiredLookAtPos).toMatchObject({
-      x: -0.25,
-      y: 0.75,
-      z: 2.1,
-    });
-    expect(host.lookAtTimer).toBe(host.lookAtHoldDurationSec);
+    expect(host.gazeController.setTarget).toHaveBeenCalledWith(
+      0.25, 0.75, undefined,
+    );
   });
 
   it("returns query results and preserves missing-model errors", async () => {
@@ -91,14 +87,13 @@ function createHost(): RuntimeCommandHost {
     modelReport: null,
     speechTimeline: { acceptInputRevision: vi.fn(() => true) },
     customBlendShapes: new Map(),
-    desiredLookAtPos: new Vector3(),
-    targetSaccadeOffset: new Vector3(),
+    gazeController: {
+      setTarget: vi.fn(),
+      setAutoSaccades: vi.fn(),
+      setHoldDuration: vi.fn(),
+    },
     lipSyncAmplitude: 0,
     autoBlinkEnabled: true,
-    saccadeEnabled: true,
-    lookAtTimer: 0,
-    lookAtHoldDurationSec: 1,
-    lookAtBodyDeadZoneX: 0.35,
     loadModelFromUrl: vi.fn(async () => undefined),
     cancelModelLoad: vi.fn(),
     getRuntimeHealth: vi.fn(() => ({})),

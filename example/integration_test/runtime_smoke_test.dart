@@ -39,6 +39,29 @@ void main() {
     await _verifyMotionTransitions(tester, controller);
     debugPrint('runtime_smoke: motion transitions verified');
 
+    await controller.resetPose(fadeDuration: 0);
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+    final beforeTap = await controller.getPose();
+    final tapEvent = controller.onTap.first;
+    final avatarRect = tester.getRect(find.byType(VrmView));
+    await tester.tapAt(
+      Offset(
+        avatarRect.left + avatarRect.width * 0.2,
+        avatarRect.top + avatarRect.height * 0.3,
+      ),
+    );
+    await tapEvent.timeout(const Duration(seconds: 5));
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+    final afterTap = await controller.getPose();
+    for (final bone in [VrmHumanBone.head, VrmHumanBone.chest]) {
+      expect(
+        _quaternionAngle(beforeTap[bone]!.rotation!, afterTap[bone]!.rotation!),
+        lessThan(0.01),
+        reason: 'A tap must not rotate $bone',
+      );
+    }
+    debugPrint('runtime_smoke: tap does not rotate avatar');
+
     await controller.setBackground(
       color: const Color(0xFF171823),
       imageAssetPath: 'assets/images/backgrounds/background.svg',

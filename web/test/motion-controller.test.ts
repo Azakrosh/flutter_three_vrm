@@ -34,7 +34,6 @@ describe("runtime motion controller", () => {
       hips: { rotation: [0, 0, 0, 1] },
     }, 0);
     expect(harness.transitions.currentSource).toBe("pose");
-    expect(harness.resetProceduralMotion).toHaveBeenCalledOnce();
     expect(harness.controller.isActive).toBe(true);
 
     harness.controller.transitionToRest(0.5);
@@ -128,7 +127,6 @@ function createHarness() {
   root.add(targetHips);
   const mixer = new AnimationMixer(root);
   const transitions = new MotionTransitionController(mixer);
-  const resetProceduralMotion = vi.fn();
   const finalizeRestPose = vi.fn();
   const onStarted = vi.fn();
   const onFinished = vi.fn();
@@ -146,7 +144,6 @@ function createHarness() {
   const controller = new RuntimeMotionController({
     getVrm: () => loaded ? vrm : null,
     getTransitions: () => loaded ? transitions : null,
-    resetProceduralMotion,
     finalizeRestPose,
     onStarted,
     onFinished,
@@ -155,7 +152,6 @@ function createHarness() {
     controller,
     mixer,
     transitions,
-    resetProceduralMotion,
     finalizeRestPose,
     onStarted,
     onFinished,

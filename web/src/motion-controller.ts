@@ -23,7 +23,6 @@ export interface RuntimeMotionEvent {
 export interface RuntimeMotionDependencies {
   readonly getVrm: () => VRM | null;
   readonly getTransitions: () => MotionTransitionController | null;
-  readonly resetProceduralMotion: () => void;
   readonly finalizeRestPose: () => void;
   readonly onStarted: (event: RuntimeMotionEvent) => void;
   readonly onFinished: (event: RuntimeMotionEvent) => void;
@@ -128,7 +127,6 @@ export class RuntimeMotionController {
     action._hasNotifiedFinished = false;
     this.pendingRestPoseReset = false;
     this.paused = false;
-    this.dependencies.resetProceduralMotion();
     transitions.update(0);
     this.dependencies.onStarted({ name: clip.name, playbackId });
   }
@@ -159,7 +157,6 @@ export class RuntimeMotionController {
       });
       this.pendingRestPoseReset = false;
       this.paused = false;
-      this.dependencies.resetProceduralMotion();
       transitions.update(0);
     }
     vrm.update(0);
@@ -175,7 +172,6 @@ export class RuntimeMotionController {
     transitions.transitionToRest(fadeDuration);
     this.pendingRestPoseReset = true;
     this.paused = false;
-    this.dependencies.resetProceduralMotion();
     transitions.update(0);
     if (!transitions.isActive) this.finalizeRestPose();
   }

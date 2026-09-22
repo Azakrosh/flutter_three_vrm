@@ -7,6 +7,7 @@ import {
   postRuntimeEvent,
   RuntimeSpeechController,
   RuntimeFaceController,
+  RuntimeGazeController,
   RuntimeMotionController,
   RuntimeCameraController,
   RuntimeSceneController,
@@ -41,7 +42,6 @@ class VrmRunner {
     this.motionController = new RuntimeMotionController({
       getVrm: () => this.currentVrm,
       getTransitions: () => this.modelSession?.motionTransitions ?? null,
-      resetProceduralMotion: () => this.resetProceduralMotion(),
       finalizeRestPose: () => this.finalizeRestPose(),
       onStarted: (event) => this.notifyFlutter('onAnimationStarted', event),
       onFinished: (event) => this.notifyFlutter('onAnimationFinished', event),
@@ -50,28 +50,8 @@ class VrmRunner {
     this.lastTime = performance.now();
     this.elapsedTime = 0;
 
-    // LookAt & Touch Interaction
-    this.lookAtTarget = new THREE.Object3D();
-    this.defaultLookAtPos = new THREE.Vector3(0, 1.4, 2.1);
-    this.desiredLookAtPos = new THREE.Vector3(0, 1.4, 2.1);
-    this.lookAtTimer = 0;
-    this.saccadeEnabled = true;
-    this.saccadeTimer = 0;
-    this.targetSaccadeOffset = new THREE.Vector3(0, 0, 0);
-    this.currentSaccadeOffset = new THREE.Vector3(0, 0, 0);
-    this.lookAtHoldDurationSec = 1.0; // Уменьшил длительность реакции с 1.8 до 1.0
-    this.lookAtBodyDeadZoneX = 0.35;
-
-    // Procedural Head Tracking (Additive Blending)
-    this.targetHeadYaw = 0;
-    this.targetHeadPitch = 0;
-    this.proceduralHeadYaw = 0;
-    this.proceduralHeadPitch = 0;
-
-    this.neckBaseQuat = new THREE.Quaternion();
-    this.headBaseQuat = new THREE.Quaternion();
-    this.chestBaseQuat = new THREE.Quaternion(); // Базовая позиция для плеч (груди)
-    this.baseBonesSaved = false;
+    // Explicit eye gaze and automatic saccades are independent of pointer input.
+    this.gazeController = new RuntimeGazeController(() => this.currentVrm);
 
     this.faceController = new RuntimeFaceController({
       getVrm: () => this.currentVrm,
@@ -101,22 +81,10 @@ class VrmRunner {
     this._tmpVec3A = new THREE.Vector3();
     this._tmpVec3B = new THREE.Vector3();
     this._tmpVec3C = new THREE.Vector3();
-    this._tmpEuler = new THREE.Euler();
-    this._tmpQuatAdditive = new THREE.Quaternion();
-    this._tmpQuatChest = new THREE.Quaternion();
-    this._tmpQuatNeckHead = new THREE.Quaternion();
     // Custom Camera Panning
     this.isDragging = false;
     this.dragStartPoint = new THREE.Vector2();
     this.controlsStartPos = new THREE.Vector3();
-
-    // Head Tracking
-    this.targetHeadYaw = 0;
-    this.targetHeadPitch = 0;
-    this.proceduralHeadYaw = 0;
-    this.proceduralHeadPitch = 0;
-
-    this.raycaster = new THREE.Raycaster();
 
     // Graphics and Performance state
     this._isRenderingPaused = false;
@@ -172,7 +140,7 @@ class VrmRunner {
   initScene() {
     this.sceneController = new RuntimeSceneController({
       container: this.container,
-      lookAtTarget: this.lookAtTarget,
+      lookAtTarget: this.gazeController.target,
       antialias: true,
       onControlsStart: this._onControlsStart,
       onControlsEnd: this._onControlsEnd,
@@ -235,12 +203,6 @@ class VrmRunner {
       this.isDragging = true;
       this.dragStartPoint.set(e.clientX, e.clientY);
       this.controlsStartPos.copy(this.controls.target);
-
-      // Reset LookAt on drag start
-      this.desiredLookAtPos.copy(this.defaultLookAtPos);
-      this.lookAtTimer = 0;
-      this.targetHeadYaw = 0;
-      this.targetHeadPitch = 0;
     }
   }
 
@@ -264,8 +226,8 @@ class VrmRunner {
 
       // Check if it was a tap or a drag (dist < 10 pixels is a tap)
       const dist = Math.hypot(e.clientX - this.dragStartPoint.x, e.clientY - this.dragStartPoint.y);
-      if (dist < 10) {
-        this.handleScreenTap(e.clientX, e.clientY);
+      if (dist < 10 && e.type === 'pointerup' && this.currentVrm) {
+        this.notifyFlutter('onTap', { x: e.clientX, y: e.clientY });
       } else if (this.cameraController.mode === 'constrained') {
         this.notifyCameraChanged(true);
       }
@@ -305,67 +267,6 @@ class VrmRunner {
     }
   }
 
-  handleScreenTap(clientX, clientY) {
-    if (!this.currentVrm || !this.currentVrm.humanoid) return;
-
-    // Нормализованные координаты экрана от -1 до +1
-    const x = (clientX / window.innerWidth) * 2 - 1;
-    const y = -(clientY / window.innerHeight) * 2 + 1;
-
-    // Устанавливаем луч из камеры в точку клика
-    this.raycaster.setFromCamera(new THREE.Vector2(x, y), this.camera);
-
-    // Получаем мировые позиции головы и груди для создания "мертвой зоны"
-    const headNode = this.currentVrm.humanoid.getNormalizedBoneNode('head') || this.currentVrm.humanoid.getRawBoneNode('head');
-    const chestNode = this.currentVrm.humanoid.getNormalizedBoneNode('chest') || this.currentVrm.humanoid.getRawBoneNode('chest');
-
-    if (!headNode || !chestNode) return;
-
-    const headPos = new THREE.Vector3();
-    headNode.getWorldPosition(headPos);
-
-    // Находим плоскость, параллельную экрану, ТОЧНО на глубине модели
-    const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -headPos.z);
-
-    const exactIntersect = new THREE.Vector3();
-    this.raycaster.ray.intersectPlane(plane, exactIntersect);
-
-    if (!exactIntersect) return;
-
-
-
-    // Сдвигаем точку на 1 метр к камере для нативного VRM LookAt, 
-    // чтобы избежать сильного косоглазия (Cross-eye)
-    const lookTarget = exactIntersect.clone();
-    lookTarget.z += 1.0;
-    this.desiredLookAtPos.copy(lookTarget);
-
-    this.lookAtTimer = this.lookAtHoldDurationSec;
-
-    // Процедурный поворот: вычисляем углы между головой и точкой клика в 3D
-    const deltaX = exactIntersect.x - headPos.x;
-
-    // ИСПРАВЛЕНИЕ УГЛА: headPos.y - это шея/низ головы. Глаза модели находятся выше (примерно на 10см).
-    // Чтобы модель смотрела горизонтально при клике на уровне её глаз, 
-    // мы считаем вертикальную дельту (deltaY) от уровня глаз, а не от шеи.
-    const eyeLevelY = headPos.y + 0.05;
-    const deltaY = exactIntersect.y - eyeLevelY;
-
-    // Максимальные углы поворота головы
-    const maxYaw = THREE.MathUtils.degToRad(40);
-    const maxPitch = THREE.MathUtils.degToRad(30);
-
-    // Рассчитываем углы и ограничиваем их
-    // Z-дистанция в наших вычислениях условно 1.0 (сдвиг lookTarget.z)
-    let computedYaw = Math.atan2(deltaX, 1.0);
-    let computedPitch = Math.atan2(deltaY, 1.0);
-
-    this.targetHeadYaw = Math.max(-maxYaw, Math.min(maxYaw, computedYaw));
-    this.targetHeadPitch = Math.max(-maxPitch, Math.min(maxPitch, computedPitch));
-
-    this.notifyFlutter('onTap', { x: clientX, y: clientY });
-  }
-
   setShadows(enabled) {
     this.sceneController.setShadows(enabled);
   }
@@ -403,7 +304,7 @@ class VrmRunner {
 
     const report = this.modelSession.attach(vrm, {
       sourceBytes,
-      lookAtTarget: this.lookAtTarget,
+      lookAtTarget: this.gazeController.target,
       physicsEnabled: this.enablePhysics,
       shadowsEnabled: this.renderer.shadowMap.enabled,
       onAnimationFinished: (event) => {
@@ -461,16 +362,7 @@ class VrmRunner {
     this.motionController.resetModelState();
     this.cameraController.clearCustomTransform();
 
-    this.baseBonesSaved = false;
-    this.neckBaseQuat.identity();
-    this.headBaseQuat.identity();
-    this.chestBaseQuat.identity();
-    this.targetHeadYaw = 0;
-    this.targetHeadPitch = 0;
-    this.proceduralHeadYaw = 0;
-    this.proceduralHeadPitch = 0;
-    this.lookAtTimer = 0;
-    this.desiredLookAtPos.copy(this.defaultLookAtPos);
+    this.gazeController.resetForModel();
 
     this.notifyFlutter('onModelUnloaded', {});
   }
@@ -519,22 +411,9 @@ class VrmRunner {
   finalizeRestPose() {
     if (!this.currentVrm?.humanoid) return;
     this.currentVrm.humanoid.resetNormalizedPose();
-    this.baseBonesSaved = false;
     this.currentVrm.update(0);
     this.currentVrm.scene.updateMatrixWorld(true);
   }
-
-  resetProceduralMotion() {
-    this.baseBonesSaved = false;
-    this.neckBaseQuat.identity();
-    this.headBaseQuat.identity();
-    this.chestBaseQuat.identity();
-    this.targetHeadYaw = 0;
-    this.targetHeadPitch = 0;
-    this.proceduralHeadYaw = 0;
-    this.proceduralHeadPitch = 0;
-  }
-
 
   get customBlendShapes() {
     return this.faceController.customBlendShapes;
@@ -793,19 +672,16 @@ class VrmRunner {
 
     const elapsedTime = this.elapsedTime;
 
-    this.restoreBaseBoneRotations();
-
     this.motionController.update(delta);
 
     if (this.currentVrm) {
       this.speechController.update();
       this.faceController.updateExpressions(delta);
-      this.updateMicroMovements(elapsedTime, delta);
+      this.faceController.updateBlink(delta);
+      this.gazeController.update(delta);
 
       // Плавное следование камеры (Pan) за пальцем без изменения угла
       this.cameraController.updatePanFollowing(delta);
-
-      this.updateProceduralHeadRotation(delta);
 
       // Wind Simulation
       if (this.currentVrm.springBoneManager && this.enablePhysics) {
@@ -872,154 +748,6 @@ class VrmRunner {
     this.sceneController.updateAndRender();
     this.graphicsController.recordFrame(now);
   }
-
-
-  updateMicroMovements(elapsedTime, delta) {
-    this.faceController.updateBlink(delta);
-
-    // Обновляем базовую позицию взгляда (defaultLookAtPos), чтобы она всегда
-    // была ровно перед головой модели, даже если мы ее перетащили (Pan)
-    if (this.currentVrm && this.currentVrm.humanoid) {
-      const headNode = this.currentVrm.humanoid.getNormalizedBoneNode('head') || this.currentVrm.humanoid.getRawBoneNode('head');
-      if (headNode) {
-        headNode.getWorldPosition(this.defaultLookAtPos);
-        // Смотрим на 2 метра прямо перед собой (по оси Z к камере)
-        // Если глаза находятся чуть ниже макушки, вычитаем немного Y, чтобы взгляд был "в глаза"
-        this.defaultLookAtPos.y -= 0.05; // -0.05 - опустить взгляд, 0.05 - поднять
-        this.defaultLookAtPos.z += 2.0; // 2.0 - ближе, -2.0 - дальше
-      }
-    }
-
-    // Countdown LookAt hold timer after side tap
-    if (this.lookAtTimer > 0) {
-      this.lookAtTimer -= delta;
-      if (this.lookAtTimer <= 0) {
-        // Hold time expired -> smoothly return gaze to default center position!
-        this.targetHeadYaw = 0;
-        this.targetHeadPitch = 0;
-      }
-    } else {
-      // Если мы не смотрим на клик, постоянно отслеживаем прямую позицию
-      this.desiredLookAtPos.copy(this.defaultLookAtPos);
-    }
-
-    // Saccades Simulation
-    if (this.saccadeEnabled && this.lookAtTimer <= 0) { // Only do saccades if NOT holding a manual lookAt tap
-      this.saccadeTimer -= delta;
-      if (this.saccadeTimer <= 0) {
-        // Next saccade in 0.5 to 2.5 seconds
-        this.saccadeTimer = 0.5 + Math.random() * 2.0;
-        // Random offset
-        this.targetSaccadeOffset.set(
-          (Math.random() - 0.5) * 0.4,
-          (Math.random() - 0.5) * 0.2,
-          0
-        );
-      }
-    } else {
-      // Return eyes to normal if manually tapped
-      this.targetSaccadeOffset.set(0, 0, 0);
-    }
-
-    // Jerky eye movement (high lerp alpha)
-    this.currentSaccadeOffset.lerp(this.targetSaccadeOffset, 0.5);
-
-    // Smoothly interpolate lookAtTarget towards (desiredLookAtPos + currentSaccadeOffset)
-    const targetX = this.desiredLookAtPos.x + this.currentSaccadeOffset.x;
-    const targetY = this.desiredLookAtPos.y + this.currentSaccadeOffset.y;
-    const targetZ = this.desiredLookAtPos.z + this.currentSaccadeOffset.z;
-
-    this.lookAtTarget.position.x = THREE.MathUtils.lerp(this.lookAtTarget.position.x, targetX, 0.15);
-    this.lookAtTarget.position.y = THREE.MathUtils.lerp(this.lookAtTarget.position.y, targetY, 0.15);
-    this.lookAtTarget.position.z = THREE.MathUtils.lerp(this.lookAtTarget.position.z, targetZ, 0.15);
-  }
-
-  updateProceduralHeadRotation(delta) {
-    if (!this.currentVrm || !this.currentVrm.humanoid) return;
-
-    const chest = this.currentVrm.humanoid.getNormalizedBoneNode('chest');
-    const neck = this.currentVrm.humanoid.getNormalizedBoneNode('neck');
-    const head = this.currentVrm.humanoid.getNormalizedBoneNode('head');
-
-    // Сохраняем "чистый" результат работы анимации (или T-позы)
-    if (chest) this.chestBaseQuat.copy(chest.quaternion);
-    if (neck) this.neckBaseQuat.copy(neck.quaternion);
-    if (head) this.headBaseQuat.copy(head.quaternion);
-    this.baseBonesSaved = true;
-
-    // Сглаживание текущего угла к целевому. 
-    const smoothingSpeed = 4.0;
-    this.proceduralHeadYaw = THREE.MathUtils.lerp(this.proceduralHeadYaw, this.targetHeadYaw, smoothingSpeed * delta);
-    this.proceduralHeadPitch = THREE.MathUtils.lerp(this.proceduralHeadPitch, this.targetHeadPitch, smoothingSpeed * delta);
-
-    // Если углы близки к нулю, не тратим ресурсы на умножение
-    if (Math.abs(this.proceduralHeadYaw) < 0.001 && Math.abs(this.proceduralHeadPitch) < 0.001) return;
-
-    // Создаем Эйлеровы углы: Yaw (Y) и Pitch (X)
-    this._tmpEuler.set(-this.proceduralHeadPitch, this.proceduralHeadYaw, 0, 'YXZ');
-    this._tmpQuatAdditive.setFromEuler(this._tmpEuler);
-
-    // Распределяем вращение по позвоночнику (20% грудь, 40% шея, 40% голова)
-    this._tmpQuatChest.identity().slerp(this._tmpQuatAdditive, 0.2);
-    this._tmpQuatNeckHead.identity().slerp(this._tmpQuatAdditive, 0.4);
-
-    if (chest) chest.quaternion.multiply(this._tmpQuatChest);
-    if (neck) neck.quaternion.multiply(this._tmpQuatNeckHead);
-    if (head) head.quaternion.multiply(this._tmpQuatNeckHead);
-  }
-
-  updateDragTilt(delta) {
-    if (!this.currentVrm || !this.currentVrm.humanoid) return;
-
-    // Сглаживаем скорость для инерции (независимо от FPS)
-    const tiltLerpFactor = 1.0 - Math.exp(-12.0 * delta);
-    this.smoothDragVelocity.lerp(this.dragVelocity, tiltLerpFactor);
-
-    // Если скорость упала до нуля, не считаем
-    if (Math.abs(this.smoothDragVelocity.x) < 0.1 && Math.abs(this.smoothDragVelocity.y) < 0.1) {
-      return;
-    }
-
-    // Ограничиваем максимальный наклон
-    const clampSpeed = (val, max) => Math.max(-max, Math.min(max, val));
-
-    // Переводим пиксели/кадр в угол наклона (радианы). 
-    // Чувствительность подбирается экспериментально.
-    // Если тащим вправо (+X экрана), модель должна наклониться ВЛЕВО (инерция).
-    // Положительный поворот по Z = наклон влево.
-    // Если тащим вниз (+Y экрана), модель должна наклониться ВВЕРХ (отклониться назад).
-    // Отрицательный поворот по X = наклон назад.
-    const maxRoll = 0.2; // ~11 градусов
-    const maxPitch = 0.15; // ~8.5 градусов
-    const tiltZ = clampSpeed(this.smoothDragVelocity.x * 0.005, maxRoll);
-    const tiltX = clampSpeed(this.smoothDragVelocity.y * -0.005, maxPitch);
-
-    this._tmpEuler.set(tiltX, 0, tiltZ, 'YXZ');
-    this._tmpQuatAdditive.setFromEuler(this._tmpEuler);
-
-    const chest = this.currentVrm.humanoid.getNormalizedBoneNode('chest');
-    const neck = this.currentVrm.humanoid.getNormalizedBoneNode('neck');
-
-    // Распределяем наклон пополам между спиной и шеей
-    this._tmpQuatChest.identity().slerp(this._tmpQuatAdditive, 0.5);
-
-    if (chest) chest.quaternion.multiply(this._tmpQuatChest);
-    if (neck) neck.quaternion.multiply(this._tmpQuatChest);
-  }
-
-  restoreBaseBoneRotations() {
-    if (!this.baseBonesSaved || !this.currentVrm || !this.currentVrm.humanoid) return;
-
-    const chest = this.currentVrm.humanoid.getNormalizedBoneNode('chest');
-    const neck = this.currentVrm.humanoid.getNormalizedBoneNode('neck');
-    const head = this.currentVrm.humanoid.getNormalizedBoneNode('head');
-
-    // Восстанавливаем состояние до процедурного поворота
-    if (chest) chest.quaternion.copy(this.chestBaseQuat);
-    if (neck) neck.quaternion.copy(this.neckBaseQuat);
-    if (head) head.quaternion.copy(this.headBaseQuat);
-  }
-
   getAvatarTransform() {
     if (!this.currentVrm) {
       throw new Error('A VRM model must be loaded before reading camera state.');

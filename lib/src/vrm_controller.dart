@@ -957,7 +957,7 @@ class VrmController {
     }
   }
 
-  // --- LookAt, Touch & Auto-Blink ---
+  // --- Programmatic gaze & Auto-Blink ---
 
   /// Toggles random auto-blinking generator.
   /// Включает или отключает случайные движения зрачков (саккады).
@@ -969,7 +969,7 @@ class VrmController {
     _sendCommand(VrmProtocolCommand.setAutoBlink, {'enabled': enabled});
   }
 
-  /// Sets 3D LookAt target point on screen.
+  /// Directs the avatar's eyes to an explicit target; taps do not change gaze.
   void setLookAtTarget(Offset screenPosition) {
     if (!screenPosition.dx.isFinite || !screenPosition.dy.isFinite) {
       throw ArgumentError.value(
@@ -985,16 +985,12 @@ class VrmController {
     );
   }
 
-  /// Configures LookAt dead zone X range (default 0.35) and gaze hold duration (default 1.8s).
-  void setLookAtConfig({double? deadZoneX, Duration? holdDuration}) {
-    if (deadZoneX != null) {
-      _requireUnitInterval(deadZoneX, 'deadZoneX');
-    }
+  /// Configures how long an explicit gaze target is held (default 1 second).
+  void setLookAtConfig({Duration? holdDuration}) {
     if (holdDuration != null) {
       _requireNonNegativeDuration(holdDuration, 'holdDuration');
     }
     _sendCommand(VrmProtocolCommand.setLookAtConfig, {
-      'deadZoneX': ?deadZoneX,
       if (holdDuration != null)
         'holdDurationSec': holdDuration.inMilliseconds / 1000.0,
     });

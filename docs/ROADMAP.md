@@ -34,6 +34,8 @@
   Android должен экономить ресурсы;
 - публикация пакета отложена;
 - текущие стабильные версии Three.js/three-vrm пока сохраняются.
+- касания и клики не управляют головой, корпусом или взглядом аватара;
+  `onTap` остаётся информационным событием, pan/zoom сохраняются.
 
 Этот документ является каноническим продолжением плана. Если исторический
 первичный текст будет найден вне Git, его нужно добавить в раздел источников,
@@ -78,7 +80,7 @@ Flutter application
 
 WebView runtime
   └─ main.ts / protocol.ts
-      └─ runner.js           facade, input, lookAt, physics и disposal
+      └─ runner.js           facade, input, physics и disposal
           ├─ motion-transition.ts
           ├─ motion-controller.ts
           ├─ animation-loader.ts
@@ -91,6 +93,7 @@ WebView runtime
           ├─ speech-timeline.ts
           ├─ speech-controller.ts
           ├─ face-controller.ts
+          ├─ gaze-controller.ts
           └─ performance.ts
 ```
 
@@ -113,11 +116,11 @@ WebView runtime
 ### Текущий размер и покрытие
 
 - Flutter library: 32 файла, примерно 5800 строк;
-- web source: 23 файла, примерно 5600 строк;
-- `runner.js`: примерно 870 строк;
+- web source: 24 файла, примерно 5600 строк;
+- `runner.js`: примерно 780 строк;
 - `VrmController`: примерно 1280 строк;
 - Flutter unit tests: 65;
-- web unit tests: 84;
+- web unit tests: 87;
 - один сквозной runtime smoke-сценарий, примерно 388 строк.
 
 Числа нужны как ориентир концентрации ответственности, а не как целевые KPI.
@@ -143,7 +146,7 @@ payload между Dart и web обнаруживается преимущест
 
 ### P1 — два крупных центра ответственности
 
-`runner.js` всё ещё объединяет input, lookAt, physics
+`runner.js` всё ещё объединяет input, physics
 и часть disposal.
 `VrmController` одновременно валидирует
 данные, управляет hosted resources, сериализует protocol payload и предоставляет
@@ -190,7 +193,8 @@ GitHub Actions; Windows smoke запускается. Нужны отдельн�
 ### Stage 26 — contract tests и TypeScript migration
 
 Цель: сделать весь выполняемый web runtime частью строгой типизации, сохранив
-текущее поведение и protocol v3.
+protocol v3. Исключение в поведении по решению пользователя: клик больше не
+поворачивает аватар и не меняет взгляд.
 
 Статус: в работе. Добавлен общий manifest protocol v3, Dart bridge принимает
 только enum-команды, TypeScript проверяет command/event имена и обязательные
@@ -221,8 +225,12 @@ Pose, rest transition, pause/resume и fallback события завершен�
 устаревших запросов и очистка разобранной сцены вынесены в типизированный
 animation loader; замена модели отменяет незавершённую загрузку анимации.
 Передача фонового ресурса, CSS-представление и жизненный цикл Blob URL теперь
-принадлежат типизированному background controller. Следующий срез — lookAt
-и процедурные микродвижения.
+принадлежат типизированному background controller. Программный взгляд и
+автоматические саккады вынесены в типизированный gaze controller. Удалены
+поворот головы и корпуса по клику, связанные raycast и восстановление костей
+каждый кадр; pan/zoom и `onTap` остаются. Регрессия проверена Windows/Android
+smoke-тестом сравнением позы головы и груди. Следующий срез — wind/physics и
+оставшийся input/lifecycle в runner.
 
 Работы:
 

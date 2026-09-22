@@ -53,6 +53,8 @@ export {
   type HumanoidAnimationOptions,
 } from "./humanoid-animation";
 
+export { RuntimeGazeController } from "./gaze-controller";
+
 export {
   AdaptiveQualityController,
   type AdaptiveQualityConfig,

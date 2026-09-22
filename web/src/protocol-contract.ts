@@ -138,7 +138,6 @@ export interface RuntimeCommandPayloadMap {
   };
   readonly setAutoSaccades: { readonly enabled: boolean };
   readonly setLookAtConfig: {
-    readonly deadZoneX?: number;
     readonly holdDurationSec?: number;
   };
   readonly setCameraMode: { readonly mode: string };
