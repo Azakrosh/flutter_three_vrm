@@ -80,7 +80,7 @@ Flutter application
 
 WebView runtime
   └─ main.ts / protocol.ts
-      └─ runner.js           facade, input и disposal
+      └─ runner.js           facade, render lifecycle и disposal
           ├─ motion-transition.ts
           ├─ motion-controller.ts
           ├─ animation-loader.ts
@@ -95,6 +95,7 @@ WebView runtime
           ├─ face-controller.ts
           ├─ gaze-controller.ts
           ├─ wind-physics-controller.ts
+          ├─ pointer-controller.ts
           └─ performance.ts
 ```
 
@@ -117,12 +118,12 @@ WebView runtime
 ### Текущий размер и покрытие
 
 - Flutter library: 32 файла, примерно 5800 строк;
-- web source: 25 файлов, примерно 5600 строк;
-- `runner.js`: примерно 670 строк;
+- web source: 26 файлов, примерно 5600 строк;
+- `runner.js`: примерно 620 строк;
 - `VrmController`: примерно 1280 строк;
 - Flutter unit tests: 65;
-- web unit tests: 91;
-- один сквозной runtime smoke-сценарий, примерно 426 строк.
+- web unit tests: 95;
+- один сквозной runtime smoke-сценарий, примерно 435 строк.
 
 Числа нужны как ориентир концентрации ответственности, а не как целевые KPI.
 
@@ -147,8 +148,7 @@ Dart. Для них ещё нужны точные codecs и contract tests.
 
 ### P1 — два крупных центра ответственности
 
-`runner.js` всё ещё объединяет input
-и часть disposal.
+`runner.js` всё ещё объединяет render lifecycle и часть disposal.
 `VrmController` одновременно валидирует
 данные, управляет hosted resources, сериализует protocol payload и предоставляет
 публичный API. Любое изменение затрагивает слишком большой контекст.
@@ -233,7 +233,10 @@ animation loader; замена модели отменяет незавершё�
 smoke-тестом сравнением позы головы и груди. Множители spring-bone и
 покадровое моделирование ветра вынесены в типизированный wind/physics
 controller; настройка физических параметров больше не теряется при временно
-выключенной симуляции. Следующий срез — оставшийся input/lifecycle в runner.
+выключенной симуляции. Обработка primary pointer, tap/drag/cancel и привязка
+listeners к заменяемому canvas вынесены в типизированный pointer controller.
+Поведение проверено Windows/Android smoke-тестом, включая renderer recreation.
+Следующий срез — render lifecycle/disposal в runner.
 
 Работы:
 

@@ -72,6 +72,15 @@ void main() {
     expect((await controller.getRuntimeHealth()).contextLost, isFalse);
     await controller.setGraphicsPreset(VrmGraphicsPreset.balanced);
     expect((await controller.getRuntimeHealth()).contextLost, isFalse);
+    final tapAfterRendererRecreation = controller.onTap.first;
+    await tester.tapAt(
+      Offset(
+        avatarRect.left + avatarRect.width * 0.2,
+        avatarRect.top + avatarRect.height * 0.3,
+      ),
+    );
+    await tapAfterRendererRecreation.timeout(const Duration(seconds: 5));
+    debugPrint('runtime_smoke: tap survives renderer recreation');
 
     await controller.setGraphicsSettings(enablePhysics: false);
     controller.setPhysics(stiffness: 1.1, gravity: 1.2, drag: 0.9);

@@ -1,5 +1,4 @@
 import {
-  THREE,
   createRuntimeCommandDispatcher,
   getRuntimeInfo,
   isRuntimeCanceledError,
@@ -9,6 +8,7 @@ import {
   RuntimeFaceController,
   RuntimeGazeController,
   RuntimeWindPhysicsController,
+  RuntimePointerController,
   RuntimeMotionController,
   RuntimeCameraController,
   RuntimeSceneController,
@@ -78,20 +78,11 @@ class VrmRunner {
         this.notifyFlutter('onSpeechFinished', { sessionId }),
     });
 
-    // Custom Camera Panning
-    this.isDragging = false;
-    this.dragStartPoint = new THREE.Vector2();
-    this.controlsStartPos = new THREE.Vector3();
-
     // Graphics and Performance state
     this._isRenderingPaused = false;
     this._animationFrameId = null;
     this._isDisposed = false;
-    this._pointerEventCanvas = null;
     this._onWindowResize = () => this.onWindowResize();
-    this._onPointerDown = (event) => this.onPointerDown(event);
-    this._onPointerMove = (event) => this.onPointerMove(event);
-    this._onPointerUp = (event) => this.onPointerUp(event);
     this._onControlsStart = () => {
       this.cameraController.markCustomTransform();
     };
@@ -103,6 +94,15 @@ class VrmRunner {
     this._detachRuntimeBridge = null;
 
     this.initScene();
+    this.pointerController = new RuntimePointerController({
+      camera: this.cameraController,
+      getControlsTarget: () => this.controls.target,
+      getModelHeight: () => this.modelBoundingHeight || 1.6,
+      hasModel: () => Boolean(this.currentVrm),
+      getViewport: () => ({ width: window.innerWidth, height: window.innerHeight }),
+      onTap: (x, y) => this.notifyFlutter('onTap', { x, y }),
+      onCameraChanged: () => this.notifyCameraChanged(true),
+    });
     this.backgroundController = new RuntimeBackgroundController({
       style: document.body.style,
       setCanvasBackground: (colorHex, transparent) =>
@@ -186,69 +186,13 @@ class VrmRunner {
   initEvents() {
     window.addEventListener('resize', this._onWindowResize);
     window.addEventListener('pagehide', this._onPageHide);
-    this.attachPointerEvents();
+    this.pointerController.attach(this.renderer.domElement);
 
     this._detachRuntimeBridge = installRuntimeBridge({
       executeCommand: createRuntimeCommandDispatcher(this),
       dispose: () => this.dispose(),
       isDisposed: () => this._isDisposed,
     });
-  }
-
-  onPointerDown(e) {
-    if (e.isPrimary) {
-      this.isDragging = true;
-      this.dragStartPoint.set(e.clientX, e.clientY);
-      this.controlsStartPos.copy(this.controls.target);
-    }
-  }
-
-  onPointerMove(e) {
-    if (!this.isDragging || !e.isPrimary) return;
-    this.cameraController.setConstrainedPanTarget({
-      deltaX: e.clientX - this.dragStartPoint.x,
-      deltaY: e.clientY - this.dragStartPoint.y,
-      viewportWidth: window.innerWidth,
-      viewportHeight: window.innerHeight,
-      startTarget: this.controlsStartPos,
-      modelHeight: this.modelBoundingHeight || 1.6,
-    });
-  }
-
-  onPointerUp(e) {
-    if (!e.isPrimary) return;
-
-    if (this.isDragging) {
-      this.isDragging = false;
-
-      // Check if it was a tap or a drag (dist < 10 pixels is a tap)
-      const dist = Math.hypot(e.clientX - this.dragStartPoint.x, e.clientY - this.dragStartPoint.y);
-      if (dist < 10 && e.type === 'pointerup' && this.currentVrm) {
-        this.notifyFlutter('onTap', { x: e.clientX, y: e.clientY });
-      } else if (this.cameraController.mode === 'constrained') {
-        this.notifyCameraChanged(true);
-      }
-    }
-  }
-
-  attachPointerEvents() {
-    this.detachPointerEvents();
-    const domElement = this.renderer.domElement;
-    this._pointerEventCanvas = domElement;
-    domElement.addEventListener('pointerdown', this._onPointerDown);
-    domElement.addEventListener('pointermove', this._onPointerMove);
-    domElement.addEventListener('pointerup', this._onPointerUp);
-    domElement.addEventListener('pointercancel', this._onPointerUp);
-  }
-
-  detachPointerEvents() {
-    const domElement = this._pointerEventCanvas;
-    if (!domElement) return;
-    domElement.removeEventListener('pointerdown', this._onPointerDown);
-    domElement.removeEventListener('pointermove', this._onPointerMove);
-    domElement.removeEventListener('pointerup', this._onPointerUp);
-    domElement.removeEventListener('pointercancel', this._onPointerUp);
-    this._pointerEventCanvas = null;
   }
 
   onWindowResize() {
@@ -562,13 +506,13 @@ class VrmRunner {
 
   _recreateRenderer(antialias) {
     if (this._isDisposed) return;
-    this.detachPointerEvents();
+    this.pointerController.detach();
     try {
       if (this.sceneController.recreateRenderer(antialias)) {
         this.cameraController.replaceControls(this.controls);
       }
     } finally {
-      this.attachPointerEvents();
+      this.pointerController.attach(this.renderer.domElement);
     }
   }
 
@@ -586,7 +530,7 @@ class VrmRunner {
     this._detachRuntimeBridge = null;
 
     if (this.currentVrm) this.unloadModel();
-    this.detachPointerEvents();
+    this.pointerController.detach();
     this.sceneController.dispose();
   }
 
