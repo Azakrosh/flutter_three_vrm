@@ -3,7 +3,11 @@ import type {
   RuntimeRecord,
 } from "./protocol-contract";
 import type { CommandEnvelope } from "./protocol";
-import type { SpeechTimeline } from "./speech-timeline";
+import type {
+  SpeechAmplitudeFrame,
+  SpeechTimeline,
+  SpeechVisemeFrame,
+} from "./speech-timeline";
 import type { RuntimeGazeController } from "./gaze-controller";
 
 export type RuntimeCommandDispatcher = (
@@ -60,11 +64,11 @@ export interface RuntimeCommandHost {
   beginSpeech(payload: RuntimeCommandPayload<"beginSpeech">): boolean;
   appendSpeechVisemes(
     sessionId: string,
-    frames: readonly RuntimeRecord[],
+    frames: readonly SpeechVisemeFrame[],
   ): void;
   appendSpeechAmplitudes(
     sessionId: string,
-    frames: readonly RuntimeRecord[],
+    frames: readonly SpeechAmplitudeFrame[],
   ): void;
   finishSpeech(sessionId: string, audioDurationMs: number): void;
   cancelSpeech(sessionId?: string): void;

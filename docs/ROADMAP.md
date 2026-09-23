@@ -245,7 +245,11 @@ pause/dispose игнорируются.
 одного cleanup-шага не блокирует последующие. В Stage 26.20 оставшийся facade
 перенесён из `runner.js` в `runner.ts`, явно реализует `RuntimeCommandHost`
 и входит в строгую TypeScript-проверку. Следующий срез — точные codecs для
-оставшихся `RuntimeRecord`/`unknown` payload и result.
+оставшихся `RuntimeRecord`/`unknown` payload и result. В Stage 26.21
+streaming speech получил точные типы mode/viseme/amplitude frames и отдельный
+boundary codec: вложенные frames, диапазоны, timestamps, revision и optional
+поля отклоняются до dispatcher; небезопасные casts между facade и speech
+controller удалены. Следующий codec-срез — Pose, camera и graphics payload/result.
 
 Работы:
 

@@ -1,3 +1,16 @@
+import type {
+  RuntimeSpeechAmplitudeBatch,
+  RuntimeSpeechBegin,
+  RuntimeSpeechVisemeBatch,
+} from "./speech-controller";
+import {
+  findSpeechCommandPayloadError,
+} from "./speech-protocol-codec";
+import type {
+  SpeechAmplitudeFrame,
+  SpeechVisemeFrame,
+} from "./speech-timeline";
+
 export const runtimeCommandNames = [
   "loadModelFromUrl",
   "cancelModelLoad",
@@ -103,24 +116,20 @@ export interface RuntimeCommandPayloadMap {
     readonly weight: number;
     readonly speechRevision: number;
   };
-  readonly enqueueSpeechVisemes: SpeechCommandBase & {
-    readonly mode: "viseme";
-    readonly frames: readonly RuntimeRecord[];
+  readonly enqueueSpeechVisemes: RuntimeSpeechVisemeBatch & {
     readonly audioDurationMs?: number;
   };
-  readonly enqueueSpeechAmplitudes: SpeechCommandBase & {
-    readonly mode: "amplitude";
-    readonly frames: readonly RuntimeRecord[];
+  readonly enqueueSpeechAmplitudes: RuntimeSpeechAmplitudeBatch & {
     readonly audioDurationMs?: number;
   };
-  readonly beginSpeech: SpeechCommandBase;
+  readonly beginSpeech: RuntimeSpeechBegin;
   readonly appendSpeechVisemes: {
     readonly sessionId: string;
-    readonly frames: readonly RuntimeRecord[];
+    readonly frames: readonly SpeechVisemeFrame[];
   };
   readonly appendSpeechAmplitudes: {
     readonly sessionId: string;
-    readonly frames: readonly RuntimeRecord[];
+    readonly frames: readonly SpeechAmplitudeFrame[];
   };
   readonly finishSpeech: {
     readonly sessionId: string;
@@ -170,13 +179,6 @@ export interface RuntimeCommandPayloadMap {
   readonly setAdaptiveQuality: { readonly settings: RuntimeRecord };
   readonly getPerformanceSnapshot: RuntimeRecord;
   readonly setRenderQuality: { readonly pixelRatio: number };
-}
-
-interface SpeechCommandBase {
-  readonly sessionId: string;
-  readonly mode: string;
-  readonly timelineOriginEpochMs: number;
-  readonly speechRevision: number;
 }
 
 export type RuntimeCommandPayload<
@@ -289,7 +291,7 @@ export function findRuntimeCommandPayloadError(
       return `Command payload ${action}.${field} must be ${article} ${kind}.`;
     }
   }
-  return null;
+  return findSpeechCommandPayloadError(action, payload);
 }
 
 function matchesFieldKind(value: unknown, kind: RequiredFieldKind): boolean {

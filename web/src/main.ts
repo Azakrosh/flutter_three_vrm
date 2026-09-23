@@ -83,13 +83,17 @@ export {
 
 export {
   SpeechTimeline,
+  isSpeechVisemeName,
+  type SpeechTimelineMode,
   type SpeechAmplitudeFrame,
   type SpeechTimelineBeginOptions,
-  type SpeechTimelineMode,
   type SpeechTimelineUpdate,
   type SpeechVisemeFrame,
+  type SpeechVisemeName,
   type SpeechVisemeUpdate,
 } from "./speech-timeline";
+
+export { findSpeechCommandPayloadError } from "./speech-protocol-codec";
 
 export {
   RuntimeSpeechController,

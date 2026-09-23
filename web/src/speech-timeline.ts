@@ -1,4 +1,5 @@
 export type SpeechTimelineMode = "viseme" | "amplitude";
+export type SpeechVisemeName = "aa" | "ih" | "ou" | "ee" | "oh" | "sil";
 
 export interface SpeechTimelineBeginOptions {
   readonly sessionId: string;
@@ -9,7 +10,7 @@ export interface SpeechTimelineBeginOptions {
 }
 
 export interface SpeechVisemeFrame {
-  readonly viseme: string;
+  readonly viseme: SpeechVisemeName;
   readonly weight?: number;
   readonly timestampMs: number;
   readonly durationMs: number;
@@ -22,7 +23,7 @@ export interface SpeechAmplitudeFrame {
 }
 
 export interface SpeechVisemeUpdate {
-  readonly viseme: string;
+  readonly viseme: SpeechVisemeName;
   readonly weight: number;
   readonly durationMs: number;
 }
@@ -49,7 +50,18 @@ interface QueuedAmplitudeFrame {
 
 type QueuedSpeechFrame = QueuedVisemeFrame | QueuedAmplitudeFrame;
 
-const visemeNames = new Set(["aa", "ih", "ou", "ee", "oh", "sil"]);
+const visemeNames: ReadonlySet<string> = new Set([
+  "aa",
+  "ih",
+  "ou",
+  "ee",
+  "oh",
+  "sil",
+]);
+
+export function isSpeechVisemeName(value: unknown): value is SpeechVisemeName {
+  return typeof value === "string" && visemeNames.has(value);
+}
 
 /**
  * Schedules speech data against a monotonic clock.
@@ -121,7 +133,7 @@ export class SpeechTimeline {
       const timestampMs = readNonNegative(frame.timestampMs, "timestampMs");
       const durationMs = readNonNegative(frame.durationMs, "durationMs");
       const weight = readUnitValue(frame.weight ?? 1, "weight");
-      if (!visemeNames.has(frame.viseme)) {
+      if (!isSpeechVisemeName(frame.viseme)) {
         throw new TypeError(`Unknown speech viseme: ${String(frame.viseme)}.`);
       }
       this.queue.push({

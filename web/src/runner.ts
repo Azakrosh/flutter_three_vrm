@@ -447,49 +447,33 @@ class VrmRunner implements RuntimeCommandHost {
   public enqueueSpeechVisemes(
     payload: RuntimeCommandPayload<"enqueueSpeechVisemes">,
   ): void {
-    this.speechController.enqueueVisemes({
-      ...payload,
-      frames: payload.frames as readonly unknown[] as readonly SpeechVisemeFrame[],
-    });
+    this.speechController.enqueueVisemes(payload);
   }
 
   public enqueueSpeechAmplitudes(
     payload: RuntimeCommandPayload<"enqueueSpeechAmplitudes">,
   ): void {
-    this.speechController.enqueueAmplitudes({
-      ...payload,
-      frames: payload.frames as readonly unknown[] as readonly SpeechAmplitudeFrame[],
-    });
+    this.speechController.enqueueAmplitudes(payload);
   }
 
   public beginSpeech(
     payload: RuntimeCommandPayload<"beginSpeech">,
   ): boolean {
-    return this.speechController.begin(
-      payload as RuntimeCommandPayload<"beginSpeech"> & {
-        readonly mode: "viseme" | "amplitude";
-      },
-    );
+    return this.speechController.begin(payload);
   }
 
   public appendSpeechVisemes(
     sessionId: string,
-    frames: readonly RuntimeRecord[],
+    frames: readonly SpeechVisemeFrame[],
   ): void {
-    this.speechController.appendVisemes(
-      sessionId,
-      frames as readonly unknown[] as readonly SpeechVisemeFrame[],
-    );
+    this.speechController.appendVisemes(sessionId, frames);
   }
 
   public appendSpeechAmplitudes(
     sessionId: string,
-    frames: readonly RuntimeRecord[],
+    frames: readonly SpeechAmplitudeFrame[],
   ): void {
-    this.speechController.appendAmplitudes(
-      sessionId,
-      frames as readonly unknown[] as readonly SpeechAmplitudeFrame[],
-    );
+    this.speechController.appendAmplitudes(sessionId, frames);
   }
 
   public finishSpeech(sessionId: string, audioDurationMs: number): void {
