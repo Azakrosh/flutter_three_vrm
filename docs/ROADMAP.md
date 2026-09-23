@@ -267,9 +267,13 @@ payload-типы и единый boundary codec с проверкой enum-зн�
 generic event map на всём пути runner -> protocol -> platform transport;
 model-report и performance events проверяются на полноту перед отправкой.
 Дополнительно `sil` в speech timeline закрывает рот как пауза, не создавая
-несуществующую VRM expression. Следующий срез — заменить `RuntimeRecord` у
-команд без payload точным empty-object контрактом и типизировать response
-envelope по query-команде.
+несуществующую VRM expression. В Stage 26.25 все 11 команд без аргументов
+получили точный empty-object контракт и отклоняют неожиданные поля на runtime
+boundary. Результат dispatcher теперь вычисляется из имени команды: query
+возвращают свои доменные типы, а mutation-команды — только `null`; success и
+response envelope больше не хранят `unknown`. Следующий срез — строгая
+доменная проверка event payload на web boundary и отказ от fallback-значений в
+Dart event decoder.
 
 Работы:
 

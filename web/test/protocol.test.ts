@@ -8,6 +8,7 @@ import {
   protocolVersion,
   success,
 } from "../src/protocol";
+import { runtimeEmptyPayloadCommandNames } from "../src/protocol-contract";
 
 describe("bridge protocol", () => {
   it("parses a valid command", () => {
@@ -80,6 +81,18 @@ describe("bridge protocol", () => {
       }),
     );
   });
+
+  it.each(runtimeEmptyPayloadCommandNames)(
+    "accepts only an empty payload for %s",
+    (action) => {
+      expect(structuredCommand(action, {}).payload).toEqual({});
+      expect(() => structuredCommand(action, { unexpected: true }))
+        .toThrowError(expect.objectContaining({
+          code: "invalidPayload",
+          message: `Command payload ${action} must be empty.`,
+        }));
+    },
+  );
 
   it("rejects missing or mistyped required payload fields", () => {
     expect(() =>

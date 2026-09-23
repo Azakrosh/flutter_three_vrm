@@ -22,6 +22,7 @@ export {
   type CommandEnvelope,
   type EventEnvelope,
   type ResponseEnvelope,
+  type RuntimeCommandResponse,
 } from "./protocol";
 
 export {
@@ -30,11 +31,15 @@ export {
   isRuntimeCommandName,
   isRuntimeEventName,
   runtimeCommandNames,
+  runtimeEmptyPayloadCommandNames,
   runtimeEventNames,
   type RuntimeCommandName,
   type RuntimeCommandPayload,
   type RuntimeCommandPayloadMap,
   type RuntimeCommandRequest,
+  type RuntimeCommandResult,
+  type RuntimeEmptyPayload,
+  type RuntimeEmptyPayloadCommandName,
   type RuntimeEventName,
   type RuntimeEventPayload,
   type RuntimeEventPayloadMap,

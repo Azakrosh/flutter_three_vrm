@@ -100,25 +100,43 @@ export const runtimeCommandNames = [
 
 export type RuntimeCommandName = (typeof runtimeCommandNames)[number];
 export type RuntimeRecord = Readonly<Record<string, unknown>>;
+export type RuntimeEmptyPayload = Readonly<Record<string, never>>;
+
+export const runtimeEmptyPayloadCommandNames = [
+  "cancelModelLoad",
+  "getModelReport",
+  "getRuntimeHealth",
+  "cancelAnimationLoad",
+  "pauseAnimation",
+  "pauseRendering",
+  "resumeRendering",
+  "getPose",
+  "getTransform",
+  "stopWind",
+  "getPerformanceSnapshot",
+] as const satisfies readonly RuntimeCommandName[];
+
+export type RuntimeEmptyPayloadCommandName =
+  (typeof runtimeEmptyPayloadCommandNames)[number];
 
 export interface RuntimeCommandPayloadMap {
   readonly loadModelFromUrl: { readonly url: string };
-  readonly cancelModelLoad: RuntimeRecord;
-  readonly getModelReport: RuntimeRecord;
-  readonly getRuntimeHealth: RuntimeRecord;
+  readonly cancelModelLoad: RuntimeEmptyPayload;
+  readonly getModelReport: RuntimeEmptyPayload;
+  readonly getRuntimeHealth: RuntimeEmptyPayload;
   readonly unloadModel: { readonly speechRevision: number };
   readonly playAnimationFromUrl: {
     readonly url: string;
     readonly options: RuntimeAnimationOptions;
   };
-  readonly cancelAnimationLoad: RuntimeRecord;
-  readonly pauseAnimation: RuntimeRecord;
+  readonly cancelAnimationLoad: RuntimeEmptyPayload;
+  readonly pauseAnimation: RuntimeEmptyPayload;
   readonly resumeAnimation: { readonly speed: number };
-  readonly pauseRendering: RuntimeRecord;
-  readonly resumeRendering: RuntimeRecord;
+  readonly pauseRendering: RuntimeEmptyPayload;
+  readonly resumeRendering: RuntimeEmptyPayload;
   readonly stopAnimation: { readonly fadeDuration: number };
   readonly setAnimationSpeed: { readonly speed: number };
-  readonly getPose: RuntimeRecord;
+  readonly getPose: RuntimeEmptyPayload;
   readonly setPose: {
     readonly pose: RuntimePose;
     readonly fadeDuration: number;
@@ -167,12 +185,12 @@ export interface RuntimeCommandPayloadMap {
   readonly setLookAtConfig: RuntimeLookAtConfig;
   readonly setCameraMode: { readonly mode: RuntimeCameraMode };
   readonly resetCamera: { readonly durationMs: number };
-  readonly getTransform: RuntimeRecord;
+  readonly getTransform: RuntimeEmptyPayload;
   readonly setTransform: { readonly transform: RuntimeCameraTransform };
   readonly setLighting: RuntimeLightingConfig;
   readonly setBackground: RuntimeBackgroundConfig;
   readonly setPhysics: RuntimePhysicsConfig;
-  readonly stopWind: RuntimeRecord;
+  readonly stopWind: RuntimeEmptyPayload;
   readonly setWind: RuntimeWindConfig;
   readonly setEnvironmentColor: RuntimeEnvironmentColorConfig;
   readonly setGraphicsSettings: { readonly settings: RuntimeGraphicsSettings };
@@ -180,7 +198,7 @@ export interface RuntimeCommandPayloadMap {
   readonly setAdaptiveQuality: {
     readonly settings: Partial<AdaptiveQualityConfig>;
   };
-  readonly getPerformanceSnapshot: RuntimeRecord;
+  readonly getPerformanceSnapshot: RuntimeEmptyPayload;
   readonly setRenderQuality: { readonly pixelRatio: number };
 }
 
@@ -200,14 +218,25 @@ export type RuntimeTypedQueryName = keyof RuntimeTypedQueryResultMap;
 export type RuntimeTypedQueryResult<Name extends RuntimeTypedQueryName> =
   RuntimeTypedQueryResultMap[Name];
 
-export type RuntimeCommandRequest = {
-  readonly [Name in RuntimeCommandName]: {
+export type RuntimeCommandResult<
+  Name extends RuntimeCommandName = RuntimeCommandName,
+> = Name extends RuntimeTypedQueryName
+  ? RuntimeTypedQueryResultMap[Name]
+  : null;
+
+export type RuntimeCommandRequest<
+  Name extends RuntimeCommandName = RuntimeCommandName,
+> = Name extends RuntimeCommandName
+  ? {
     readonly action: Name;
     readonly payload: RuntimeCommandPayload<Name>;
-  };
-}[RuntimeCommandName];
+  }
+  : never;
 
 const runtimeCommandNameSet = new Set<string>(runtimeCommandNames);
+const runtimeEmptyPayloadCommandNameSet = new Set<RuntimeCommandName>(
+  runtimeEmptyPayloadCommandNames,
+);
 
 export function isRuntimeCommandName(value: string): value is RuntimeCommandName {
   return runtimeCommandNameSet.has(value);
@@ -295,6 +324,12 @@ export function findRuntimeCommandPayloadError(
   action: RuntimeCommandName,
   payload: RuntimeRecord,
 ): string | null {
+  if (
+    runtimeEmptyPayloadCommandNameSet.has(action) &&
+    Object.keys(payload).length !== 0
+  ) {
+    return `Command payload ${action} must be empty.`;
+  }
   const fields =
     requiredCommandFields[action as keyof typeof requiredCommandFields];
   if (fields !== undefined) {
@@ -357,7 +392,7 @@ export interface RuntimeEventPayloadMap {
     readonly total: number;
   };
   readonly onModelReport: RuntimeModelReport;
-  readonly onModelUnloaded: Readonly<Record<string, never>>;
+  readonly onModelUnloaded: RuntimeEmptyPayload;
   readonly onAnimationStarted: {
     readonly name: string;
     readonly playbackId: string;

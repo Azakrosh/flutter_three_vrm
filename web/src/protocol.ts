@@ -2,7 +2,9 @@ import {
   findRuntimeEventPayloadError,
   findRuntimeCommandPayloadError,
   isRuntimeCommandName,
+  type RuntimeCommandName,
   type RuntimeCommandRequest,
+  type RuntimeCommandResult,
   type RuntimeEventName,
   type RuntimeEventPayload,
 } from "./protocol-contract";
@@ -15,14 +17,16 @@ interface CommandEnvelopeBase {
   readonly type: "command";
 }
 
-export type CommandEnvelope = CommandEnvelopeBase & RuntimeCommandRequest;
+export type CommandEnvelope<
+  Name extends RuntimeCommandName = RuntimeCommandName,
+> = CommandEnvelopeBase & RuntimeCommandRequest<Name>;
 
-export interface SuccessEnvelope {
+export interface SuccessEnvelope<Result = RuntimeCommandResult> {
   readonly version: typeof protocolVersion;
   readonly id: string;
   readonly type: "response";
   readonly ok: true;
-  readonly result: unknown;
+  readonly result: Result;
 }
 
 export interface FailureEnvelope {
@@ -46,8 +50,12 @@ export interface EventEnvelope<
   readonly payload: RuntimeEventPayload<Name>;
 }
 
-export type ResponseEnvelope = SuccessEnvelope | FailureEnvelope;
+export type ResponseEnvelope<Result = RuntimeCommandResult> =
+  SuccessEnvelope<Result> | FailureEnvelope;
 export type OutgoingEnvelope = ResponseEnvelope | EventEnvelope;
+
+export type RuntimeCommandResponse<Name extends RuntimeCommandName> =
+  ResponseEnvelope<RuntimeCommandResult<Name>>;
 
 export function parseCommand(value: string): CommandEnvelope {
   const decoded: unknown = JSON.parse(value);
@@ -101,7 +109,10 @@ export function parseCommand(value: string): CommandEnvelope {
   } as CommandEnvelope;
 }
 
-export function success(id: string, result: unknown = null): SuccessEnvelope {
+export function success<Result>(
+  id: string,
+  result: Result,
+): SuccessEnvelope<Result> {
   return { version: protocolVersion, id, type: "response", ok: true, result };
 }
 

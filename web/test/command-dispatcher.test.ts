@@ -1,10 +1,15 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import {
   createRuntimeCommandDispatcher,
   type RuntimeCommandHost,
 } from "../src/command-dispatcher";
-import { parseCommand, protocolVersion } from "../src/protocol";
+import {
+  parseCommand,
+  protocolVersion,
+  type CommandEnvelope,
+} from "../src/protocol";
+import type { RuntimeCommandResult } from "../src/protocol-contract";
 
 describe("runtime command dispatcher", () => {
   it("routes typed payloads to the runtime host", async () => {
@@ -50,6 +55,33 @@ describe("runtime command dispatcher", () => {
     await expect(dispatch(command("getPose", {}))).rejects.toThrow(
       "Load a VRM model before using the Pose API.",
     );
+  });
+
+  it("preserves command-specific result types", async () => {
+    const dispatch = createRuntimeCommandDispatcher(createHost());
+    const healthCommand: CommandEnvelope<"getRuntimeHealth"> = {
+      version: protocolVersion,
+      id: "typed-health",
+      type: "command",
+      action: "getRuntimeHealth",
+      payload: {},
+    };
+    const pauseCommand: CommandEnvelope<"pauseAnimation"> = {
+      version: protocolVersion,
+      id: "typed-pause",
+      type: "command",
+      action: "pauseAnimation",
+      payload: {},
+    };
+
+    expectTypeOf(dispatch(healthCommand)).toEqualTypeOf<
+      Promise<RuntimeCommandResult<"getRuntimeHealth">>
+    >();
+    expectTypeOf(dispatch(pauseCommand)).toEqualTypeOf<Promise<null>>();
+    await expect(dispatch(healthCommand)).resolves.toEqual(
+      expect.objectContaining({ protocolVersion: 3 }),
+    );
+    await expect(dispatch(pauseCommand)).resolves.toBeNull();
   });
 
   it("does not apply stale speech commands", async () => {

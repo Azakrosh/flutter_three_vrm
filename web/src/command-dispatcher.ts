@@ -1,5 +1,7 @@
 import type {
+  RuntimeCommandName,
   RuntimeCommandPayload,
+  RuntimeCommandResult,
 } from "./protocol-contract";
 import type { CommandEnvelope } from "./protocol";
 import type {
@@ -30,9 +32,9 @@ import type {
   RuntimeWindType,
 } from "./interaction-protocol-codec";
 
-export type RuntimeCommandDispatcher = (
-  command: CommandEnvelope,
-) => Promise<unknown>;
+export type RuntimeCommandDispatcher = <Name extends RuntimeCommandName>(
+  command: CommandEnvelope<Name>,
+) => Promise<RuntimeCommandResult<Name>>;
 
 /**
  * The narrow surface that command routing may use on the runtime facade.
@@ -120,7 +122,9 @@ export interface RuntimeCommandHost {
 export function createRuntimeCommandDispatcher(
   host: RuntimeCommandHost,
 ): RuntimeCommandDispatcher {
-  return async (command): Promise<unknown> => {
+  const dispatch = async (
+    command: CommandEnvelope,
+  ): Promise<RuntimeCommandResult> => {
     switch (command.action) {
       case "loadModelFromUrl":
         await host.loadModelFromUrl(command.payload.url);
@@ -366,6 +370,7 @@ export function createRuntimeCommandDispatcher(
         return assertNever(command);
     }
   };
+  return dispatch as RuntimeCommandDispatcher;
 }
 
 function requireSpeechRevision(value: number | undefined): number {

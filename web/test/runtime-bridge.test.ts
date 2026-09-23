@@ -13,9 +13,20 @@ describe("runtime bridge", () => {
         action: "getRuntimeHealth",
         payload: {},
       }),
-      (command) => ({
-        action: command.action,
-        payload: command.payload,
+      () => ({
+        runtimeVersion: "test",
+        threeRevision: "180",
+        threeVrmVersion: "3.5.5",
+        protocolVersion: 3,
+        webGlVersion: 2,
+        maxTextureSize: 4096,
+        maxTextures: 16,
+        maxVertexTextures: 16,
+        modelLoaded: false,
+        animationActive: false,
+        animationPaused: false,
+        renderingPaused: false,
+        contextLost: false,
       }),
     );
 
@@ -24,7 +35,7 @@ describe("runtime bridge", () => {
       id: "health-1",
       type: "response",
       ok: true,
-      result: { action: "getRuntimeHealth", payload: {} },
+      result: expect.objectContaining({ protocolVersion: 3 }),
     });
   });
 
