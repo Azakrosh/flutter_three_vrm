@@ -44,10 +44,11 @@ final class VrmRuntimeHealth {
 
     int integer(String name) {
       final field = value[name];
-      if (field case final num number when number.isFinite) {
+      if (field case final num number
+          when number.isFinite && number == number.truncateToDouble()) {
         return number.toInt();
       }
-      throw FormatException('$name must be a finite number.');
+      throw FormatException('$name must be a finite integer.');
     }
 
     bool boolean(String name) {

@@ -252,6 +252,93 @@ describe("bridge protocol", () => {
     },
   );
 
+  it("decodes valid animation and lighting payloads", () => {
+    expect(
+      structuredCommand("playAnimationFromUrl", {
+        url: "https://example.test/wave.vrma",
+        options: {
+          playbackId: "animation-1",
+          clipName: "Wave",
+          rootMotion: "inPlace",
+          loop: false,
+          speed: 1.25,
+          fadeDuration: 0.2,
+        },
+      }).payload,
+    ).toEqual(expect.objectContaining({
+      options: expect.objectContaining({ playbackId: "animation-1" }),
+    }));
+    expect(
+      structuredCommand("setLighting", {
+        ambientColor: "#ffffff",
+        ambientIntensity: 0.8,
+        directionalColor: "#ffeecc",
+        directionalIntensity: 1.2,
+      }).payload,
+    ).toEqual(expect.objectContaining({ ambientIntensity: 0.8 }));
+  });
+
+  it.each([
+    [
+      "playAnimationFromUrl",
+      {
+        url: "https://example.test/wave.vrma",
+        options: { speed: 1 },
+      },
+      "Command payload playAnimationFromUrl is invalid: playbackId must be a non-empty string.",
+    ],
+    [
+      "playAnimationFromUrl",
+      {
+        url: "https://example.test/wave.vrma",
+        options: { playbackId: "animation-1", speed: 0 },
+      },
+      "Command payload playAnimationFromUrl is invalid: speed must be a positive finite number.",
+    ],
+    [
+      "playAnimationFromUrl",
+      {
+        url: "https://example.test/wave.vrma",
+        options: {
+          playbackId: "animation-1",
+          rootMotion: "teleport",
+        },
+      },
+      "Command payload playAnimationFromUrl is invalid: rootMotion must be inPlace or full.",
+    ],
+    [
+      "playAnimationFromUrl",
+      {
+        url: "https://example.test/wave.vrma",
+        options: {
+          playbackId: "animation-1",
+          fadeDuration: -0.1,
+        },
+      },
+      "Command payload playAnimationFromUrl is invalid: fadeDuration must be a non-negative finite number.",
+    ],
+    [
+      "setLighting",
+      { ambientIntensity: -1 },
+      "Command payload setLighting is invalid: ambientIntensity must be a non-negative finite number.",
+    ],
+    [
+      "setLighting",
+      { directionalColor: "" },
+      "Command payload setLighting is invalid: directionalColor must be a non-empty string.",
+    ],
+  ])(
+    "rejects malformed animation or lighting payload for %s",
+    (action, payload, message) => {
+      expect(() => structuredCommand(action, payload)).toThrowError(
+        expect.objectContaining({
+          code: "invalidPayload",
+          message,
+        }),
+      );
+    },
+  );
+
   it("decodes valid Pose, camera, and graphics payloads", () => {
     expect(
       structuredCommand("setPose", {

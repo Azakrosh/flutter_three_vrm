@@ -38,5 +38,20 @@ void main() {
       () => VrmModelReport.fromJson(const <String, Object>{}),
       throwsFormatException,
     );
+    expect(
+      () => VrmModelReport.fromJson(<String, Object>{
+        'name': '',
+        'vrmVersion': '1.0',
+      }),
+      throwsFormatException,
+    );
+    expect(
+      () => VrmModelReport.fromJson(<String, Object>{
+        'name': 'Avatar',
+        'vrmVersion': '1.0',
+        'sourceBytes': -1,
+      }),
+      throwsFormatException,
+    );
   });
 }

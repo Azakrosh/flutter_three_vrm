@@ -27,6 +27,29 @@ void main() {
       expect(restored.rootMotion, VrmRootMotion.full);
       expect(restored.clipName, 'Talking');
     });
+
+    test('rejects malformed wire values and invalid direct options', () {
+      expect(
+        () => VrmAnimationOptions.fromJson(<String, dynamic>{
+          'rootMotion': 'teleport',
+        }),
+        throwsFormatException,
+      );
+      expect(
+        () => VrmAnimationOptions.fromJson(<String, dynamic>{
+          'speed': 'fast',
+        }),
+        throwsFormatException,
+      );
+      expect(
+        () => const VrmAnimationOptions(speed: 0).toJson(),
+        throwsArgumentError,
+      );
+      expect(
+        () => const VrmAnimationOptions(clipName: ' ').toJson(),
+        throwsArgumentError,
+      );
+    });
   });
 
   group('VrmAnimationPlayback', () {

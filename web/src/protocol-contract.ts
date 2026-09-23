@@ -24,6 +24,13 @@ import {
   findPoseCameraGraphicsPayloadError,
 } from "./pose-camera-graphics-codec";
 import type { RuntimePose } from "./pose";
+import {
+  findAnimationLightingPayloadError,
+} from "./animation-lighting-codec";
+import type { RuntimeAnimationOptions } from "./motion-controller";
+import type { RuntimeModelReport } from "./model-report";
+import type { RuntimeHealth } from "./runtime-health";
+import type { RuntimeLightingConfig } from "./scene-controller";
 
 export const runtimeCommandNames = [
   "loadModelFromUrl",
@@ -88,7 +95,7 @@ export interface RuntimeCommandPayloadMap {
   readonly unloadModel: { readonly speechRevision: number };
   readonly playAnimationFromUrl: {
     readonly url: string;
-    readonly options: RuntimeRecord;
+    readonly options: RuntimeAnimationOptions;
   };
   readonly cancelAnimationLoad: RuntimeRecord;
   readonly pauseAnimation: RuntimeRecord;
@@ -167,7 +174,7 @@ export interface RuntimeCommandPayloadMap {
   readonly resetCamera: { readonly durationMs: number };
   readonly getTransform: RuntimeRecord;
   readonly setTransform: { readonly transform: RuntimeCameraTransform };
-  readonly setLighting: RuntimeRecord;
+  readonly setLighting: RuntimeLightingConfig;
   readonly setBackground: {
     readonly color: string;
     readonly imageUrl?: string | null;
@@ -202,6 +209,8 @@ export type RuntimeCommandPayload<
 > = RuntimeCommandPayloadMap[Name];
 
 export interface RuntimeTypedQueryResultMap {
+  readonly getModelReport: RuntimeModelReport;
+  readonly getRuntimeHealth: RuntimeHealth;
   readonly getPose: RuntimePose;
   readonly getTransform: RuntimeCameraTransform;
   readonly getPerformanceSnapshot: RuntimePerformanceSnapshot;
@@ -308,17 +317,18 @@ export function findRuntimeCommandPayloadError(
 ): string | null {
   const fields =
     requiredCommandFields[action as keyof typeof requiredCommandFields];
-  if (fields === undefined) return null;
-
-  for (const [field, kind] of Object.entries(fields)) {
-    const value = payload[field];
-    if (!matchesFieldKind(value, kind)) {
-      const article = kind === "array" ? "an" : "a";
-      return `Command payload ${action}.${field} must be ${article} ${kind}.`;
+  if (fields !== undefined) {
+    for (const [field, kind] of Object.entries(fields)) {
+      const value = payload[field];
+      if (!matchesFieldKind(value, kind)) {
+        const article = kind === "array" ? "an" : "a";
+        return `Command payload ${action}.${field} must be ${article} ${kind}.`;
+      }
     }
   }
   return findSpeechCommandPayloadError(action, payload) ??
-    findPoseCameraGraphicsPayloadError(action, payload);
+    findPoseCameraGraphicsPayloadError(action, payload) ??
+    findAnimationLightingPayloadError(action, payload);
 }
 
 function matchesFieldKind(value: unknown, kind: RequiredFieldKind): boolean {

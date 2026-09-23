@@ -62,6 +62,12 @@ describe("runtime scene controller", () => {
       directionalIntensity: 1.7,
       directionalColor: "#fedcba",
     });
+    expect(() =>
+      controller.setLighting({ ambientIntensity: -1 })
+    ).toThrow("ambientIntensity");
+    expect(() =>
+      controller.setLighting({ directionalColor: "" })
+    ).toThrow("directionalColor");
     controller.setEnvironmentColor("#ff0000", 0.5);
     expect(controller.ambientLight.intensity).toBe(0.8);
     expect(controller.directionalLight.intensity).toBe(1.7);

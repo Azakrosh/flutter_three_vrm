@@ -84,6 +84,9 @@ export {
   RuntimeMotionController,
   type RuntimeMotionDependencies,
   type RuntimeMotionEvent,
+  type RuntimeAnimationOptions,
+  type ParsedRuntimeAnimationOptions,
+  parseRuntimeAnimationOptions,
 } from "./motion-controller";
 
 export {
@@ -102,6 +105,9 @@ export { findSpeechCommandPayloadError } from "./speech-protocol-codec";
 export {
   findPoseCameraGraphicsPayloadError,
 } from "./pose-camera-graphics-codec";
+export {
+  findAnimationLightingPayloadError,
+} from "./animation-lighting-codec";
 
 export {
   RuntimeSpeechController,
@@ -174,10 +180,13 @@ export {
 
 export {
   RuntimeSceneController,
+  parseRuntimeLightingConfig,
   type RuntimeLightingConfig,
   type RuntimeSceneControllerOptions,
   type RuntimeViewport,
 } from "./scene-controller";
+
+export { type RuntimeHealth } from "./runtime-health";
 
 export {
   RuntimeBackgroundController,

@@ -28,12 +28,13 @@ import type {
   RuntimeGraphicsSettings,
   RuntimeGraphicsPreset,
   RuntimeLightingConfig,
+  RuntimeAnimationOptions,
   RuntimeCameraMode,
   RuntimeCameraTransform,
   RuntimePerformanceSnapshot,
   RuntimePose,
   AdaptiveQualityConfig,
-  RuntimeRecord,
+  RuntimeHealth,
 } from "./main";
 import type { RuntimeFrame } from "./frame-scheduler";
 import type {
@@ -328,7 +329,7 @@ class VrmRunner implements RuntimeCommandHost {
   get modelReport() {
     return this.modelSession?.modelReport ?? null;
   }
-  public getRuntimeHealth(): RuntimeRecord {
+  public getRuntimeHealth(): RuntimeHealth {
     const runtimeInfo = getRuntimeInfo();
     const capabilities = this.renderer?.capabilities;
     return {
@@ -364,7 +365,7 @@ class VrmRunner implements RuntimeCommandHost {
   }
   public async playAnimationFromUrl(
     url: string,
-    options: RuntimeRecord = {},
+    options: RuntimeAnimationOptions,
   ): Promise<void> {
     if (!this.currentVrm || !this.mixer) {
       throw new Error('Load a VRM model before playing an animation.');
@@ -523,8 +524,8 @@ class VrmRunner implements RuntimeCommandHost {
     }
   }
 
-  public setLighting(config: RuntimeRecord): void {
-    this.sceneController.setLighting(config as RuntimeLightingConfig);
+  public setLighting(config: RuntimeLightingConfig): void {
+    this.sceneController.setLighting(config);
   }
 
 

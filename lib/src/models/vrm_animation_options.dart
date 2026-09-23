@@ -51,25 +51,75 @@ final class VrmAnimationOptions {
   final String? clipName;
 
   factory VrmAnimationOptions.fromJson(Map<String, dynamic> json) {
+    final loop = json['loop'];
+    final speed = json['speed'];
+    final fadeDuration = json['fadeDuration'];
+    final rootMotion = json['rootMotion'];
+    final clipName = json['clipName'];
+    if (loop != null && loop is! bool) {
+      throw const FormatException('loop must be a boolean.');
+    }
+    if (speed != null && (speed is! num || !speed.isFinite || speed <= 0)) {
+      throw const FormatException('speed must be positive and finite.');
+    }
+    if (fadeDuration != null &&
+        (fadeDuration is! num ||
+            !fadeDuration.isFinite ||
+            fadeDuration < 0)) {
+      throw const FormatException(
+        'fadeDuration must be non-negative and finite.',
+      );
+    }
+    if (rootMotion != null &&
+        rootMotion != VrmRootMotion.inPlace.name &&
+        rootMotion != VrmRootMotion.full.name) {
+      throw const FormatException('rootMotion must be inPlace or full.');
+    }
+    if (clipName != null &&
+        (clipName is! String || clipName.trim().isEmpty)) {
+      throw const FormatException('clipName must be a non-empty string.');
+    }
     return VrmAnimationOptions(
-      loop: json['loop'] as bool? ?? true,
-      speed: (json['speed'] as num?)?.toDouble() ?? 1,
-      fadeDuration: (json['fadeDuration'] as num?)?.toDouble() ?? 0.5,
-      rootMotion: VrmRootMotion.values.firstWhere(
-        (value) => value.name == json['rootMotion'],
-        orElse: () => VrmRootMotion.inPlace,
-      ),
-      clipName: json['clipName'] as String?,
+      loop: loop as bool? ?? true,
+      speed: (speed as num?)?.toDouble() ?? 1,
+      fadeDuration: (fadeDuration as num?)?.toDouble() ?? 0.5,
+      rootMotion: rootMotion == VrmRootMotion.full.name
+          ? VrmRootMotion.full
+          : VrmRootMotion.inPlace,
+      clipName: clipName as String?,
     );
   }
 
-  Map<String, dynamic> toJson() => <String, dynamic>{
-    'loop': loop,
-    'speed': speed,
-    'fadeDuration': fadeDuration,
-    'rootMotion': rootMotion.name,
-    if (clipName != null) 'clipName': clipName,
-  };
+  void validate() {
+    if (!speed.isFinite || speed <= 0) {
+      throw ArgumentError.value(speed, 'speed', 'Must be positive and finite.');
+    }
+    if (!fadeDuration.isFinite || fadeDuration < 0) {
+      throw ArgumentError.value(
+        fadeDuration,
+        'fadeDuration',
+        'Must be non-negative and finite.',
+      );
+    }
+    if (clipName case final name? when name.trim().isEmpty) {
+      throw ArgumentError.value(
+        clipName,
+        'clipName',
+        'Must not be empty.',
+      );
+    }
+  }
+
+  Map<String, dynamic> toJson() {
+    validate();
+    return <String, dynamic>{
+      'loop': loop,
+      'speed': speed,
+      'fadeDuration': fadeDuration,
+      'rootMotion': rootMotion.name,
+      if (clipName != null) 'clipName': clipName,
+    };
+  }
 
   VrmAnimationOptions copyWith({
     bool? loop,

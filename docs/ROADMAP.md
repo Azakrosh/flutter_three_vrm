@@ -255,8 +255,14 @@ graphics/adaptive settings переведены
 повторно используются на protocol boundary, поэтому неизвестные кости, неверные
 quaternion/transform, режимы камеры и renderer-настройки отклоняются до
 dispatcher. Dart codecs также запрещают нечисловые Pose-компоненты, нулевой
-quaternion и дробные целочисленные поля performance telemetry. Следующий срез —
-animation options, lighting и оставшиеся runtime health/model report results.
+quaternion и дробные целочисленные поля performance telemetry. В Stage 26.23
+animation options и lighting получили точные payload-типы и
+общие domain/boundary parsers. Команды с полностью optional payload больше не
+обходят вложенные codecs из-за раннего возврата общего валидатора. Runtime
+health и model report добавлены в typed query-result map; Dart строго проверяет
+целочисленные capability/diagnostic поля, обязательные строки и диапазоны.
+Следующий срез — точные expression/gaze/physics/wind/background payload и
+event payload map.
 
 Работы:
 

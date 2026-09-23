@@ -38,6 +38,13 @@ void main() {
         () => VrmRuntimeHealth.fromJson(<String, Object>{'runtimeVersion': ''}),
         throwsFormatException,
       );
+      expect(
+        () => VrmRuntimeHealth.fromJson(<String, Object>{
+          'runtimeVersion': 'test',
+          'protocolVersion': 3.5,
+        }),
+        throwsFormatException,
+      );
     });
   });
 

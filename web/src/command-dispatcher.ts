@@ -1,6 +1,5 @@
 import type {
   RuntimeCommandPayload,
-  RuntimeRecord,
 } from "./protocol-contract";
 import type { CommandEnvelope } from "./protocol";
 import type {
@@ -20,6 +19,10 @@ import type {
 } from "./graphics-controller";
 import type { AdaptiveQualityConfig } from "./performance";
 import type { RuntimePose } from "./pose";
+import type { RuntimeAnimationOptions } from "./motion-controller";
+import type { RuntimeModelReport } from "./model-report";
+import type { RuntimeHealth } from "./runtime-health";
+import type { RuntimeLightingConfig } from "./scene-controller";
 
 export type RuntimeCommandDispatcher = (
   command: CommandEnvelope,
@@ -31,7 +34,7 @@ export type RuntimeCommandDispatcher = (
  * renderer implementation while the runner facade is migrated module by module.
  */
 export interface RuntimeCommandHost {
-  modelReport: unknown | null;
+  modelReport: RuntimeModelReport | null;
   speechTimeline: Pick<SpeechTimeline, "acceptInputRevision">;
   customBlendShapes: Map<string, number>;
   gazeController: Pick<
@@ -43,9 +46,12 @@ export interface RuntimeCommandHost {
 
   loadModelFromUrl(url: string): Promise<void>;
   cancelModelLoad(): void;
-  getRuntimeHealth(): unknown;
+  getRuntimeHealth(): RuntimeHealth;
   unloadModel(): void;
-  playAnimationFromUrl(url: string, options: RuntimeRecord): Promise<void>;
+  playAnimationFromUrl(
+    url: string,
+    options: RuntimeAnimationOptions,
+  ): Promise<void>;
   cancelAnimationLoad(): void;
   pauseRendering(): void;
   resumeRendering(): void;
@@ -87,7 +93,7 @@ export interface RuntimeCommandHost {
   resetCamera(durationMs: number): void;
   getAvatarTransform(): RuntimeCameraTransform;
   setAvatarTransform(transform: RuntimeCameraTransform): void;
-  setLighting(config: RuntimeRecord): void;
+  setLighting(config: RuntimeLightingConfig): void;
   setBackground(
     color: string,
     imageUrl: string | null | undefined,

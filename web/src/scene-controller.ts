@@ -27,6 +27,37 @@ export interface RuntimeLightingConfig {
   readonly directionalColor?: string;
 }
 
+export function parseRuntimeLightingConfig(
+  value: unknown,
+): RuntimeLightingConfig {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new TypeError("Lighting settings must be an object.");
+  }
+  const config = value as Readonly<Record<string, unknown>>;
+  const ambientIntensity = readOptionalNonNegativeNumber(
+    config.ambientIntensity,
+    "ambientIntensity",
+  );
+  const directionalIntensity = readOptionalNonNegativeNumber(
+    config.directionalIntensity,
+    "directionalIntensity",
+  );
+  const ambientColor = readOptionalNonEmptyString(
+    config.ambientColor,
+    "ambientColor",
+  );
+  const directionalColor = readOptionalNonEmptyString(
+    config.directionalColor,
+    "directionalColor",
+  );
+  return {
+    ...(ambientIntensity === undefined ? {} : { ambientIntensity }),
+    ...(ambientColor === undefined ? {} : { ambientColor }),
+    ...(directionalIntensity === undefined ? {} : { directionalIntensity }),
+    ...(directionalColor === undefined ? {} : { directionalColor }),
+  };
+}
+
 export interface RuntimeSceneControllerOptions {
   readonly container: HTMLElement;
   readonly lookAtTarget: Object3D;
@@ -181,6 +212,7 @@ export class RuntimeSceneController {
   }
 
   public setLighting(config: RuntimeLightingConfig): void {
+    config = parseRuntimeLightingConfig(config);
     if (config.ambientIntensity !== undefined) {
       this.ambientLight.intensity = config.ambientIntensity;
     }
@@ -357,6 +389,28 @@ export class RuntimeSceneController {
       markMaterialForUpdate(mesh.material);
     });
   }
+}
+
+function readOptionalNonNegativeNumber(
+  value: unknown,
+  field: string,
+): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    throw new TypeError(`${field} must be a non-negative finite number.`);
+  }
+  return value;
+}
+
+function readOptionalNonEmptyString(
+  value: unknown,
+  field: string,
+): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new TypeError(`${field} must be a non-empty string.`);
+  }
+  return value;
 }
 
 function defaultViewport(): RuntimeViewport {

@@ -17,7 +17,76 @@ import {
   getNormalizedPose,
   type RuntimePose,
 } from "./pose";
-import type { RuntimeRecord } from "./protocol-contract";
+
+export interface RuntimeAnimationOptions {
+  readonly playbackId: string;
+  readonly clipName?: string;
+  readonly rootMotion?: "inPlace" | "full";
+  readonly loop?: boolean;
+  readonly speed?: number;
+  readonly fadeDuration?: number;
+}
+
+export interface ParsedRuntimeAnimationOptions {
+  readonly playbackId: string;
+  readonly clipName?: string;
+  readonly rootMotion: "inPlace" | "full";
+  readonly loop: boolean;
+  readonly speed: number;
+  readonly fadeDuration: number;
+}
+
+export function parseRuntimeAnimationOptions(
+  value: unknown,
+): ParsedRuntimeAnimationOptions {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new TypeError("Animation options must be an object.");
+  }
+  const options = value as Readonly<Record<string, unknown>>;
+  const playbackId = options.playbackId;
+  if (typeof playbackId !== "string" || playbackId.trim().length === 0) {
+    throw new TypeError("playbackId must be a non-empty string.");
+  }
+  const clipName = options.clipName;
+  if (
+    clipName !== undefined &&
+    (typeof clipName !== "string" || clipName.trim().length === 0)
+  ) {
+    throw new TypeError("clipName must be a non-empty string.");
+  }
+  const rootMotion = options.rootMotion ?? "inPlace";
+  if (rootMotion !== "inPlace" && rootMotion !== "full") {
+    throw new TypeError("rootMotion must be inPlace or full.");
+  }
+  const loop = options.loop ?? true;
+  if (typeof loop !== "boolean") {
+    throw new TypeError("loop must be a boolean.");
+  }
+  const speed = options.speed ?? 1;
+  if (
+    typeof speed !== "number" ||
+    !Number.isFinite(speed) ||
+    speed <= 0
+  ) {
+    throw new TypeError("speed must be a positive finite number.");
+  }
+  const fadeDuration = options.fadeDuration ?? 0.5;
+  if (
+    typeof fadeDuration !== "number" ||
+    !Number.isFinite(fadeDuration) ||
+    fadeDuration < 0
+  ) {
+    throw new TypeError("fadeDuration must be a non-negative finite number.");
+  }
+  return {
+    playbackId,
+    ...(clipName === undefined ? {} : { clipName }),
+    rootMotion,
+    loop,
+    speed,
+    fadeDuration,
+  };
+}
 
 export interface RuntimeMotionEvent {
   readonly name: string;
@@ -61,37 +130,23 @@ export class RuntimeMotionController {
     this.pendingRestPoseReset = false;
   }
 
-  public playLoadedAnimation(gltf: GLTF, options: RuntimeRecord): void {
-    const playbackId = options.playbackId;
-    if (typeof playbackId !== "string" || playbackId.length === 0) {
-      throw new TypeError("playbackId must be a non-empty string.");
-    }
+  public playLoadedAnimation(
+    gltf: GLTF,
+    rawOptions: unknown,
+  ): void {
+    const {
+      playbackId,
+      clipName,
+      rootMotion,
+      loop,
+      speed,
+      fadeDuration,
+    } = parseRuntimeAnimationOptions(rawOptions);
     const vrm = this.dependencies.getVrm();
     const transitions = this.dependencies.getTransitions();
     if (!vrm || !transitions) {
       throw new Error("Animation mixer is not initialized.");
     }
-    const clipName = options.clipName;
-    if (clipName != null && typeof clipName !== "string") {
-      throw new TypeError("clipName must be a string.");
-    }
-    const rootMotion = options.rootMotion ?? "inPlace";
-    if (rootMotion !== "inPlace" && rootMotion !== "full") {
-      throw new TypeError("rootMotion must be inPlace or full.");
-    }
-    const loop = options.loop ?? true;
-    if (typeof loop !== "boolean") {
-      throw new TypeError("loop must be a boolean.");
-    }
-    const speed = options.speed || 1;
-    if (typeof speed !== "number") {
-      throw new TypeError("speed must be a positive finite number.");
-    }
-    const fadeDuration = options.fadeDuration ?? 0.5;
-    if (typeof fadeDuration !== "number") {
-      throw new TypeError("fadeDuration must be a non-negative finite number.");
-    }
-
     let clip: AnimationClip | null = null;
     const vrmAnimations = gltf.userData.vrmAnimations as VRMAnimation[] | undefined;
     if (vrmAnimations && vrmAnimations.length > 0) {

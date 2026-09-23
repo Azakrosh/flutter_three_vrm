@@ -22,12 +22,31 @@ describe("runtime command dispatcher", () => {
 
   it("returns query results and preserves missing-model errors", async () => {
     const host = createHost();
-    host.modelReport = { version: "1.0" };
+    host.modelReport = {
+      name: "Test",
+      vrmVersion: "1.0",
+      sourceBytes: 1,
+      height: 1.6,
+      meshes: 1,
+      skinnedMeshes: 1,
+      geometries: 1,
+      materials: 1,
+      textures: 1,
+      texturePixels: 1,
+      estimatedTextureMemoryBytes: 4,
+      maxTextureWidth: 1,
+      maxTextureHeight: 1,
+      vertices: 3,
+      triangles: 1,
+      morphTargets: 0,
+      humanoidBones: 1,
+      springBoneJoints: 0,
+    };
     const dispatch = createRuntimeCommandDispatcher(host);
 
-    await expect(dispatch(command("getModelReport", {}))).resolves.toEqual({
-      version: "1.0",
-    });
+    await expect(dispatch(command("getModelReport", {}))).resolves.toEqual(
+      expect.objectContaining({ vrmVersion: "1.0" }),
+    );
     await expect(dispatch(command("getPose", {}))).rejects.toThrow(
       "Load a VRM model before using the Pose API.",
     );
@@ -96,7 +115,21 @@ function createHost(): RuntimeCommandHost {
     autoBlinkEnabled: true,
     loadModelFromUrl: vi.fn(async () => undefined),
     cancelModelLoad: vi.fn(),
-    getRuntimeHealth: vi.fn(() => ({})),
+    getRuntimeHealth: vi.fn(() => ({
+      runtimeVersion: "test",
+      threeRevision: "180",
+      threeVrmVersion: "3.5.5",
+      protocolVersion: 3,
+      webGlVersion: 2 as const,
+      maxTextureSize: 4096,
+      maxTextures: 16,
+      maxVertexTextures: 16,
+      modelLoaded: false,
+      animationActive: false,
+      animationPaused: false,
+      renderingPaused: false,
+      contextLost: false,
+    })),
     unloadModel: vi.fn(),
     playAnimationFromUrl: vi.fn(async () => undefined),
     cancelAnimationLoad: vi.fn(),

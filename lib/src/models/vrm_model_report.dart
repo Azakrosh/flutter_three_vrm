@@ -51,19 +51,28 @@ final class VrmModelReport {
     }
     int integer(String name) {
       final component = value[name];
-      if (component case final num number when number.isFinite) {
+      if (component case final num number
+          when number.isFinite &&
+              number == number.truncateToDouble() &&
+              number >= 0) {
         return number.toInt();
       }
-      throw FormatException('$name must be a finite number.');
+      throw FormatException('$name must be a non-negative finite integer.');
+    }
+
+    String string(String name) {
+      final component = value[name];
+      if (component is String && component.isNotEmpty) return component;
+      throw FormatException('$name must be a non-empty string.');
     }
 
     final rawHeight = value['height'];
-    if (rawHeight is! num || !rawHeight.isFinite) {
-      throw const FormatException('height must be a finite number.');
+    if (rawHeight is! num || !rawHeight.isFinite || rawHeight <= 0) {
+      throw const FormatException('height must be a positive finite number.');
     }
     return VrmModelReport(
-      name: value['name'] as String? ?? 'VRM Model',
-      vrmVersion: value['vrmVersion'] as String? ?? '1.0',
+      name: string('name'),
+      vrmVersion: string('vrmVersion'),
       sourceBytes: integer('sourceBytes'),
       height: rawHeight.toDouble(),
       meshes: integer('meshes'),
