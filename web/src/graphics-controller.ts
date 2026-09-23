@@ -9,6 +9,47 @@ export interface RuntimeGraphicsSettings {
   readonly pixelRatio?: number;
 }
 
+export type RuntimeGraphicsPreset = "performance" | "balanced" | "quality";
+
+export function parseRuntimeGraphicsSettings(
+  value: unknown,
+): RuntimeGraphicsSettings {
+  if (value == null) return {};
+  if (typeof value !== "object" || Array.isArray(value)) {
+    throw new TypeError("Graphics settings must be an object.");
+  }
+  const settings = value as Readonly<Record<string, unknown>>;
+  const { antialias, enablePhysics, fpsCap, pixelRatio } = settings;
+  if (antialias !== undefined && typeof antialias !== "boolean") {
+    throw new TypeError("antialias must be a boolean.");
+  }
+  if (enablePhysics !== undefined && typeof enablePhysics !== "boolean") {
+    throw new TypeError("enablePhysics must be a boolean.");
+  }
+  if (
+    fpsCap !== undefined &&
+    (typeof fpsCap !== "number" || !Number.isFinite(fpsCap) || fpsCap < 0)
+  ) {
+    throw new TypeError("fpsCap must be zero or a positive finite number.");
+  }
+  if (
+    pixelRatio !== undefined &&
+    (
+      typeof pixelRatio !== "number" ||
+      !Number.isFinite(pixelRatio) ||
+      pixelRatio <= 0
+    )
+  ) {
+    throw new TypeError("pixelRatio must be a positive finite number.");
+  }
+  return {
+    ...(antialias === undefined ? {} : { antialias }),
+    ...(enablePhysics === undefined ? {} : { enablePhysics }),
+    ...(fpsCap === undefined ? {} : { fpsCap }),
+    ...(pixelRatio === undefined ? {} : { pixelRatio }),
+  };
+}
+
 export interface RuntimePerformanceSnapshot {
   readonly fps: number;
   readonly frameTimeMs: number;
@@ -91,20 +132,12 @@ export class RuntimeGraphicsController {
 
   public setSettings(settings: RuntimeGraphicsSettings | null | undefined): void {
     if (settings == null) return;
-    const { antialias, enablePhysics, fpsCap, pixelRatio } = settings;
-    // Validate the complete request before mutating any settings.
-    if (antialias !== undefined && typeof antialias !== "boolean") {
-      throw new TypeError("antialias must be a boolean.");
-    }
-    if (enablePhysics !== undefined && typeof enablePhysics !== "boolean") {
-      throw new TypeError("enablePhysics must be a boolean.");
-    }
-    if (fpsCap !== undefined && (!Number.isFinite(fpsCap) || fpsCap < 0)) {
-      throw new TypeError("fpsCap must be zero or a positive finite number.");
-    }
-    if (pixelRatio !== undefined && (!Number.isFinite(pixelRatio) || pixelRatio <= 0)) {
-      throw new TypeError("pixelRatio must be a positive finite number.");
-    }
+    const {
+      antialias,
+      enablePhysics,
+      fpsCap,
+      pixelRatio,
+    } = parseRuntimeGraphicsSettings(settings);
 
     if (antialias !== undefined && antialias !== this.dependencies.scene.antialias) {
       this.dependencies.recreateRenderer(antialias);

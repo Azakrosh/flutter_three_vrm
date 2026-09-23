@@ -26,7 +26,13 @@ import type {
   RuntimeCommandPayload,
   RuntimeEventName,
   RuntimeGraphicsSettings,
+  RuntimeGraphicsPreset,
   RuntimeLightingConfig,
+  RuntimeCameraMode,
+  RuntimeCameraTransform,
+  RuntimePerformanceSnapshot,
+  RuntimePose,
+  AdaptiveQualityConfig,
   RuntimeRecord,
 } from "./main";
 import type { RuntimeFrame } from "./frame-scheduler";
@@ -377,11 +383,11 @@ class VrmRunner implements RuntimeCommandHost {
     }
   }
 
-  public getPose(): unknown {
+  public getPose(): RuntimePose {
     return this.motionController.getPose();
   }
 
-  public setPose(pose: RuntimeRecord, fadeDuration: number): void {
+  public setPose(pose: RuntimePose, fadeDuration: number): void {
     this.motionController.setPose(pose, fadeDuration);
   }
 
@@ -503,7 +509,7 @@ class VrmRunner implements RuntimeCommandHost {
    * Устанавливает режим управления камерой (characterCreator или free)
    * @param {string} mode Режим камеры
    */
-  public setCameraMode(mode: string): void {
+  public setCameraMode(mode: RuntimeCameraMode): void {
     this.cameraController.setMode(mode);
   }
 
@@ -556,19 +562,21 @@ class VrmRunner implements RuntimeCommandHost {
     this.setGraphicsSettings({ pixelRatio: pixelRatio });
   }
 
-  public setGraphicsSettings(settings: RuntimeRecord): void {
-    this.graphicsController.setSettings(settings as RuntimeGraphicsSettings);
+  public setGraphicsSettings(settings: RuntimeGraphicsSettings): void {
+    this.graphicsController.setSettings(settings);
   }
 
-  public setGraphicsPreset(preset: string): void {
+  public setGraphicsPreset(preset: RuntimeGraphicsPreset): void {
     this.graphicsController.setPreset(preset);
   }
 
-  public setAdaptiveQuality(settings: RuntimeRecord): void {
+  public setAdaptiveQuality(
+    settings: Partial<AdaptiveQualityConfig>,
+  ): void {
     this.graphicsController.setAdaptiveQuality(settings);
   }
 
-  public getPerformanceSnapshot() {
+  public getPerformanceSnapshot(): RuntimePerformanceSnapshot {
     return this.graphicsController.getSnapshot();
   }
 
@@ -628,7 +636,7 @@ class VrmRunner implements RuntimeCommandHost {
     this.graphicsController.recordFrame(now);
   }
 
-  public getAvatarTransform() {
+  public getAvatarTransform(): RuntimeCameraTransform {
     if (!this.currentVrm) {
       throw new Error('A VRM model must be loaded before reading camera state.');
     }
@@ -643,7 +651,7 @@ class VrmRunner implements RuntimeCommandHost {
     });
   }
 
-  public setAvatarTransform(data: RuntimeRecord): void {
+  public setAvatarTransform(data: RuntimeCameraTransform): void {
     this.cameraController.setTransform(data);
   }
 

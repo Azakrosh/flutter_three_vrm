@@ -13,6 +13,28 @@ export interface RuntimeCameraTransform {
   readonly zoom: number;
 }
 
+export function parseRuntimeCameraTransform(
+  value: unknown,
+): RuntimeCameraTransform {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new TypeError("Camera transform must be an object.");
+  }
+  const transform = value as Record<string, unknown>;
+  const { x, y, zoom } = transform;
+  if (
+    typeof x !== "number" ||
+    typeof y !== "number" ||
+    typeof zoom !== "number" ||
+    ![x, y, zoom].every(Number.isFinite)
+  ) {
+    throw new TypeError("Camera transform components must be finite numbers.");
+  }
+  if (zoom <= 0) {
+    throw new TypeError("Camera transform zoom must be positive.");
+  }
+  return { x, y, zoom };
+}
+
 export interface RuntimeCameraControls {
   readonly target: Vector3;
   enabled: boolean;
@@ -245,19 +267,7 @@ export class RuntimeCameraController {
   }
 
   public setTransform(value: unknown): void {
-    if (typeof value !== "object" || value === null || Array.isArray(value)) {
-      throw new TypeError("Camera transform must be an object.");
-    }
-    const transform = value as Record<string, unknown>;
-    const x = Number(transform.x);
-    const y = Number(transform.y);
-    const zoom = Number(transform.zoom);
-    if (![x, y, zoom].every(Number.isFinite)) {
-      throw new TypeError("Camera transform components must be finite numbers.");
-    }
-    if (zoom <= 0) {
-      throw new TypeError("Camera transform zoom must be positive.");
-    }
+    const { x, y, zoom } = parseRuntimeCameraTransform(value);
 
     this.animating = false;
     this.customTransform = true;

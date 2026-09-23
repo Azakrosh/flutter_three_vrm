@@ -10,6 +10,20 @@ import type {
   SpeechAmplitudeFrame,
   SpeechVisemeFrame,
 } from "./speech-timeline";
+import type {
+  RuntimeCameraMode,
+  RuntimeCameraTransform,
+} from "./camera-controller";
+import type {
+  RuntimeGraphicsPreset,
+  RuntimeGraphicsSettings,
+  RuntimePerformanceSnapshot,
+} from "./graphics-controller";
+import type { AdaptiveQualityConfig } from "./performance";
+import {
+  findPoseCameraGraphicsPayloadError,
+} from "./pose-camera-graphics-codec";
+import type { RuntimePose } from "./pose";
 
 export const runtimeCommandNames = [
   "loadModelFromUrl",
@@ -85,7 +99,7 @@ export interface RuntimeCommandPayloadMap {
   readonly setAnimationSpeed: { readonly speed: number };
   readonly getPose: RuntimeRecord;
   readonly setPose: {
-    readonly pose: RuntimeRecord;
+    readonly pose: RuntimePose;
     readonly fadeDuration: number;
   };
   readonly resetPose: { readonly fadeDuration: number };
@@ -149,10 +163,10 @@ export interface RuntimeCommandPayloadMap {
   readonly setLookAtConfig: {
     readonly holdDurationSec?: number;
   };
-  readonly setCameraMode: { readonly mode: string };
+  readonly setCameraMode: { readonly mode: RuntimeCameraMode };
   readonly resetCamera: { readonly durationMs: number };
   readonly getTransform: RuntimeRecord;
-  readonly setTransform: { readonly transform: RuntimeRecord };
+  readonly setTransform: { readonly transform: RuntimeCameraTransform };
   readonly setLighting: RuntimeRecord;
   readonly setBackground: {
     readonly color: string;
@@ -174,9 +188,11 @@ export interface RuntimeCommandPayloadMap {
     readonly color: string;
     readonly intensity: number;
   };
-  readonly setGraphicsSettings: { readonly settings: RuntimeRecord };
-  readonly setGraphicsPreset: { readonly preset: string };
-  readonly setAdaptiveQuality: { readonly settings: RuntimeRecord };
+  readonly setGraphicsSettings: { readonly settings: RuntimeGraphicsSettings };
+  readonly setGraphicsPreset: { readonly preset: RuntimeGraphicsPreset };
+  readonly setAdaptiveQuality: {
+    readonly settings: Partial<AdaptiveQualityConfig>;
+  };
   readonly getPerformanceSnapshot: RuntimeRecord;
   readonly setRenderQuality: { readonly pixelRatio: number };
 }
@@ -184,6 +200,16 @@ export interface RuntimeCommandPayloadMap {
 export type RuntimeCommandPayload<
   Name extends RuntimeCommandName = RuntimeCommandName,
 > = RuntimeCommandPayloadMap[Name];
+
+export interface RuntimeTypedQueryResultMap {
+  readonly getPose: RuntimePose;
+  readonly getTransform: RuntimeCameraTransform;
+  readonly getPerformanceSnapshot: RuntimePerformanceSnapshot;
+}
+
+export type RuntimeTypedQueryName = keyof RuntimeTypedQueryResultMap;
+export type RuntimeTypedQueryResult<Name extends RuntimeTypedQueryName> =
+  RuntimeTypedQueryResultMap[Name];
 
 export type RuntimeCommandRequest = {
   readonly [Name in RuntimeCommandName]: {
@@ -291,7 +317,8 @@ export function findRuntimeCommandPayloadError(
       return `Command payload ${action}.${field} must be ${article} ${kind}.`;
     }
   }
-  return findSpeechCommandPayloadError(action, payload);
+  return findSpeechCommandPayloadError(action, payload) ??
+    findPoseCameraGraphicsPayloadError(action, payload);
 }
 
 function matchesFieldKind(value: unknown, kind: RequiredFieldKind): boolean {

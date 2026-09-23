@@ -12,7 +12,11 @@ import type { GLTF } from "three/addons/loaders/GLTFLoader.js";
 
 import { createHumanoidAnimationClip } from "./humanoid-animation";
 import type { MotionTransitionController } from "./motion-transition";
-import { createNormalizedPoseClip, getNormalizedPose } from "./pose";
+import {
+  createNormalizedPoseClip,
+  getNormalizedPose,
+  type RuntimePose,
+} from "./pose";
 import type { RuntimeRecord } from "./protocol-contract";
 
 export interface RuntimeMotionEvent {
@@ -135,7 +139,7 @@ export class RuntimeMotionController {
     return getNormalizedPose(this.dependencies.getVrm());
   }
 
-  public setPose(pose: unknown, fadeDuration: number): void {
+  public setPose(pose: RuntimePose, fadeDuration: number): void {
     const vrm = this.dependencies.getVrm();
     const transitions = this.dependencies.getTransitions();
     if (!vrm || !transitions) {

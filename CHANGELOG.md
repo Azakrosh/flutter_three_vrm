@@ -25,6 +25,7 @@
 - Move resize/pagehide listeners and ordered, idempotent resource cleanup into a tested TypeScript page lifecycle controller.
 - Move the remaining runtime facade and frame orchestration from `runner.js` to a strictly checked TypeScript entrypoint implementing the protocol command host.
 - Add exact streaming-speech payload types and nested protocol-boundary validation for modes, revisions, viseme/amplitude frames, timing, and optional fields.
+- Add exact Pose, camera-transform, and graphics command/query types with shared domain parsers at the protocol boundary; harden Dart Pose and performance-result codecs.
 - Keep Android hidden-lifecycle smoke polling independent of a rendered frame so model recovery cannot stall the test harness.
 - Scope animation lifecycle events and queues to opaque playback IDs so unrelated or replaced animations cannot advance a queue.
 - Enforce transform, adaptive-quality, recovery, and model-performance configuration contracts in release builds instead of relying on debug-only asserts.

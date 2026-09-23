@@ -37,6 +37,18 @@ void main() {
         () => VrmQuaternion.fromJson(<double>[0, 0, double.nan, 1]),
         throwsFormatException,
       );
+      expect(
+        () => const VrmVector3(double.nan, 0, 0).toJson(),
+        throwsFormatException,
+      );
+      expect(
+        () => const VrmQuaternion(0, 0, 0, 0).toJson(),
+        throwsFormatException,
+      );
+      expect(
+        () => VrmQuaternion.fromJson(<double>[0, 0, 0, 0]),
+        throwsFormatException,
+      );
     });
 
     test('creates normalized quaternions from XYZ Euler degrees', () {

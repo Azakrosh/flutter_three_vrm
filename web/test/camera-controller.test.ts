@@ -86,6 +86,9 @@ describe("runtime camera controller", () => {
     expect(() => controller.setTransform({ x: 0, y: Number.NaN, zoom: 1 })).toThrow(
       "finite numbers",
     );
+    expect(() =>
+      controller.setTransform({ x: "0", y: 0, zoom: 1 })
+    ).toThrow("finite numbers");
   });
 
   it("smoothly follows constrained pan and captures free control changes", () => {

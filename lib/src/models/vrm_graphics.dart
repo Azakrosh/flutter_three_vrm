@@ -131,7 +131,7 @@ final class VrmPerformanceSnapshot {
       triangles: _integer(value['triangles'], 'triangles'),
       geometries: _integer(value['geometries'], 'geometries'),
       textures: _integer(value['textures'], 'textures'),
-      reason: value['reason'] is String ? value['reason']! as String : 'sample',
+      reason: _nonEmptyString(value['reason'], 'reason'),
     );
   }
 }
@@ -144,13 +144,19 @@ double _finiteDouble(Object? value, String name) {
 }
 
 int _integer(Object? value, String name) {
-  if (value case final num number when number.isFinite) {
+  if (value case final num number
+      when number.isFinite && number == number.truncateToDouble()) {
     return number.toInt();
   }
-  throw FormatException('$name must be a finite number.');
+  throw FormatException('$name must be a finite integer.');
 }
 
 bool _boolean(Object? value, String name) {
   if (value is bool) return value;
   throw FormatException('$name must be a boolean.');
+}
+
+String _nonEmptyString(Object? value, String name) {
+  if (value case final String text when text.isNotEmpty) return text;
+  throw FormatException('$name must be a non-empty string.');
 }

@@ -59,6 +59,22 @@ void main() {
         () => VrmPerformanceSnapshot.fromJson(<String, Object>{}),
         throwsFormatException,
       );
+      expect(
+        () => VrmPerformanceSnapshot.fromJson(<String, Object>{
+          'fps': 60,
+          'frameTimeMs': 16.67,
+          'pixelRatio': 1,
+          'fpsCap': 59.5,
+          'physicsEnabled': true,
+          'adaptiveQualityEnabled': true,
+          'drawCalls': 1,
+          'triangles': 2,
+          'geometries': 3,
+          'textures': 4,
+          'reason': 'sample',
+        }),
+        throwsFormatException,
+      );
     });
   });
 }

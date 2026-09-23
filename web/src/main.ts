@@ -38,6 +38,9 @@ export {
   type RuntimeEventName,
   type RuntimeEventPayload,
   type RuntimeRecord,
+  type RuntimeTypedQueryName,
+  type RuntimeTypedQueryResult,
+  type RuntimeTypedQueryResultMap,
 } from "./protocol-contract";
 
 export {
@@ -46,6 +49,7 @@ export {
   parseNormalizedPose,
   resetNormalizedPose,
   setNormalizedPose,
+  type RuntimePose,
 } from "./pose";
 
 export {
@@ -65,6 +69,7 @@ export { RuntimePageLifecycle } from "./page-lifecycle";
 
 export {
   AdaptiveQualityController,
+  parseAdaptiveQualityConfig,
   type AdaptiveQualityConfig,
   type QualityAdjustment,
 } from "./performance";
@@ -94,6 +99,9 @@ export {
 } from "./speech-timeline";
 
 export { findSpeechCommandPayloadError } from "./speech-protocol-codec";
+export {
+  findPoseCameraGraphicsPayloadError,
+} from "./pose-camera-graphics-codec";
 
 export {
   RuntimeSpeechController,
@@ -157,6 +165,7 @@ export {
 
 export {
   RuntimeCameraController,
+  parseRuntimeCameraTransform,
   type ConstrainedPanInput,
   type RuntimeCameraControls,
   type RuntimeCameraMode,
@@ -178,6 +187,8 @@ export {
 
 export {
   RuntimeGraphicsController,
+  parseRuntimeGraphicsSettings,
+  type RuntimeGraphicsPreset,
   type RuntimeGraphicsDependencies,
   type RuntimeGraphicsSettings,
   type RuntimePerformanceSnapshot,

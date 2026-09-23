@@ -13,7 +13,9 @@ import {
 
 const humanBoneNames = new Set<string>(Object.values(VRMHumanBoneName));
 
-export function parseNormalizedPose(value: unknown): VRMPose {
+export type RuntimePose = VRMPose;
+
+export function parseNormalizedPose(value: unknown): RuntimePose {
   if (!isRecord(value)) {
     throw new TypeError("A VRM pose must be an object.");
   }
@@ -49,7 +51,7 @@ export function parseNormalizedPose(value: unknown): VRMPose {
   return pose;
 }
 
-export function getNormalizedPose(vrm: VRM | null): VRMPose {
+export function getNormalizedPose(vrm: VRM | null): RuntimePose {
   return clonePose(requireHumanoid(vrm).getNormalizedPose());
 }
 

@@ -249,7 +249,14 @@ pause/dispose игнорируются.
 streaming speech получил точные типы mode/viseme/amplitude frames и отдельный
 boundary codec: вложенные frames, диапазоны, timestamps, revision и optional
 поля отклоняются до dispatcher; небезопасные casts между facade и speech
-controller удалены. Следующий codec-срез — Pose, camera и graphics payload/result.
+controller удалены. В Stage 26.22 Pose, camera transform и
+graphics/adaptive settings переведены
+на точные command payload и query-result типы. Их доменные parsers теперь
+повторно используются на protocol boundary, поэтому неизвестные кости, неверные
+quaternion/transform, режимы камеры и renderer-настройки отклоняются до
+dispatcher. Dart codecs также запрещают нечисловые Pose-компоненты, нулевой
+quaternion и дробные целочисленные поля performance telemetry. Следующий срез —
+animation options, lighting и оставшиеся runtime health/model report results.
 
 Работы:
 

@@ -9,6 +9,17 @@ import type {
   SpeechVisemeFrame,
 } from "./speech-timeline";
 import type { RuntimeGazeController } from "./gaze-controller";
+import type {
+  RuntimeCameraMode,
+  RuntimeCameraTransform,
+} from "./camera-controller";
+import type {
+  RuntimeGraphicsPreset,
+  RuntimeGraphicsSettings,
+  RuntimePerformanceSnapshot,
+} from "./graphics-controller";
+import type { AdaptiveQualityConfig } from "./performance";
+import type { RuntimePose } from "./pose";
 
 export type RuntimeCommandDispatcher = (
   command: CommandEnvelope,
@@ -42,8 +53,8 @@ export interface RuntimeCommandHost {
   pauseAnimation(): void;
   resumeAnimation(speed: number): void;
   setAnimationSpeed(speed: number): void;
-  getPose(): unknown;
-  setPose(pose: RuntimeRecord, fadeDuration: number): void;
+  getPose(): RuntimePose;
+  setPose(pose: RuntimePose, fadeDuration: number): void;
   setShadows(enabled: boolean): void;
   setExpression(
     expression: string,
@@ -72,10 +83,10 @@ export interface RuntimeCommandHost {
   ): void;
   finishSpeech(sessionId: string, audioDurationMs: number): void;
   cancelSpeech(sessionId?: string): void;
-  setCameraMode(mode: string): void;
+  setCameraMode(mode: RuntimeCameraMode): void;
   resetCamera(durationMs: number): void;
-  getAvatarTransform(): unknown;
-  setAvatarTransform(transform: RuntimeRecord): void;
+  getAvatarTransform(): RuntimeCameraTransform;
+  setAvatarTransform(transform: RuntimeCameraTransform): void;
   setLighting(config: RuntimeRecord): void;
   setBackground(
     color: string,
@@ -87,10 +98,10 @@ export interface RuntimeCommandHost {
   stopWind(): void;
   setWind(type: string, direction: string): void;
   setEnvironmentColor(color: string, intensity: number): void;
-  setGraphicsSettings(settings: RuntimeRecord): void;
-  setGraphicsPreset(preset: string): void;
-  setAdaptiveQuality(settings: RuntimeRecord): void;
-  getPerformanceSnapshot(): unknown;
+  setGraphicsSettings(settings: RuntimeGraphicsSettings): void;
+  setGraphicsPreset(preset: RuntimeGraphicsPreset): void;
+  setAdaptiveQuality(settings: Partial<AdaptiveQualityConfig>): void;
+  getPerformanceSnapshot(): RuntimePerformanceSnapshot;
   setRenderQuality(pixelRatio: number): void;
 }
 

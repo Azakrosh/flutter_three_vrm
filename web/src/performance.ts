@@ -17,6 +17,42 @@ const defaultConfig: AdaptiveQualityConfig = {
   maxPixelRatio: 1.5,
 };
 
+export function parseAdaptiveQualityConfig(
+  value: unknown,
+): AdaptiveQualityConfig {
+  if (!isRecord(value)) {
+    throw new TypeError("Adaptive quality settings must be an object.");
+  }
+  const config: AdaptiveQualityConfig = {
+    enabled: readBoolean(value.enabled, defaultConfig.enabled, "enabled"),
+    targetFps: readNumber(
+      value.targetFps,
+      defaultConfig.targetFps,
+      15,
+      120,
+      "targetFps",
+    ),
+    minPixelRatio: readNumber(
+      value.minPixelRatio,
+      defaultConfig.minPixelRatio,
+      0.5,
+      3,
+      "minPixelRatio",
+    ),
+    maxPixelRatio: readNumber(
+      value.maxPixelRatio,
+      defaultConfig.maxPixelRatio,
+      0.5,
+      3,
+      "maxPixelRatio",
+    ),
+  };
+  if (config.minPixelRatio > config.maxPixelRatio) {
+    throw new RangeError("minPixelRatio must not exceed maxPixelRatio.");
+  }
+  return config;
+}
+
 export class AdaptiveQualityController {
   private _config: AdaptiveQualityConfig = defaultConfig;
   private slowWindows = 0;
@@ -28,29 +64,7 @@ export class AdaptiveQualityController {
   }
 
   public configure(value: unknown): AdaptiveQualityConfig {
-    if (!isRecord(value)) throw new TypeError("Adaptive quality settings must be an object.");
-
-    const config: AdaptiveQualityConfig = {
-      enabled: readBoolean(value.enabled, defaultConfig.enabled, "enabled"),
-      targetFps: readNumber(value.targetFps, defaultConfig.targetFps, 15, 120, "targetFps"),
-      minPixelRatio: readNumber(
-        value.minPixelRatio,
-        defaultConfig.minPixelRatio,
-        0.5,
-        3,
-        "minPixelRatio",
-      ),
-      maxPixelRatio: readNumber(
-        value.maxPixelRatio,
-        defaultConfig.maxPixelRatio,
-        0.5,
-        3,
-        "maxPixelRatio",
-      ),
-    };
-    if (config.minPixelRatio > config.maxPixelRatio) {
-      throw new RangeError("minPixelRatio must not exceed maxPixelRatio.");
-    }
+    const config = parseAdaptiveQualityConfig(value);
 
     this._config = config;
     this.slowWindows = 0;

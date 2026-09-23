@@ -252,6 +252,113 @@ describe("bridge protocol", () => {
     },
   );
 
+  it("decodes valid Pose, camera, and graphics payloads", () => {
+    expect(
+      structuredCommand("setPose", {
+        pose: { head: { rotation: [0, 0, 0, 1] } },
+        fadeDuration: 0.25,
+      }).payload,
+    ).toEqual(expect.objectContaining({ fadeDuration: 0.25 }));
+    expect(
+      structuredCommand("setTransform", {
+        transform: { x: 0.1, y: -0.2, zoom: 1.5 },
+      }).payload,
+    ).toEqual({
+      transform: { x: 0.1, y: -0.2, zoom: 1.5 },
+    });
+    expect(
+      structuredCommand("setAdaptiveQuality", {
+        settings: {
+          enabled: true,
+          targetFps: 60,
+          minPixelRatio: 0.75,
+          maxPixelRatio: 1.5,
+        },
+      }).payload,
+    ).toEqual(expect.objectContaining({
+      settings: expect.objectContaining({ targetFps: 60 }),
+    }));
+  });
+
+  it.each([
+    [
+      "setPose",
+      {
+        pose: { tail: { rotation: [0, 0, 0, 1] } },
+        fadeDuration: 0.25,
+      },
+      "Command payload setPose is invalid: Unknown VRM humanoid bone: tail.",
+    ],
+    [
+      "setPose",
+      {
+        pose: { head: { rotation: [0, 0, 0, 0] } },
+        fadeDuration: 0.25,
+      },
+      "Command payload setPose is invalid: head.rotation must not be a zero quaternion.",
+    ],
+    [
+      "resetPose",
+      { fadeDuration: -0.1 },
+      "Command payload resetPose is invalid: fadeDuration must be a non-negative finite number.",
+    ],
+    [
+      "setCameraMode",
+      { mode: "orbit" },
+      'Command payload setCameraMode is invalid: mode must be "constrained" or "free".',
+    ],
+    [
+      "setTransform",
+      { transform: { x: "0", y: 0, zoom: 1 } },
+      "Command payload setTransform is invalid: Camera transform components must be finite numbers.",
+    ],
+    [
+      "setTransform",
+      { transform: { x: 0, y: 0, zoom: 0 } },
+      "Command payload setTransform is invalid: Camera transform zoom must be positive.",
+    ],
+    [
+      "resetCamera",
+      { durationMs: -1 },
+      "Command payload resetCamera is invalid: durationMs must be a non-negative finite number.",
+    ],
+    [
+      "setGraphicsSettings",
+      { settings: { fpsCap: "60" } },
+      "Command payload setGraphicsSettings is invalid: fpsCap must be zero or a positive finite number.",
+    ],
+    [
+      "setGraphicsPreset",
+      { preset: "cinematic" },
+      'Command payload setGraphicsPreset is invalid: preset must be "performance", "balanced", or "quality".',
+    ],
+    [
+      "setAdaptiveQuality",
+      {
+        settings: {
+          minPixelRatio: 2,
+          maxPixelRatio: 1,
+        },
+      },
+      "Command payload setAdaptiveQuality is invalid: minPixelRatio must not exceed maxPixelRatio.",
+    ],
+    [
+      "setRenderQuality",
+      { pixelRatio: 0 },
+      "Command payload setRenderQuality is invalid: pixelRatio must be a positive finite number.",
+    ],
+  ])(
+    "rejects malformed structured payload for %s",
+    (action, payload, message) => {
+      expect(() => structuredCommand(action, payload)).toThrowError(
+        expect.objectContaining({
+          code: "invalidPayload",
+          message,
+        }),
+      );
+    },
+  );
+
   it("creates typed success and failure envelopes", () => {
     expect(success("1", { ready: true }).ok).toBe(true);
     expect(failure("2", "failed", "Failure").ok).toBe(false);
@@ -285,6 +392,18 @@ function speechCommand(action: string, payload: Record<string, unknown>) {
     JSON.stringify({
       version: protocolVersion,
       id: `speech-${action}`,
+      type: "command",
+      action,
+      payload,
+    }),
+  );
+}
+
+function structuredCommand(action: string, payload: Record<string, unknown>) {
+  return parseCommand(
+    JSON.stringify({
+      version: protocolVersion,
+      id: `structured-${action}`,
       type: "command",
       action,
       payload,

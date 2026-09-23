@@ -76,7 +76,16 @@ final class VrmVector3 {
   final double y;
   final double z;
 
-  List<double> toJson() => <double>[x, y, z];
+  void validate() {
+    if (![x, y, z].every((component) => component.isFinite)) {
+      throw const FormatException('position contains a non-finite number.');
+    }
+  }
+
+  List<double> toJson() {
+    validate();
+    return <double>[x, y, z];
+  }
 
   factory VrmVector3.fromJson(Object? value) {
     final values = _readNumbers(value, 3, 'position');
@@ -127,11 +136,35 @@ final class VrmQuaternion {
   final double z;
   final double w;
 
-  List<double> toJson() => <double>[x, y, z, w];
+  void validate() {
+    final components = <double>[x, y, z, w];
+    if (!components.every((component) => component.isFinite)) {
+      throw const FormatException('rotation contains a non-finite number.');
+    }
+    final magnitudeSquared = components.fold<double>(
+      0,
+      (sum, component) => sum + component * component,
+    );
+    if (magnitudeSquared < 1e-16) {
+      throw const FormatException('rotation must not be a zero quaternion.');
+    }
+  }
+
+  List<double> toJson() {
+    validate();
+    return <double>[x, y, z, w];
+  }
 
   factory VrmQuaternion.fromJson(Object? value) {
     final values = _readNumbers(value, 4, 'rotation');
-    return VrmQuaternion(values[0], values[1], values[2], values[3]);
+    final result = VrmQuaternion(
+      values[0],
+      values[1],
+      values[2],
+      values[3],
+    );
+    result.validate();
+    return result;
   }
 }
 
