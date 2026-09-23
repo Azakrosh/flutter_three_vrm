@@ -37,6 +37,7 @@ export {
   type RuntimeCommandRequest,
   type RuntimeEventName,
   type RuntimeEventPayload,
+  type RuntimeEventPayloadMap,
   type RuntimeRecord,
   type RuntimeTypedQueryName,
   type RuntimeTypedQueryResult,
@@ -108,6 +109,32 @@ export {
 export {
   findAnimationLightingPayloadError,
 } from "./animation-lighting-codec";
+export {
+  findInteractionCommandPayloadError,
+  parseRuntimeBackgroundConfig,
+  parseRuntimeCustomBlendShapeConfig,
+  parseRuntimeEnvironmentColorConfig,
+  parseRuntimeExpressionConfig,
+  parseRuntimeExpressionLayerConfig,
+  parseRuntimeLookAtConfig,
+  parseRuntimeLookAtTarget,
+  parseRuntimePhysicsConfig,
+  parseRuntimeWindConfig,
+  runtimeExpressionNames,
+  type RuntimeBackgroundConfig,
+  type RuntimeCustomBlendShapeConfig,
+  type RuntimeEnvironmentColorConfig,
+  type RuntimeExpressionConfig,
+  type RuntimeExpressionLayer,
+  type RuntimeExpressionLayerConfig,
+  type RuntimeExpressionName,
+  type RuntimeLookAtConfig,
+  type RuntimeLookAtTarget,
+  type RuntimePhysicsConfig,
+  type RuntimeWindConfig,
+  type RuntimeWindDirection,
+  type RuntimeWindType,
+} from "./interaction-protocol-codec";
 
 export {
   RuntimeSpeechController,

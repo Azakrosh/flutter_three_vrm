@@ -1,5 +1,9 @@
 import type { VRMSpringBoneManager } from "@pixiv/three-vrm";
 import { Vector3 } from "three";
+import type {
+  RuntimeWindDirection,
+  RuntimeWindType,
+} from "./interaction-protocol-codec";
 
 type SpringJoint = VRMSpringBoneManager["joints"] extends Set<infer T>
   ? T
@@ -52,7 +56,7 @@ export class RuntimeWindPhysicsController {
     }
   }
 
-  public setWind(type: string, direction: string): void {
+  public setWind(type: RuntimeWindType, direction: RuntimeWindDirection): void {
     if (type === "none") {
       this.stopWind();
       return;

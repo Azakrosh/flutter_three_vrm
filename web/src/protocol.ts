@@ -4,6 +4,7 @@ import {
   isRuntimeCommandName,
   type RuntimeCommandRequest,
   type RuntimeEventName,
+  type RuntimeEventPayload,
 } from "./protocol-contract";
 
 export const protocolVersion = 3 as const;
@@ -36,11 +37,13 @@ export interface FailureEnvelope {
   };
 }
 
-export interface EventEnvelope {
+export interface EventEnvelope<
+  Name extends RuntimeEventName = RuntimeEventName,
+> {
   readonly version: typeof protocolVersion;
   readonly type: "event";
-  readonly event: RuntimeEventName;
-  readonly payload: unknown;
+  readonly event: Name;
+  readonly payload: RuntimeEventPayload<Name>;
 }
 
 export type ResponseEnvelope = SuccessEnvelope | FailureEnvelope;
@@ -117,10 +120,10 @@ export function failure(
   };
 }
 
-export function event(
-  eventName: RuntimeEventName,
-  payload: unknown = {},
-): EventEnvelope {
+export function event<Name extends RuntimeEventName>(
+  eventName: Name,
+  payload: RuntimeEventPayload<Name>,
+): EventEnvelope<Name> {
   if (!isRecord(payload)) {
     throw new ProtocolError(
       "invalidEventPayload",

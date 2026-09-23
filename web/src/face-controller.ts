@@ -1,8 +1,11 @@
 import type { VRM } from "@pixiv/three-vrm";
 import { MathUtils } from "three";
+import type {
+  RuntimeExpressionLayer,
+  RuntimeExpressionName,
+} from "./interaction-protocol-codec";
 
 type ExpressionManager = NonNullable<VRM["expressionManager"]>;
-type LayerName = "eyes" | "mouth" | "brows";
 
 interface ExpressionState {
   readonly name: string;
@@ -21,7 +24,10 @@ interface ExpressionLayer {
 export interface RuntimeFaceDependencies {
   readonly getVrm: () => VRM | null;
   readonly applySpeechAmplitude: (manager: ExpressionManager) => void;
-  readonly onExpressionChanged: (name: string, layer: string) => void;
+  readonly onExpressionChanged: (
+    name: RuntimeExpressionName,
+    layer: RuntimeExpressionLayer,
+  ) => void;
   readonly random?: () => number;
 }
 
@@ -29,15 +35,15 @@ const baseEmotions = new Set([
   "happy", "sad", "angry", "surprised", "relaxed", "neutral",
 ]);
 const directVisemes = ["aa", "ih", "ou", "ee", "oh"] as const;
-const visemeMap: Readonly<Record<string, string>> = {
+const visemeMap: Readonly<Record<string, RuntimeExpressionName>> = {
   aa: "aa", ih: "ih", ou: "ou", ee: "ee", oh: "oh",
-  AA: "aa", IH: "ih", OU: "ou", EE: "ee", OH: "oh", sil: "sil",
+  AA: "aa", IH: "ih", OU: "ou", EE: "ee", OH: "oh",
 };
 
 export class RuntimeFaceController {
   public readonly customBlendShapes = new Map<string, number>();
   private readonly activeExpressions: Record<string, ExpressionState> = {};
-  private readonly layers: Record<LayerName, ExpressionLayer> = {
+  private readonly layers: Record<RuntimeExpressionLayer, ExpressionLayer> = {
     eyes: { name: null, targetWeight: 0, currentWeight: 0, duration: 0.25 },
     mouth: { name: null, targetWeight: 0, currentWeight: 0, duration: 0.1 },
     brows: { name: null, targetWeight: 0, currentWeight: 0, duration: 0.25 },
@@ -51,7 +57,7 @@ export class RuntimeFaceController {
   public constructor(private readonly dependencies: RuntimeFaceDependencies) {}
 
   public setExpression(
-    expressionName: string,
+    expressionName: RuntimeExpressionName,
     layerName: string = "eyes",
     targetWeight = 1,
     durationSec = 0.25,
@@ -59,7 +65,7 @@ export class RuntimeFaceController {
   ): void {
     if (!isLayerName(layerName)) return;
     this.autoBlinkEnabled = !disableAutoBlink;
-    const newName = expressionName.toLowerCase();
+    const newName = expressionName;
     if (baseEmotions.has(newName)) {
       for (const [name, state] of Object.entries(this.activeExpressions)) {
         if (baseEmotions.has(name) && name !== newName) {
@@ -189,6 +195,6 @@ export class RuntimeFaceController {
   }
 }
 
-function isLayerName(value: string): value is LayerName {
+function isLayerName(value: string): value is RuntimeExpressionLayer {
   return value === "eyes" || value === "mouth" || value === "brows";
 }

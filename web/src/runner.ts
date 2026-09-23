@@ -25,6 +25,7 @@ import type {
   RuntimeCommandHost,
   RuntimeCommandPayload,
   RuntimeEventName,
+  RuntimeEventPayload,
   RuntimeGraphicsSettings,
   RuntimeGraphicsPreset,
   RuntimeLightingConfig,
@@ -35,6 +36,10 @@ import type {
   RuntimePose,
   AdaptiveQualityConfig,
   RuntimeHealth,
+  RuntimeExpressionLayer,
+  RuntimeExpressionName,
+  RuntimeWindDirection,
+  RuntimeWindType,
 } from "./main";
 import type { RuntimeFrame } from "./frame-scheduler";
 import type {
@@ -428,8 +433,8 @@ class VrmRunner implements RuntimeCommandHost {
   }
 
   public setExpression(
-    expressionName: string,
-    layerName = "eyes",
+    expressionName: RuntimeExpressionName,
+    layerName: RuntimeExpressionLayer = "eyes",
     targetWeight = 1,
     durationSec = 0.25,
     disableAutoBlink = false,
@@ -437,7 +442,7 @@ class VrmRunner implements RuntimeCommandHost {
     this.faceController.setExpression(expressionName, layerName, targetWeight, durationSec, disableAutoBlink);
   }
 
-  public clearExpressionLayer(layerName: string): void {
+  public clearExpressionLayer(layerName: RuntimeExpressionLayer): void {
     this.faceController.clearExpressionLayer(layerName);
   }
 
@@ -537,7 +542,7 @@ class VrmRunner implements RuntimeCommandHost {
     this.windPhysicsController.setPhysics(stiffnessMultiplier, gravityMultiplier, dragMultiplier);
   }
 
-  public setWind(type: string, direction: string): void {
+  public setWind(type: RuntimeWindType, direction: RuntimeWindDirection): void {
     this.windPhysicsController.setWind(type, direction);
   }
 
@@ -656,15 +661,12 @@ class VrmRunner implements RuntimeCommandHost {
     this.cameraController.setTransform(data);
   }
 
-  private notifyFlutter(
-    eventName: RuntimeEventName,
-    payload: object,
+  private notifyFlutter<Name extends RuntimeEventName>(
+    eventName: Name,
+    payload: RuntimeEventPayload<Name>,
   ): void {
     if (this.isDisposed) return;
-    postRuntimeEvent(
-      eventName,
-      payload as Readonly<Record<string, unknown>>,
-    );
+    postRuntimeEvent(eventName, payload);
   }
 }
 

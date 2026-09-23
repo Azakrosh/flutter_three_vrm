@@ -76,8 +76,8 @@ describe("runtime wind and physics controller", () => {
   it("forgets old model baselines and rejects malformed commands", () => {
     const { controller, joint } = createHarness();
     expect(() => controller.setPhysics(-1, 1, 1)).toThrow(TypeError);
-    expect(() => controller.setWind("invalid", "left")).toThrow(TypeError);
-    expect(() => controller.setWind("light", "up")).toThrow(TypeError);
+    expect(() => controller.setWind("invalid" as never, "left")).toThrow(TypeError);
+    expect(() => controller.setWind("light", "up" as never)).toThrow(TypeError);
 
     controller.setPhysics(2, 1, 1);
     controller.resetForModel();

@@ -27,6 +27,7 @@
 - Add exact streaming-speech payload types and nested protocol-boundary validation for modes, revisions, viseme/amplitude frames, timing, and optional fields.
 - Add exact Pose, camera-transform, and graphics command/query types with shared domain parsers at the protocol boundary; harden Dart Pose and performance-result codecs.
 - Add typed animation, lighting, runtime-health, and model-report contracts; ensure optional-only commands still reach nested boundary codecs and harden their Dart decoders.
+- Add exact expression, gaze, physics, wind, background, and event payload contracts with domain-aware boundary validation; treat speech `sil` frames as mouth closure.
 - Keep Android hidden-lifecycle smoke polling independent of a rendered frame so model recovery cannot stall the test harness.
 - Scope animation lifecycle events and queues to opaque playback IDs so unrelated or replaced animations cannot advance a queue.
 - Enforce transform, adaptive-quality, recovery, and model-performance configuration contracts in release builds instead of relying on debug-only asserts.

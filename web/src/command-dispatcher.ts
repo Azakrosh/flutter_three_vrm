@@ -23,6 +23,12 @@ import type { RuntimeAnimationOptions } from "./motion-controller";
 import type { RuntimeModelReport } from "./model-report";
 import type { RuntimeHealth } from "./runtime-health";
 import type { RuntimeLightingConfig } from "./scene-controller";
+import type {
+  RuntimeExpressionLayer,
+  RuntimeExpressionName,
+  RuntimeWindDirection,
+  RuntimeWindType,
+} from "./interaction-protocol-codec";
 
 export type RuntimeCommandDispatcher = (
   command: CommandEnvelope,
@@ -63,13 +69,13 @@ export interface RuntimeCommandHost {
   setPose(pose: RuntimePose, fadeDuration: number): void;
   setShadows(enabled: boolean): void;
   setExpression(
-    expression: string,
-    layer: string,
+    expression: RuntimeExpressionName,
+    layer: RuntimeExpressionLayer,
     weight: number,
     duration: number,
     disableAutoBlink: boolean,
   ): void;
-  clearExpressionLayer(layer: string): void;
+  clearExpressionLayer(layer: RuntimeExpressionLayer): void;
   clearAllExpressions(): void;
   setViseme(viseme: string, weight: number): void;
   enqueueSpeechVisemes(
@@ -102,7 +108,7 @@ export interface RuntimeCommandHost {
   ): Promise<void>;
   setPhysics(stiffness: number, gravity: number, drag: number): void;
   stopWind(): void;
-  setWind(type: string, direction: string): void;
+  setWind(type: RuntimeWindType, direction: RuntimeWindDirection): void;
   setEnvironmentColor(color: string, intensity: number): void;
   setGraphicsSettings(settings: RuntimeGraphicsSettings): void;
   setGraphicsPreset(preset: RuntimeGraphicsPreset): void;

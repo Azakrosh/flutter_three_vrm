@@ -8,6 +8,7 @@ import {
 } from "./protocol";
 import type {
   RuntimeEventName,
+  RuntimeEventPayload,
 } from "./protocol-contract";
 
 export type RuntimeCommandExecutor = (
@@ -73,9 +74,9 @@ export function installRuntimeBridge(options: RuntimeBridgeOptions): () => void 
   };
 }
 
-export function postRuntimeEvent(
-  eventName: RuntimeEventName,
-  payload: Readonly<Record<string, unknown>>,
+export function postRuntimeEvent<Name extends RuntimeEventName>(
+  eventName: Name,
+  payload: RuntimeEventPayload<Name>,
 ): void {
   postFlutterMessage(event(eventName, payload));
 }

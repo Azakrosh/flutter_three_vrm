@@ -261,8 +261,15 @@ animation options и lighting получили точные payload-типы и
 обходят вложенные codecs из-за раннего возврата общего валидатора. Runtime
 health и model report добавлены в typed query-result map; Dart строго проверяет
 целочисленные capability/diagnostic поля, обязательные строки и диапазоны.
-Следующий срез — точные expression/gaze/physics/wind/background payload и
-event payload map.
+В Stage 26.24 expression/gaze/physics/wind/background получили точные
+payload-типы и единый boundary codec с проверкой enum-значений, диапазонов и
+условно обязательных полей. Имя runtime-события теперь связано с payload через
+generic event map на всём пути runner -> protocol -> platform transport;
+model-report и performance events проверяются на полноту перед отправкой.
+Дополнительно `sil` в speech timeline закрывает рот как пауза, не создавая
+несуществующую VRM expression. Следующий срез — заменить `RuntimeRecord` у
+команд без payload точным empty-object контрактом и типизировать response
+envelope по query-команде.
 
 Работы:
 

@@ -31,6 +31,20 @@ import type { RuntimeAnimationOptions } from "./motion-controller";
 import type { RuntimeModelReport } from "./model-report";
 import type { RuntimeHealth } from "./runtime-health";
 import type { RuntimeLightingConfig } from "./scene-controller";
+import {
+  findInteractionCommandPayloadError,
+  type RuntimeBackgroundConfig,
+  type RuntimeCustomBlendShapeConfig,
+  type RuntimeEnvironmentColorConfig,
+  type RuntimeExpressionConfig,
+  type RuntimeExpressionLayer,
+  type RuntimeExpressionLayerConfig,
+  type RuntimeExpressionName,
+  type RuntimeLookAtConfig,
+  type RuntimeLookAtTarget,
+  type RuntimePhysicsConfig,
+  type RuntimeWindConfig,
+} from "./interaction-protocol-codec";
 
 export const runtimeCommandNames = [
   "loadModelFromUrl",
@@ -111,23 +125,10 @@ export interface RuntimeCommandPayloadMap {
   };
   readonly resetPose: { readonly fadeDuration: number };
   readonly setShadows: { readonly enabled: boolean };
-  readonly setExpression: {
-    readonly expression: string;
-    readonly layer: string;
-    readonly weight: number;
-    readonly duration: number;
-    readonly disableAutoBlink: boolean;
-    readonly speechRevision?: number;
-  };
-  readonly clearExpressionLayer: {
-    readonly layer: string;
-    readonly speechRevision?: number;
-  };
+  readonly setExpression: RuntimeExpressionConfig;
+  readonly clearExpressionLayer: RuntimeExpressionLayerConfig;
   readonly clearAllExpressions: { readonly speechRevision: number };
-  readonly setCustomBlendShape: {
-    readonly name: string;
-    readonly weight: number;
-  };
+  readonly setCustomBlendShape: RuntimeCustomBlendShapeConfig;
   readonly setLipSyncAmplitude: {
     readonly amplitude: number;
     readonly speechRevision: number;
@@ -161,40 +162,19 @@ export interface RuntimeCommandPayloadMap {
     readonly sessionId?: string;
   };
   readonly setAutoBlink: { readonly enabled: boolean };
-  readonly setLookAtTarget: {
-    readonly x: number;
-    readonly y: number;
-    readonly z?: number;
-  };
+  readonly setLookAtTarget: RuntimeLookAtTarget;
   readonly setAutoSaccades: { readonly enabled: boolean };
-  readonly setLookAtConfig: {
-    readonly holdDurationSec?: number;
-  };
+  readonly setLookAtConfig: RuntimeLookAtConfig;
   readonly setCameraMode: { readonly mode: RuntimeCameraMode };
   readonly resetCamera: { readonly durationMs: number };
   readonly getTransform: RuntimeRecord;
   readonly setTransform: { readonly transform: RuntimeCameraTransform };
   readonly setLighting: RuntimeLightingConfig;
-  readonly setBackground: {
-    readonly color: string;
-    readonly imageUrl?: string | null;
-    readonly transparent: boolean;
-    readonly hostedImage: boolean;
-  };
-  readonly setPhysics: {
-    readonly stiffness: number;
-    readonly gravity: number;
-    readonly drag: number;
-  };
+  readonly setBackground: RuntimeBackgroundConfig;
+  readonly setPhysics: RuntimePhysicsConfig;
   readonly stopWind: RuntimeRecord;
-  readonly setWind: {
-    readonly type: string;
-    readonly direction: string;
-  };
-  readonly setEnvironmentColor: {
-    readonly color: string;
-    readonly intensity: number;
-  };
+  readonly setWind: RuntimeWindConfig;
+  readonly setEnvironmentColor: RuntimeEnvironmentColorConfig;
   readonly setGraphicsSettings: { readonly settings: RuntimeGraphicsSettings };
   readonly setGraphicsPreset: { readonly preset: RuntimeGraphicsPreset };
   readonly setAdaptiveQuality: {
@@ -328,7 +308,8 @@ export function findRuntimeCommandPayloadError(
   }
   return findSpeechCommandPayloadError(action, payload) ??
     findPoseCameraGraphicsPayloadError(action, payload) ??
-    findAnimationLightingPayloadError(action, payload);
+    findAnimationLightingPayloadError(action, payload) ??
+    findInteractionCommandPayloadError(action, payload);
 }
 
 function matchesFieldKind(value: unknown, kind: RequiredFieldKind): boolean {
@@ -364,7 +345,47 @@ export const runtimeEventNames = [
 ] as const;
 
 export type RuntimeEventName = (typeof runtimeEventNames)[number];
-export type RuntimeEventPayload = Readonly<Record<string, unknown>>;
+
+export interface RuntimeEventPayloadMap {
+  readonly onModelLoaded: {
+    readonly name: string;
+    readonly version: string;
+  };
+  readonly onModelLoadProgress: {
+    readonly percent: number;
+    readonly loaded: number;
+    readonly total: number;
+  };
+  readonly onModelReport: RuntimeModelReport;
+  readonly onModelUnloaded: Readonly<Record<string, never>>;
+  readonly onAnimationStarted: {
+    readonly name: string;
+    readonly playbackId: string;
+  };
+  readonly onAnimationFinished: {
+    readonly name: string;
+    readonly playbackId: string;
+  };
+  readonly onExpressionChanged: {
+    readonly expression: RuntimeExpressionName;
+    readonly layer: RuntimeExpressionLayer;
+  };
+  readonly onSpeechFinished: { readonly sessionId: string };
+  readonly onError: { readonly message: string };
+  readonly onStateChanged: { readonly state: string };
+  readonly onCameraChanged: RuntimeCameraTransform & {
+    readonly userInitiated: boolean;
+  };
+  readonly onPerformance: RuntimePerformanceSnapshot;
+  readonly onWebGLContextChanged: {
+    readonly state: "lost" | "restored";
+  };
+  readonly onTap: { readonly x: number; readonly y: number };
+}
+
+export type RuntimeEventPayload<
+  Name extends RuntimeEventName = RuntimeEventName,
+> = RuntimeEventPayloadMap[Name];
 
 const runtimeEventNameSet = new Set<string>(runtimeEventNames);
 
@@ -379,7 +400,26 @@ const requiredEventFields = {
     loaded: "number",
     total: "number",
   },
-  onModelReport: {},
+  onModelReport: {
+    name: "string",
+    vrmVersion: "string",
+    sourceBytes: "number",
+    height: "number",
+    meshes: "number",
+    skinnedMeshes: "number",
+    geometries: "number",
+    materials: "number",
+    textures: "number",
+    texturePixels: "number",
+    estimatedTextureMemoryBytes: "number",
+    maxTextureWidth: "number",
+    maxTextureHeight: "number",
+    vertices: "number",
+    triangles: "number",
+    morphTargets: "number",
+    humanoidBones: "number",
+    springBoneJoints: "number",
+  },
   onModelUnloaded: {},
   onAnimationStarted: { name: "string", playbackId: "string" },
   onAnimationFinished: { name: "string", playbackId: "string" },
@@ -393,7 +433,19 @@ const requiredEventFields = {
     zoom: "number",
     userInitiated: "boolean",
   },
-  onPerformance: {},
+  onPerformance: {
+    fps: "number",
+    frameTimeMs: "number",
+    pixelRatio: "number",
+    fpsCap: "number",
+    physicsEnabled: "boolean",
+    adaptiveQualityEnabled: "boolean",
+    drawCalls: "number",
+    triangles: "number",
+    geometries: "number",
+    textures: "number",
+    reason: "string",
+  },
   onWebGLContextChanged: { state: "string" },
   onTap: { x: "number", y: "number" },
 } as const satisfies Record<
@@ -403,7 +455,7 @@ const requiredEventFields = {
 
 export function findRuntimeEventPayloadError(
   eventName: RuntimeEventName,
-  payload: RuntimeEventPayload,
+  payload: RuntimeRecord,
 ): string | null {
   for (const [field, rawKind] of Object.entries(
     requiredEventFields[eventName],

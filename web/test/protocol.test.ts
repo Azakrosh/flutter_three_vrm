@@ -278,6 +278,110 @@ describe("bridge protocol", () => {
     ).toEqual(expect.objectContaining({ ambientIntensity: 0.8 }));
   });
 
+  it("decodes valid expression, gaze, physics, wind, and background payloads", () => {
+    expect(structuredCommand("setExpression", {
+      expression: "happy",
+      layer: "eyes",
+      weight: 0.8,
+      duration: 0.25,
+      disableAutoBlink: false,
+    }).payload).toEqual(expect.objectContaining({ expression: "happy" }));
+    expect(structuredCommand("setLookAtConfig", {
+      holdDurationSec: 1.5,
+    }).payload).toEqual({ holdDurationSec: 1.5 });
+    expect(structuredCommand("setPhysics", {
+      stiffness: 1.2,
+      gravity: 0.8,
+      drag: 1,
+    }).payload).toEqual(expect.objectContaining({ stiffness: 1.2 }));
+    expect(structuredCommand("setWind", {
+      type: "strong",
+      direction: "left",
+    }).payload).toEqual({ type: "strong", direction: "left" });
+    expect(structuredCommand("setBackground", {
+      color: "#112233",
+      imageUrl: "https://example.test/background.webp",
+      transparent: false,
+      hostedImage: false,
+    }).payload).toEqual(expect.objectContaining({ color: "#112233" }));
+  });
+
+  it.each([
+    [
+      "setExpression",
+      {
+        expression: "smirk",
+        layer: "eyes",
+        weight: 1,
+        duration: 0.25,
+        disableAutoBlink: false,
+      },
+      "Command payload setExpression is invalid: expression must be a supported VRM expression.",
+    ],
+    [
+      "setExpression",
+      {
+        expression: "aa",
+        layer: "mouth",
+        weight: 1,
+        duration: 0.1,
+        disableAutoBlink: false,
+      },
+      "Command payload setExpression is invalid: speechRevision is required for mouth expressions.",
+    ],
+    [
+      "clearExpressionLayer",
+      { layer: "mouth" },
+      "Command payload clearExpressionLayer is invalid: speechRevision is required for the mouth layer.",
+    ],
+    [
+      "setCustomBlendShape",
+      { name: "custom", weight: 1.1 },
+      "Command payload setCustomBlendShape is invalid: weight must be between 0 and 1.",
+    ],
+    [
+      "setLookAtTarget",
+      { x: 0, y: 1, z: "near" },
+      "Command payload setLookAtTarget is invalid: z must be a finite number.",
+    ],
+    [
+      "setLookAtConfig",
+      { holdDurationSec: -0.1 },
+      "Command payload setLookAtConfig is invalid: holdDurationSec must be a non-negative finite number.",
+    ],
+    [
+      "setPhysics",
+      { stiffness: -1, gravity: 1, drag: 1 },
+      "Command payload setPhysics is invalid: stiffness must be a non-negative finite number.",
+    ],
+    [
+      "setWind",
+      { type: "hurricane", direction: "left" },
+      'Command payload setWind is invalid: type must be "none", "light", "strong", or "storm".',
+    ],
+    [
+      "setBackground",
+      {
+        color: "#112233",
+        transparent: false,
+        hostedImage: true,
+      },
+      "Command payload setBackground is invalid: imageUrl is required when hostedImage is true.",
+    ],
+    [
+      "setEnvironmentColor",
+      { color: "#112233", intensity: 1.1 },
+      "Command payload setEnvironmentColor is invalid: intensity must be between 0 and 1.",
+    ],
+  ])(
+    "rejects malformed interaction payload for %s",
+    (action, payload, message) => {
+      expect(() => structuredCommand(action, payload)).toThrowError(
+        expect.objectContaining({ code: "invalidPayload", message }),
+      );
+    },
+  );
+
   it.each([
     [
       "playAnimationFromUrl",
@@ -458,17 +562,37 @@ describe("bridge protocol", () => {
   });
 
   it("rejects invalid event payloads before transport", () => {
-    expect(() => event("onAnimationFinished", { name: "Wave" })).toThrowError(
+    expect(() => event(
+      "onAnimationFinished",
+      { name: "Wave" } as never,
+    )).toThrowError(
       expect.objectContaining({
         code: "invalidEventPayload",
         message:
           "Event payload onAnimationFinished.playbackId must be a string.",
       }),
     );
-    expect(() => event("onTap", null)).toThrowError(
+    expect(() => event("onTap", null as never)).toThrowError(
       expect.objectContaining({
         code: "invalidEventPayload",
         message: "Event payload must be an object.",
+      }),
+    );
+    expect(() => event("onModelReport", {
+      name: "Avatar",
+      vrmVersion: "1.0",
+    } as never)).toThrowError(
+      expect.objectContaining({
+        code: "invalidEventPayload",
+        message: "Event payload onModelReport.sourceBytes must be a number.",
+      }),
+    );
+    expect(() => event("onPerformance", {
+      fps: 60,
+    } as never)).toThrowError(
+      expect.objectContaining({
+        code: "invalidEventPayload",
+        message: "Event payload onPerformance.frameTimeMs must be a number.",
       }),
     );
   });

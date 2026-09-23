@@ -1,4 +1,5 @@
 import { MathUtils } from "three";
+import type { RuntimeExpressionName } from "./interaction-protocol-codec";
 
 import {
   SpeechTimeline,
@@ -25,7 +26,7 @@ export interface RuntimeSpeechAmplitudeBatch extends RuntimeSpeechBegin {
 export interface RuntimeSpeechPresentation {
   readonly clearMouth: () => void;
   readonly setMouthExpression: (
-    name: string,
+    name: RuntimeExpressionName,
     weight: number,
     durationSeconds: number,
   ) => void;
@@ -34,9 +35,9 @@ export interface RuntimeSpeechPresentation {
   readonly wallNowEpochMs?: () => number;
 }
 
-const visemeMap: Readonly<Record<string, string>> = {
+const visemeMap: Readonly<Record<string, RuntimeExpressionName>> = {
   aa: "aa", ih: "ih", ou: "ou", ee: "ee", oh: "oh",
-  AA: "aa", IH: "ih", OU: "ou", EE: "ee", OH: "oh", sil: "sil",
+  AA: "aa", IH: "ih", OU: "ou", EE: "ee", OH: "oh",
 };
 
 export class RuntimeSpeechController {
@@ -115,15 +116,19 @@ export class RuntimeSpeechController {
       if (update.viseme === null) {
         this.presentation.clearMouth();
       } else if (update.viseme !== undefined) {
-        const durationSeconds = Math.min(
-          0.08,
-          Math.max(0.02, update.viseme.durationMs / 4000),
-        );
-        this.presentation.setMouthExpression(
-          visemeMap[update.viseme.viseme] ?? "aa",
-          update.viseme.weight,
-          durationSeconds,
-        );
+        if (update.viseme.viseme === "sil") {
+          this.presentation.clearMouth();
+        } else {
+          const durationSeconds = Math.min(
+            0.08,
+            Math.max(0.02, update.viseme.durationMs / 4000),
+          );
+          this.presentation.setMouthExpression(
+            visemeMap[update.viseme.viseme] ?? "aa",
+            update.viseme.weight,
+            durationSeconds,
+          );
+        }
       }
     }
     if (update.amplitude !== undefined) {
