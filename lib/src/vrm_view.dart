@@ -116,7 +116,7 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
         unawaited(subscription.cancel());
       }
       _controllerSubscriptions.clear();
-      widget.controller._isModelLoaded = hadModel;
+      widget.controller._modelState.setLoaded(hadModel);
       _bindController(widget.controller);
       if (_transportAttached) {
         _attachTransport(widget.controller);

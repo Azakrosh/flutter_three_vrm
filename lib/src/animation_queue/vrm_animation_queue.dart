@@ -61,6 +61,8 @@ class VrmAnimationQueue {
   bool _pauseAfterInterrupt = false;
   StreamSubscription<VrmAnimationFinishedEvent>? _subscription;
   StreamSubscription<VrmModelLoadedEvent>? _modelLoadedSubscription;
+  StreamSubscription<VrmRuntimeUnavailableEvent>?
+  _runtimeUnavailableSubscription;
   String? _interruptFolderPath;
   String? _interruptFileName;
   double? _interruptSpeed;
@@ -452,6 +454,12 @@ class VrmAnimationQueue {
         _restoreCurrentPlayback();
       }
     });
+    _runtimeUnavailableSubscription ??= _controller.onRuntimeUnavailable.listen(
+      (_) {
+        _operationGeneration += 1;
+        _resetPlaybackTracking();
+      },
+    );
   }
 
   void _cancelSubscription() {
@@ -459,6 +467,8 @@ class VrmAnimationQueue {
     _subscription = null;
     unawaited(_modelLoadedSubscription?.cancel());
     _modelLoadedSubscription = null;
+    unawaited(_runtimeUnavailableSubscription?.cancel());
+    _runtimeUnavailableSubscription = null;
   }
 
   void _setState(VrmAnimationQueueState newState) {

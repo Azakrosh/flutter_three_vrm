@@ -95,6 +95,17 @@ class VrmStateChangedEvent extends VrmEvent {
   VrmStateChangedEvent({required this.state});
 }
 
+/// Emitted by the Flutter package when the attached WebView runtime is lost.
+///
+/// This is a package-side lifecycle event, not a JavaScript protocol event.
+/// In-flight session-scoped commands are canceled before a replacement runtime
+/// begins replaying durable state.
+class VrmRuntimeUnavailableEvent extends VrmEvent {
+  VrmRuntimeUnavailableEvent({required this.reason});
+
+  final String reason;
+}
+
 /// Emitted when the user changes pan or zoom.
 class VrmCameraChangedEvent extends VrmEvent {
   final double? x;

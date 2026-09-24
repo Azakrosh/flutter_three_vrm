@@ -3,27 +3,21 @@ part of 'vrm_runtime.dart';
 /// Primary controller for loading, animating, and interacting with one VRM model.
 class VrmController {
   final _VrmBridge _bridge = _VrmBridge();
+  final VrmModelSessionState _modelState = VrmModelSessionState();
+  final VrmSpeechSessionState _speechState = VrmSpeechSessionState();
   late final StreamSubscription<VrmEvent> _stateSubscription;
-  bool _isLoadingModel = false;
-  bool _isModelLoaded = false;
-  int _modelLoadGeneration = 0;
   int _animationPlaybackSequence = 0;
   VrmTransform? _lastKnownCameraTransform;
   int _cameraTransformRevision = 0;
   VrmContentHost? _contentHost;
-  int _speechSessionSequence = 0;
-  int _speechInputRevision = 0;
-  String? _activeSpeechSessionId;
-  VrmSpeechMode? _activeSpeechMode;
-  bool _speechIsFinishing = false;
 
   VrmController() {
     _stateSubscription = _bridge.eventStream.listen((event) {
       switch (event) {
         case VrmModelLoadedEvent():
-          _isModelLoaded = true;
+          _modelState.setLoaded(true);
         case VrmModelUnloadedEvent():
-          _isModelLoaded = false;
+          _modelState.setLoaded(false);
         case VrmCameraChangedEvent(
           :final x,
           :final y,
@@ -43,19 +37,19 @@ class VrmController {
   }
 
   /// True while a model is being transferred and parsed by the runtime.
-  bool get isLoadingModel => _isLoadingModel;
+  bool get isLoadingModel => _modelState.isLoading;
 
   /// Whether the currently attached runtime contains an avatar.
-  bool get isModelLoaded => _isModelLoaded;
+  bool get isModelLoaded => _modelState.isLoaded;
 
   /// Whether the JavaScript runtime completed protocol initialization.
   bool get isRuntimeReady => _bridge.isRuntimeReady;
 
   /// Whether a speech timeline is active or waiting for its declared end.
-  bool get isSpeechActive => _activeSpeechSessionId != null;
+  bool get isSpeechActive => _speechState.hasActiveSession;
 
   /// Input type accepted by the current speech timeline.
-  VrmSpeechMode? get speechMode => _activeSpeechMode;
+  VrmSpeechMode? get speechMode => _speechState.activeMode;
 
   void _attachContentHost(VrmContentHost contentHost) {
     _contentHost = contentHost;
@@ -64,7 +58,7 @@ class VrmController {
   void _detachContentHost(VrmContentHost contentHost) {
     if (identical(_contentHost, contentHost)) {
       _contentHost = null;
-      _isModelLoaded = false;
+      _modelState.invalidateRuntime();
     }
   }
 
@@ -117,41 +111,31 @@ class VrmController {
 
   /// Loads a VRM model from Flutter assets.
   Future<void> loadModel(String folderPath, String fileName) async {
-    final loadGeneration = ++_modelLoadGeneration;
-    _isLoadingModel = true;
+    final loadGeneration = _modelState.beginLoad();
     try {
       await _sendHostedResourceCommand(
         expose: (host) => host.exposeAsset('$folderPath$fileName'),
         action: VrmProtocolCommand.loadModelFromUrl,
         fileName: fileName,
       );
-      if (loadGeneration == _modelLoadGeneration) {
-        _isModelLoaded = true;
-      }
+      _modelState.completeLoad(loadGeneration);
     } finally {
-      if (loadGeneration == _modelLoadGeneration) {
-        _isLoadingModel = false;
-      }
+      _modelState.finishLoad(loadGeneration);
     }
   }
 
   /// Loads a VRM model from a local file.
   Future<void> loadModelFromFile(io.File file) async {
-    final loadGeneration = ++_modelLoadGeneration;
-    _isLoadingModel = true;
+    final loadGeneration = _modelState.beginLoad();
     try {
       await _sendHostedResourceCommand(
         expose: (host) => host.exposeFile(file),
         action: VrmProtocolCommand.loadModelFromUrl,
         fileName: p.basename(file.path),
       );
-      if (loadGeneration == _modelLoadGeneration) {
-        _isModelLoaded = true;
-      }
+      _modelState.completeLoad(loadGeneration);
     } finally {
-      if (loadGeneration == _modelLoadGeneration) {
-        _isLoadingModel = false;
-      }
+      _modelState.finishLoad(loadGeneration);
     }
   }
 
@@ -163,21 +147,16 @@ class VrmController {
     Uint8List bytes, {
     required String fileName,
   }) async {
-    final loadGeneration = ++_modelLoadGeneration;
-    _isLoadingModel = true;
+    final loadGeneration = _modelState.beginLoad();
     try {
       await _sendHostedResourceCommand(
         expose: (host) => host.exposeBytes(bytes, fileName: fileName),
         action: VrmProtocolCommand.loadModelFromUrl,
         fileName: fileName,
       );
-      if (loadGeneration == _modelLoadGeneration) {
-        _isModelLoaded = true;
-      }
+      _modelState.completeLoad(loadGeneration);
     } finally {
-      if (loadGeneration == _modelLoadGeneration) {
-        _isLoadingModel = false;
-      }
+      _modelState.finishLoad(loadGeneration);
     }
   }
 
@@ -185,20 +164,15 @@ class VrmController {
   ///
   /// Prefer [loadModelFromFile] or [loadModelFromBytes] for authenticated URLs.
   Future<void> loadModelFromUrl(String url) async {
-    final loadGeneration = ++_modelLoadGeneration;
-    _isLoadingModel = true;
+    final loadGeneration = _modelState.beginLoad();
     try {
       await _bridge.sendCommand(VrmProtocolCommand.loadModelFromUrl, {
         'url': url,
         'fileName': Uri.parse(url).pathSegments.lastOrNull ?? 'avatar.vrm',
       });
-      if (loadGeneration == _modelLoadGeneration) {
-        _isModelLoaded = true;
-      }
+      _modelState.completeLoad(loadGeneration);
     } finally {
-      if (loadGeneration == _modelLoadGeneration) {
-        _isLoadingModel = false;
-      }
+      _modelState.finishLoad(loadGeneration);
     }
   }
 
@@ -207,8 +181,7 @@ class VrmController {
   /// The previously displayed avatar remains active. The canceled load Future
   /// completes with `VrmRuntimeException(code: 'canceled')`.
   Future<void> cancelModelLoad() async {
-    _modelLoadGeneration += 1;
-    _isLoadingModel = false;
+    _modelState.cancelLoad();
     await _bridge.sendCommand(VrmProtocolCommand.cancelModelLoad);
   }
 
@@ -236,7 +209,7 @@ class VrmController {
       VrmProtocolCommand.getRuntimeHealth,
     );
     final health = VrmRuntimeHealth.fromJson(result);
-    _isModelLoaded = health.modelLoaded;
+    _modelState.setLoaded(health.modelLoaded);
     return health;
   }
 
@@ -248,14 +221,13 @@ class VrmController {
 
   void _markRuntimeUnavailable(Object error) {
     _invalidateTransientRuntimeState();
+    _bridge.publishEvent(VrmRuntimeUnavailableEvent(reason: error.toString()));
     _bridge.markRuntimeUnavailable(error);
   }
 
   void _invalidateTransientRuntimeState() {
-    _modelLoadGeneration += 1;
-    _isLoadingModel = false;
-    _isModelLoaded = false;
-    _abandonSpeechSession();
+    _modelState.invalidateRuntime();
+    _speechState.invalidateRuntime();
     _clearDirectSpeechInputs();
   }
 
@@ -265,14 +237,13 @@ class VrmController {
 
   /// Unloads the model and releases its GPU resources.
   Future<void> unloadModel() async {
-    _modelLoadGeneration += 1;
-    _isLoadingModel = false;
+    _modelState.cancelLoad();
     _abandonSpeechSession();
     _clearDirectSpeechInputs();
     await _bridge.sendCommand(VrmProtocolCommand.unloadModel, {
       'speechRevision': _nextSpeechRevision(),
     });
-    _isModelLoaded = false;
+    _modelState.setLoaded(false);
     _lastKnownCameraTransform = null;
     _cameraTransformRevision += 1;
   }
@@ -723,7 +694,7 @@ class VrmController {
     _clearDirectSpeechInputs();
     final sessionId = _activateSpeechSession(VrmSpeechMode.viseme);
     final speechRevision = _nextSpeechRevision();
-    _speechIsFinishing = true;
+    _speechState.markFinishing(sessionId);
     final timelineOriginEpochMs = DateTime.now().millisecondsSinceEpoch;
     try {
       await _bridge.sendCommand(VrmProtocolCommand.enqueueSpeechVisemes, {
@@ -747,7 +718,7 @@ class VrmController {
     _clearDirectSpeechInputs();
     final sessionId = _activateSpeechSession(VrmSpeechMode.amplitude);
     final speechRevision = _nextSpeechRevision();
-    _speechIsFinishing = true;
+    _speechState.markFinishing(sessionId);
     final timelineOriginEpochMs = DateTime.now().millisecondsSinceEpoch;
     try {
       await _bridge.sendCommand(VrmProtocolCommand.enqueueSpeechAmplitudes, {
@@ -839,16 +810,14 @@ class VrmController {
         'Must not be negative.',
       );
     }
-    _speechIsFinishing = true;
+    _speechState.markFinishing(sessionId);
     try {
       await _bridge.sendCommand(VrmProtocolCommand.finishSpeech, {
         'sessionId': sessionId,
         'audioDurationMs': audioDuration.inMilliseconds,
       });
     } on Object {
-      if (_activeSpeechSessionId == sessionId) {
-        _speechIsFinishing = false;
-      }
+      _speechState.clearFinishing(sessionId);
       rethrow;
     }
     return true;
@@ -857,7 +826,7 @@ class VrmController {
   /// Fully stops the active speech timeline and closes the mouth layer.
   Future<void> cancelSpeech() {
     _clearDirectSpeechInputs();
-    final sessionId = _activeSpeechSessionId;
+    final sessionId = _speechState.activeSessionId;
     _abandonSpeechSession();
     return _bridge.sendCommand(VrmProtocolCommand.cancelSpeech, {
       'sessionId': ?sessionId,
@@ -866,7 +835,7 @@ class VrmController {
   }
 
   Future<bool> _cancelSpeechSession(String sessionId) async {
-    if (_activeSpeechSessionId != sessionId) return false;
+    if (!_speechState.isActive(sessionId)) return false;
     _clearDirectSpeechInputs();
     _abandonSpeechSession(sessionId);
     await _bridge.sendCommand(VrmProtocolCommand.cancelSpeech, {
@@ -877,27 +846,16 @@ class VrmController {
   }
 
   String _activateSpeechSession(VrmSpeechMode mode) {
-    final sessionId =
-        'speech-${DateTime.now().microsecondsSinceEpoch}-${_speechSessionSequence++}';
-    _activeSpeechSessionId = sessionId;
-    _activeSpeechMode = mode;
-    _speechIsFinishing = false;
-    return sessionId;
+    return _speechState.activate(mode);
   }
 
-  int _nextSpeechRevision() => ++_speechInputRevision;
+  int _nextSpeechRevision() => _speechState.nextInputRevision();
 
   bool _canUseSpeechSession(String sessionId) =>
-      _activeSpeechSessionId == sessionId && !_speechIsFinishing;
+      _speechState.canAppend(sessionId);
 
   void _abandonSpeechSession([String? expectedSessionId]) {
-    if (expectedSessionId != null &&
-        expectedSessionId != _activeSpeechSessionId) {
-      return;
-    }
-    _activeSpeechSessionId = null;
-    _activeSpeechMode = null;
-    _speechIsFinishing = false;
+    _speechState.abandon(expectedSessionId);
   }
 
   void _clearDirectSpeechInputs() {
@@ -1317,6 +1275,12 @@ class VrmController {
       .where((e) => e is VrmStateChangedEvent)
       .cast<VrmStateChangedEvent>();
 
+  /// Emitted when the current WebView document is lost or starts reloading.
+  Stream<VrmRuntimeUnavailableEvent> get onRuntimeUnavailable => _bridge
+      .eventStream
+      .where((event) => event is VrmRuntimeUnavailableEvent)
+      .cast<VrmRuntimeUnavailableEvent>();
+
   Stream<VrmPerformanceEvent> get onPerformance => _bridge.eventStream
       .where((event) => event is VrmPerformanceEvent)
       .cast<VrmPerformanceEvent>();
@@ -1422,7 +1386,7 @@ final class VrmSpeechSession {
 
   final VrmSpeechMode mode;
 
-  bool get isActive => _controller._activeSpeechSessionId == id;
+  bool get isActive => _controller._speechState.isActive(id);
 
   /// Appends visemes when this is the active viseme session.
   Future<bool> appendVisemes(List<VisemeFrame> frames) {

@@ -16,7 +16,7 @@
 | Camera pan/zoom | последний user-initiated transform в controller | Web runtime | Snapshot восстанавливается после загрузки модели, если пользователь не успел изменить камеру |
 | Speech session и direct lip-sync input | текущая runtime-сессия | Web runtime | Отменяются; сервер/аудиоплеер начинает следующее сообщение как новую сессию |
 | Одиночная VRMA/glTF/Pose операция | текущая runtime-сессия | Web runtime | Не replay-ится; незавершённый Future завершается ошибкой потери runtime |
-| `VrmAnimationQueue` | приложение/объект очереди | Web runtime | Очередь сохраняет позицию и запускает текущий элемент после нового `modelLoaded` |
+| `VrmAnimationQueue` | приложение/объект очереди | Web runtime | `runtimeUnavailable` отменяет stale transition без ошибки; очередь сохраняет позицию и запускает текущий элемент после нового `modelLoaded` |
 | Expressions, mood, wind, physics, lights | приложение | Web runtime | Неявно не сохраняются; при необходимости приложение повторяет их в `onCreated` после загрузки модели |
 
 ## Порядок replay

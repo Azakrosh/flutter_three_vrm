@@ -325,8 +325,14 @@ error details и функциями безопасного сужения тип
 replay lifecycle → graphics → background → package model → app state → camera
 принадлежат `VrmRuntimeReplayCoordinator`. Camera snapshot также перенесён в
 координатор, а потеря runtime теперь явно инвалидирует незавершённую загрузку
-модели и speech/direct-input состояние. Следующий срез — runtime-loss сигнал для
-`VrmAnimationQueue` и race-тесты model load / transition / streaming speech.
+модели и speech/direct-input состояние. `VrmAnimationQueue` получает отдельный
+package-side `runtimeUnavailable`, отменяет stale transition без ложной ошибки и
+возобновляет сохранённую позицию после нового `modelLoaded`. Следующий срез —
+полная mutating API matrix. Model load state вынесен в `VrmModelSessionState`:
+replacement/cancel/runtime-loss защищены generation token и отдельными
+race-тестами. Speech identity, finishing и revision принадлежат
+`VrmSpeechSessionState`; runtime-loss делает старые session handles и realtime
+input revision недействительными.
 
 ### Stage 28 — Android performance и длительная стабильность
 

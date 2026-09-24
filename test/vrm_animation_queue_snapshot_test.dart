@@ -142,6 +142,38 @@ void main() {
       },
     );
 
+    test(
+      'runtime loss cancels a stale transition and resumes without queue error',
+      () async {
+        final controller = _FakeVrmController()..delayNextPlayback = true;
+        final queue = VrmAnimationQueue(
+          controller: controller,
+          folderPath: 'assets/vrma/',
+          fileNames: const <String>['idle.vrma'],
+        );
+        final errors = <VrmAnimationQueueError>[];
+        final errorSubscription = queue.onError.listen(errors.add);
+        addTearDown(() async {
+          await errorSubscription.cancel();
+          queue.dispose();
+          await controller.dispose();
+        });
+
+        queue.start();
+        await pumpEventQueue();
+        controller.emitRuntimeUnavailable();
+        controller.completeDelayedPlayback(error: StateError('runtime lost'));
+        await pumpEventQueue();
+
+        expect(queue.state, VrmAnimationQueueState.playing);
+        expect(errors, isEmpty);
+
+        controller.emitModelLoaded();
+        await pumpEventQueue();
+        expect(controller.playedFiles, <String>['idle.vrma', 'idle.vrma']);
+      },
+    );
+
     test('ignores completion events from unrelated playback', () async {
       final controller = _FakeVrmController();
       final queue = VrmAnimationQueue(
@@ -267,6 +299,8 @@ final class _FakeVrmController extends VrmController {
       StreamController<VrmModelLoadedEvent>.broadcast();
   final StreamController<VrmAnimationFinishedEvent> _animationFinished =
       StreamController<VrmAnimationFinishedEvent>.broadcast();
+  final StreamController<VrmRuntimeUnavailableEvent> _runtimeUnavailable =
+      StreamController<VrmRuntimeUnavailableEvent>.broadcast();
 
   final List<String> playedFiles = <String>[];
   final List<String> playbackIds = <String>[];
@@ -284,6 +318,10 @@ final class _FakeVrmController extends VrmController {
   Stream<VrmAnimationFinishedEvent> get onAnimationFinished =>
       _animationFinished.stream;
 
+  @override
+  Stream<VrmRuntimeUnavailableEvent> get onRuntimeUnavailable =>
+      _runtimeUnavailable.stream;
+
   void emitModelLoaded() {
     _modelLoaded.add(VrmModelLoadedEvent(name: 'Avatar', version: '1'));
   }
@@ -294,14 +332,24 @@ final class _FakeVrmController extends VrmController {
     );
   }
 
-  void completeDelayedPlayback() {
+  void emitRuntimeUnavailable() {
+    _runtimeUnavailable.add(
+      VrmRuntimeUnavailableEvent(reason: 'test runtime lost'),
+    );
+  }
+
+  void completeDelayedPlayback({Object? error}) {
     final completer = _delayedPlayback;
     if (completer == null) {
       throw StateError('No delayed animation playback.');
     }
     _delayedPlayback = null;
     delayNextPlayback = false;
-    completer.complete(VrmAnimationPlayback(id: playbackIds.last));
+    if (error != null) {
+      completer.completeError(error);
+    } else {
+      completer.complete(VrmAnimationPlayback(id: playbackIds.last));
+    }
   }
 
   @override
@@ -331,6 +379,7 @@ final class _FakeVrmController extends VrmController {
   Future<void> dispose() async {
     await _modelLoaded.close();
     await _animationFinished.close();
+    await _runtimeUnavailable.close();
     await super.dispose();
   }
 }
