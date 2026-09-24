@@ -1,8 +1,8 @@
 # План рефакторинга и развития flutter_three_vrm
 
-Статус: активный рабочий документ  
-Дата аудита: 2026-09-16  
-Проверенная база: `fe8a671 Stage 25.`  
+Статус: активный рабочий документ
+Дата аудита: 2026-09-24
+Проверенная база: `f2aa0cf feat: define transient runtime session ownership`
 Целевые платформы: Android и Windows; приоритет — Android
 
 ## 1. Откуда восстановлен первоначальный план
@@ -63,6 +63,8 @@
 | 21–22 | Realtime speech timeline и типизированные speech sessions | Выполнено |
 | 23–24 | Release-safe валидация команд и конфигурации | Выполнено |
 | 25 | Playback identity и изоляция очереди от посторонних анимаций | Выполнено |
+| 26 | Полный TypeScript runtime, строгие command/event codecs и protocol v3 | Выполнено |
+| 27 | State ownership, ordered replay и recovery contract | Выполнено |
 
 ## 3. Состояние реализации
 
@@ -73,6 +75,7 @@ Flutter application
   └─ VrmView                 lifecycle, WebView, recovery, desired configuration
       └─ VrmController       публичный высокоуровневый API
           ├─ _VrmBridge      protocol v3, correlation IDs, timeout, events
+          ├─ recovery state  replay generation, model/speech session ownership
           ├─ content host    session loopback, opaque resources
           └─ platform adapter
                ├─ Android WebView
@@ -119,12 +122,12 @@ WebView runtime
 
 ### Текущий размер и покрытие
 
-- Flutter library: 32 файла, примерно 5800 строк;
-- web source: 28 файлов, примерно 5600 строк;
-- `runner.ts`: примерно 650 строк;
-- `VrmController`: примерно 1280 строк;
-- Flutter unit tests: 65;
-- web unit tests: 101;
+- Flutter library: 35 файлов, примерно 6200 строк;
+- web source: 34 файла, примерно 6900 строк;
+- `runner.ts`: примерно 675 строк;
+- `VrmController`: примерно 1430 строк;
+- Flutter unit tests: 86;
+- web unit tests: 162;
 - один сквозной runtime smoke-сценарий, примерно 435 строк.
 
 Числа нужны как ориентир концентрации ответственности, а не как целевые KPI.
@@ -304,7 +307,7 @@ error details и функциями безопасного сужения тип
 - поведение example не меняется, кроме явно согласованного удаления поворота
   аватара и взгляда по клику.
 
-### Stage 27 — единая модель state ownership и recovery
+### Stage 27 — единая модель state ownership и recovery — завершён
 
 Цель: формально определить, какое состояние сохраняет пакет, runtime или
 приложение.
@@ -332,7 +335,14 @@ package-side `runtimeUnavailable`, отменяет stale transition без ло
 replacement/cancel/runtime-loss защищены generation token и отдельными
 race-тестами. Speech identity, finishing и revision принадлежат
 `VrmSpeechSessionState`; runtime-loss делает старые session handles и realtime
-input revision недействительными.
+input revision недействительными. Полная mutating API matrix зафиксирована в
+`docs/STATE_OWNERSHIP.md`; dispose-контракт проверяет все controller mutations,
+а replay coordinator отклоняет нарушенный порядок или повторение фаз. Windows
+и physical Android 16 прошли полный recovery smoke. Synthetic pointer Android
+PlatformView не поддерживается `WidgetTester`, поэтому этот путь разделён на web
+unit coverage и Windows end-to-end; реальные Android gestures явно передаются
+WebView через `EagerGestureRecognizer`. Все критерии Stage 27 закрыты;
+дальнейшая работа переходит к Stage 28.
 
 ### Stage 28 — Android performance и длительная стабильность
 

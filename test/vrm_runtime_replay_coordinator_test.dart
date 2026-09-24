@@ -76,6 +76,33 @@ void main() {
       coordinator.dispose();
     });
 
+    test('rejects reordered or duplicate recovery phases', () async {
+      final coordinator = VrmRuntimeReplayCoordinator();
+      final generation = coordinator.beginRuntime();
+
+      await expectLater(
+        coordinator.replay(
+          generation: generation,
+          steps: [
+            VrmRuntimeReplayStep(VrmRuntimeReplayPhase.background, () async {}),
+            VrmRuntimeReplayStep(VrmRuntimeReplayPhase.graphics, () async {}),
+          ],
+        ),
+        throwsArgumentError,
+      );
+      await expectLater(
+        coordinator.replay(
+          generation: generation,
+          steps: [
+            VrmRuntimeReplayStep(VrmRuntimeReplayPhase.graphics, () async {}),
+            VrmRuntimeReplayStep(VrmRuntimeReplayPhase.graphics, () async {}),
+          ],
+        ),
+        throwsArgumentError,
+      );
+      coordinator.dispose();
+    });
+
     test('camera waits for model and is restored exactly once', () async {
       final coordinator = VrmRuntimeReplayCoordinator();
       const transform = VrmTransform(x: 0.25, y: -0.1, zoom: 1.4);

@@ -39,28 +39,41 @@ void main() {
     await _verifyMotionTransitions(tester, controller);
     debugPrint('runtime_smoke: motion transitions verified');
 
-    await controller.resetPose(fadeDuration: 0);
-    await Future<void>.delayed(const Duration(milliseconds: 200));
-    final beforeTap = await controller.getPose();
-    final tapEvent = controller.onTap.first;
     final avatarRect = tester.getRect(find.byType(VrmView));
-    await tester.tapAt(
-      Offset(
-        avatarRect.left + avatarRect.width * 0.2,
-        avatarRect.top + avatarRect.height * 0.3,
-      ),
-    );
-    await tapEvent.timeout(const Duration(seconds: 5));
-    await Future<void>.delayed(const Duration(milliseconds: 250));
-    final afterTap = await controller.getPose();
-    for (final bone in [VrmHumanBone.head, VrmHumanBone.chest]) {
-      expect(
-        _quaternionAngle(beforeTap[bone]!.rotation!, afterTap[bone]!.rotation!),
-        lessThan(0.01),
-        reason: 'A tap must not rotate $bone',
+    final supportsSyntheticWebViewTap =
+        defaultTargetPlatform == TargetPlatform.windows;
+    if (supportsSyntheticWebViewTap) {
+      await controller.resetPose(fadeDuration: 0);
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      final beforeTap = await controller.getPose();
+      final tapEvent = controller.onTap.first;
+      await tester.tapAt(
+        Offset(
+          avatarRect.left + avatarRect.width * 0.2,
+          avatarRect.top + avatarRect.height * 0.3,
+        ),
       );
+      await tester.pump();
+      await tapEvent.timeout(const Duration(seconds: 5));
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+      final afterTap = await controller.getPose();
+      for (final bone in [VrmHumanBone.head, VrmHumanBone.chest]) {
+        expect(
+          _quaternionAngle(
+            beforeTap[bone]!.rotation!,
+            afterTap[bone]!.rotation!,
+          ),
+          lessThan(0.01),
+          reason: 'A tap must not rotate $bone',
+        );
+      }
+      debugPrint('runtime_smoke: tap does not rotate avatar');
+    } else {
+      // Android integration_test does not forward synthetic WidgetTester
+      // pointers into its native WebView PlatformView. The same pointer path is
+      // covered by web unit tests and the Windows end-to-end smoke.
+      debugPrint('runtime_smoke: synthetic PlatformView tap skipped');
     }
-    debugPrint('runtime_smoke: tap does not rotate avatar');
 
     await controller.setBackground(
       color: const Color(0xFF171823),
@@ -72,15 +85,18 @@ void main() {
     expect((await controller.getRuntimeHealth()).contextLost, isFalse);
     await controller.setGraphicsPreset(VrmGraphicsPreset.balanced);
     expect((await controller.getRuntimeHealth()).contextLost, isFalse);
-    final tapAfterRendererRecreation = controller.onTap.first;
-    await tester.tapAt(
-      Offset(
-        avatarRect.left + avatarRect.width * 0.2,
-        avatarRect.top + avatarRect.height * 0.3,
-      ),
-    );
-    await tapAfterRendererRecreation.timeout(const Duration(seconds: 5));
-    debugPrint('runtime_smoke: tap survives renderer recreation');
+    if (supportsSyntheticWebViewTap) {
+      final tapAfterRendererRecreation = controller.onTap.first;
+      await tester.tapAt(
+        Offset(
+          avatarRect.left + avatarRect.width * 0.2,
+          avatarRect.top + avatarRect.height * 0.3,
+        ),
+      );
+      await tester.pump();
+      await tapAfterRendererRecreation.timeout(const Duration(seconds: 5));
+      debugPrint('runtime_smoke: tap survives renderer recreation');
+    }
 
     await controller.setGraphicsSettings(enablePhysics: false);
     controller.setPhysics(stiffness: 1.1, gravity: 1.2, drag: 0.9);

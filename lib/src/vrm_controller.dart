@@ -6,6 +6,7 @@ class VrmController {
   final VrmModelSessionState _modelState = VrmModelSessionState();
   final VrmSpeechSessionState _speechState = VrmSpeechSessionState();
   late final StreamSubscription<VrmEvent> _stateSubscription;
+  bool _isDisposed = false;
   int _animationPlaybackSequence = 0;
   VrmTransform? _lastKnownCameraTransform;
   int _cameraTransformRevision = 0;
@@ -63,6 +64,7 @@ class VrmController {
   }
 
   VrmContentHost get _requiredContentHost {
+    _ensureNotDisposed();
     final contentHost = _contentHost;
     if (contentHost == null || !contentHost.isStarted) {
       throw StateError(
@@ -77,6 +79,7 @@ class VrmController {
     VrmProtocolCommand action, [
     Map<String, dynamic>? payload,
   ]) {
+    _ensureNotDisposed();
     unawaited(
       _bridge.sendCommand(action, payload).catchError((
         Object error,
@@ -94,6 +97,7 @@ class VrmController {
     String urlField = 'url',
     Map<String, dynamic>? payload,
   }) async {
+    _ensureNotDisposed();
     final host = _requiredContentHost;
     final uri = expose(host);
     try {
@@ -215,6 +219,7 @@ class VrmController {
 
   /// Reloads the embedded runtime. [VrmView.onCreated] runs again afterwards.
   Future<void> reloadRuntime() async {
+    _ensureNotDisposed();
     _invalidateTransientRuntimeState();
     await _bridge.reloadRuntime();
   }
@@ -250,6 +255,8 @@ class VrmController {
 
   /// Disposes this controller and its event streams.
   Future<void> dispose() async {
+    if (_isDisposed) return;
+    _isDisposed = true;
     _invalidateTransientRuntimeState();
     await _stateSubscription.cancel();
     await _bridge.dispose();
@@ -649,6 +656,7 @@ class VrmController {
 
   /// Sets real-time audio volume amplitude (0.0 to 1.0) for smooth speech mouth opening.
   void setLipSyncAmplitude(double amplitude) {
+    _ensureNotDisposed();
     if (!amplitude.isFinite) {
       throw ArgumentError.value(amplitude, 'amplitude', 'Must be finite.');
     }
@@ -668,6 +676,7 @@ class VrmController {
 
   /// Sets the latest direct viseme state without queueing stale bridge updates.
   void setViseme(VrmViseme viseme, {double weight = 1.0}) {
+    _ensureNotDisposed();
     if (!weight.isFinite) {
       throw ArgumentError.value(weight, 'weight', 'Must be finite.');
     }
@@ -934,6 +943,7 @@ class VrmController {
 
   /// Directs the avatar's eyes to an explicit target; taps do not change gaze.
   void setLookAtTarget(Offset screenPosition) {
+    _ensureNotDisposed();
     if (!screenPosition.dx.isFinite || !screenPosition.dy.isFinite) {
       throw ArgumentError.value(
         screenPosition,
@@ -1295,6 +1305,12 @@ class VrmController {
 
   Stream<VrmTapEvent> get onTap =>
       _bridge.eventStream.where((e) => e is VrmTapEvent).cast<VrmTapEvent>();
+
+  void _ensureNotDisposed() {
+    if (_isDisposed) {
+      throw StateError('VrmController has already been disposed.');
+    }
+  }
 }
 
 void _validateAnimationPlayback({

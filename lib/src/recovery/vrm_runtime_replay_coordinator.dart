@@ -56,6 +56,7 @@ final class VrmRuntimeReplayCoordinator {
     required int generation,
     required List<VrmRuntimeReplayStep> steps,
   }) async {
+    _validateStepOrder(steps);
     if (!isCurrent(generation)) {
       return VrmRuntimeReplayResult.superseded;
     }
@@ -66,6 +67,21 @@ final class VrmRuntimeReplayCoordinator {
       }
     }
     return VrmRuntimeReplayResult.completed;
+  }
+
+  void _validateStepOrder(List<VrmRuntimeReplayStep> steps) {
+    var previousIndex = -1;
+    for (final step in steps) {
+      final index = step.phase.index;
+      if (index <= previousIndex) {
+        throw ArgumentError.value(
+          steps.map((item) => item.phase.name).toList(growable: false),
+          'steps',
+          'Runtime replay phases must be unique and ordered.',
+        );
+      }
+      previousIndex = index;
+    }
   }
 
   /// Captures the last user camera transform once for the next runtime.

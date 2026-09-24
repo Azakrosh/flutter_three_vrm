@@ -50,5 +50,41 @@ Lifecycle pause останавливает только frame loop. Он не у
 - После `VrmController.dispose` все mutating API завершаются ошибкой и replay не
   запускается.
 
-До завершения Stage 27 эта матрица должна быть дополнена contract-тестами для
-гонок model load, animation transition и streaming speech.
+## Матрица публичного mutating API
+
+`Session` в таблице означает состояние только текущего WebView runtime. `App`
+означает, что приложение повторяет команду из `onCreated`, когда модель нового
+runtime уже загружена.
+
+| API | Owner | WebView reload | Lifecycle pause | После dispose |
+|---|---|---|---|---|
+| `loadModel*`, `cancelModelLoad`, `unloadModel` | Session/App | Активная загрузка отменяется; initial asset replay-ит `VrmView`, авторизованную модель повторно загружает App | Загрузка не отменяется | `StateError` |
+| `reloadRuntime` | Package | Запускает новый generation и полный ordered replay | Разрешён | `StateError` |
+| `playAnimation*`, `pauseAnimation`, `resumeAnimation`, `cancelAnimationLoad`, `stopAnimation`, `setAnimationSpeed` | Session | Pending transition отменяется, direct playback не replay-ится | Состояние сохраняется, время animation mixer не продвигается до resume renderer | `StateError` |
+| `setPose`, `resetPose` | Session/App | Не replay-ится | Pose сохраняется; crossfade продолжится после resume renderer | `StateError` |
+| `setMood`, `clearMood`, `setExpression`, `clearExpressionLayer`, `clearAllExpressions`, `setCustomBlendShape` | Session/App | Не replay-ится | Target state сохраняется | `StateError` |
+| `setLipSyncAmplitude`, `setViseme`, `enqueueSpeech*`, `beginSpeech`, `cancelSpeech` | Session | Session/realtime revision инвалидируются; следующее аудио начинает новую session | Timeline не отменяется; presentation возобновляется по real-time timestamp | `StateError` |
+| `VrmSpeechSession.append*`, `finish`, `cancel` | Session handle | Старый handle становится неактивным и возвращает `false` | Остаётся активным | После controller dispose возвращает `false` |
+| `setAutoSaccades`, `setAutoBlink`, `setLookAtTarget`, `setLookAtConfig` | Session/App | Не replay-ится | Конфигурация сохраняется | `StateError` |
+| `setCameraMode` | Session/App | Не replay-ится | Сохраняется | `StateError` |
+| `setTransform`, `resetCamera` и user pan/zoom | Package | Последний transform восстанавливается после model load, если revision не изменился | Сохраняется | `StateError` |
+| `setLighting`, `setEnvironmentColor`, `setShadows`, `setPhysics`, `setWind`, `stopWind` | Session/App | Не replay-ится | Сохраняется | `StateError` |
+| `setBackground*` | Session/App | Direct background не replay-ится; параметры `VrmView` replay-ятся | Сохраняется | `StateError` |
+| `setRenderQuality`, `setGraphicsPreset`, `setAdaptiveQuality`, `setGraphicsSettings` | Session/App | Direct настройки не replay-ятся; declarative параметры `VrmView` replay-ятся | Сохраняются | `StateError` |
+| `VrmAnimationQueue.start/pause/resume/stop/interrupt` | App object | Stale transition отменяется; active position запускается после `modelLoaded` | Queue state сохраняется | После `queue.dispose` синхронный `StateError` |
+
+Проверки контракта распределены между:
+
+- `vrm_runtime_replay_coordinator_test.dart` — строгий порядок, stale generation,
+  camera revision и dispose;
+- `vrm_model_session_state_test.dart` — replace/cancel/runtime-loss model load;
+- `vrm_speech_session_state_test.dart` — replacement, finishing и stale handles;
+- `vrm_animation_queue_snapshot_test.dart` — transition race и resume после model;
+- `vrm_render_lifecycle_coordinator_test.dart` — Android/Windows pause policy;
+- `vrm_controller_dispose_test.dart` — все публичные controller mutations.
+
+Android `integration_test` не пересылает synthetic `WidgetTester` pointer в
+native WebView PlatformView. Поэтому pointer semantics проверяются web unit-тестом
+и Windows end-to-end smoke, а Android smoke покрывает lifecycle, motion, speech,
+renderer recreation, reload и camera replay. Сам Android adapter передаёт
+реальные жесты WebView через явный `EagerGestureRecognizer`.
