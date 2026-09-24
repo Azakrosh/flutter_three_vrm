@@ -714,6 +714,8 @@ function performanceEventPayload() {
   return {
     fps: 60,
     frameTimeMs: 16.67,
+    frameTimeP50Ms: 16.5,
+    frameTimeP95Ms: 18.2,
     pixelRatio: 1,
     fpsCap: 60,
     physicsEnabled: true,

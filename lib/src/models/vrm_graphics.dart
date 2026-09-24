@@ -84,10 +84,20 @@ final class VrmAdaptiveQualitySettings {
 }
 
 /// Latest renderer workload measurement reported by the web runtime.
+enum VrmPerformanceReason {
+  initialized,
+  configurationChanged,
+  sample,
+  performanceDown,
+  performanceUp,
+}
+
 final class VrmPerformanceSnapshot {
   const VrmPerformanceSnapshot({
     required this.fps,
     required this.frameTimeMs,
+    required this.frameTimeP50Ms,
+    required this.frameTimeP95Ms,
     required this.pixelRatio,
     required this.fpsCap,
     required this.physicsEnabled,
@@ -101,6 +111,8 @@ final class VrmPerformanceSnapshot {
 
   final double fps;
   final double frameTimeMs;
+  final double frameTimeP50Ms;
+  final double frameTimeP95Ms;
   final double pixelRatio;
   final int fpsCap;
   final bool physicsEnabled;
@@ -110,16 +122,17 @@ final class VrmPerformanceSnapshot {
   final int geometries;
   final int textures;
 
-  /// `sample`, `performanceDown`, `performanceUp`, or another runtime reason.
-  final String reason;
+  final VrmPerformanceReason reason;
 
   factory VrmPerformanceSnapshot.fromJson(Object? value) {
     if (value is! Map<Object?, Object?>) {
       throw const FormatException('Performance snapshot must be an object.');
     }
-    return VrmPerformanceSnapshot(
+    final snapshot = VrmPerformanceSnapshot(
       fps: _finiteDouble(value['fps'], 'fps'),
       frameTimeMs: _finiteDouble(value['frameTimeMs'], 'frameTimeMs'),
+      frameTimeP50Ms: _finiteDouble(value['frameTimeP50Ms'], 'frameTimeP50Ms'),
+      frameTimeP95Ms: _finiteDouble(value['frameTimeP95Ms'], 'frameTimeP95Ms'),
       pixelRatio: _finiteDouble(value['pixelRatio'], 'pixelRatio'),
       fpsCap: _integer(value['fpsCap'], 'fpsCap'),
       physicsEnabled: _boolean(value['physicsEnabled'], 'physicsEnabled'),
@@ -131,9 +144,44 @@ final class VrmPerformanceSnapshot {
       triangles: _integer(value['triangles'], 'triangles'),
       geometries: _integer(value['geometries'], 'geometries'),
       textures: _integer(value['textures'], 'textures'),
-      reason: _nonEmptyString(value['reason'], 'reason'),
+      reason: _performanceReason(value['reason']),
     );
+    if (snapshot.fps < 0 ||
+        snapshot.frameTimeMs < 0 ||
+        snapshot.frameTimeP50Ms < 0 ||
+        snapshot.frameTimeP95Ms < 0 ||
+        snapshot.fpsCap < 0) {
+      throw const FormatException(
+        'Performance timing values must be non-negative.',
+      );
+    }
+    if (snapshot.frameTimeP50Ms > snapshot.frameTimeP95Ms) {
+      throw const FormatException(
+        'frameTimeP50Ms must not exceed frameTimeP95Ms.',
+      );
+    }
+    if (snapshot.pixelRatio <= 0) {
+      throw const FormatException('Performance pixelRatio must be positive.');
+    }
+    if (snapshot.drawCalls < 0 ||
+        snapshot.triangles < 0 ||
+        snapshot.geometries < 0 ||
+        snapshot.textures < 0) {
+      throw const FormatException(
+        'Performance renderer counters must be non-negative.',
+      );
+    }
+    return snapshot;
   }
+}
+
+VrmPerformanceReason _performanceReason(Object? value) {
+  if (value is String) {
+    for (final reason in VrmPerformanceReason.values) {
+      if (reason.name == value) return reason;
+    }
+  }
+  throw const FormatException('Unknown performance reason.');
 }
 
 double _finiteDouble(Object? value, String name) {
@@ -154,9 +202,4 @@ int _integer(Object? value, String name) {
 bool _boolean(Object? value, String name) {
   if (value is bool) return value;
   throw FormatException('$name must be a boolean.');
-}
-
-String _nonEmptyString(Object? value, String name) {
-  if (value case final String text when text.isNotEmpty) return text;
-  throw FormatException('$name must be a non-empty string.');
 }

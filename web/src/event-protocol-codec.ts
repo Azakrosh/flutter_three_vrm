@@ -97,7 +97,13 @@ function validateRuntimeEventDomain(
       }
       return;
     case "onPerformance":
-      for (const field of ["fps", "frameTimeMs", "fpsCap"] as const) {
+      for (const field of [
+        "fps",
+        "frameTimeMs",
+        "frameTimeP50Ms",
+        "frameTimeP95Ms",
+        "fpsCap",
+      ] as const) {
         if (!isNonNegativeFinite(payload[field])) {
           throw new TypeError(`${field} must be a non-negative finite number.`);
         }
@@ -105,8 +111,22 @@ function validateRuntimeEventDomain(
       if (!isPositiveFinite(payload.pixelRatio)) {
         throw new TypeError("pixelRatio must be a positive finite number.");
       }
+      if (
+        Number(payload.frameTimeP50Ms) > Number(payload.frameTimeP95Ms)
+      ) {
+        throw new TypeError("frameTimeP50Ms must not exceed frameTimeP95Ms.");
+      }
       for (const field of nonNegativeIntegerPerformanceFields) {
         requireNonNegativeSafeInteger(payload[field], field);
+      }
+      if (![
+        "initialized",
+        "configurationChanged",
+        "sample",
+        "performanceDown",
+        "performanceUp",
+      ].includes(String(payload.reason))) {
+        throw new TypeError("reason must be a supported performance reason.");
       }
       return;
     case "onWebGLContextChanged":

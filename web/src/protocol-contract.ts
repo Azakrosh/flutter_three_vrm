@@ -472,6 +472,8 @@ const requiredEventFields = {
   onPerformance: {
     fps: "number",
     frameTimeMs: "number",
+    frameTimeP50Ms: "number",
+    frameTimeP95Ms: "number",
     pixelRatio: "number",
     fpsCap: "number",
     physicsEnabled: "boolean",

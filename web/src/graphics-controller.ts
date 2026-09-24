@@ -10,6 +10,12 @@ export interface RuntimeGraphicsSettings {
 }
 
 export type RuntimeGraphicsPreset = "performance" | "balanced" | "quality";
+export type RuntimePerformanceReason =
+  | "initialized"
+  | "configurationChanged"
+  | "sample"
+  | "performanceDown"
+  | "performanceUp";
 
 export function parseRuntimeGraphicsSettings(
   value: unknown,
@@ -53,6 +59,8 @@ export function parseRuntimeGraphicsSettings(
 export interface RuntimePerformanceSnapshot {
   readonly fps: number;
   readonly frameTimeMs: number;
+  readonly frameTimeP50Ms: number;
+  readonly frameTimeP95Ms: number;
   readonly pixelRatio: number;
   readonly fpsCap: number;
   readonly physicsEnabled: boolean;
@@ -61,7 +69,7 @@ export interface RuntimePerformanceSnapshot {
   readonly triangles: number;
   readonly geometries: number;
   readonly textures: number;
-  readonly reason: string;
+  readonly reason: RuntimePerformanceReason;
 }
 
 export interface RuntimeGraphicsDependencies {
@@ -80,6 +88,9 @@ export class RuntimeGraphicsController {
   private lastFrameTime = 0;
   private performanceWindowStart: number;
   private performanceFrameCount = 0;
+  private readonly frameDurations = new Float64Array(240);
+  private frameDurationCount = 0;
+  private lastRecordedFrameTime = 0;
   private lastPerformanceReport = 0;
   private snapshot: RuntimePerformanceSnapshot;
 
@@ -91,6 +102,8 @@ export class RuntimeGraphicsController {
     this.snapshot = {
       fps: 0,
       frameTimeMs: 0,
+      frameTimeP50Ms: 0,
+      frameTimeP95Ms: 0,
       pixelRatio: Math.min(dependencies.devicePixelRatio(), 1.5),
       fpsCap: this.fpsCapValue,
       physicsEnabled: this.physicsEnabledValue,
@@ -128,6 +141,8 @@ export class RuntimeGraphicsController {
     this.lastFrameTime = 0;
     this.performanceWindowStart = now;
     this.performanceFrameCount = 0;
+    this.frameDurationCount = 0;
+    this.lastRecordedFrameTime = 0;
   }
 
   public setSettings(settings: RuntimeGraphicsSettings | null | undefined): void {
@@ -182,12 +197,16 @@ export class RuntimeGraphicsController {
     this.snapshot = this.getSnapshot("configurationChanged");
   }
 
-  public getSnapshot(reason = this.snapshot.reason): RuntimePerformanceSnapshot {
+  public getSnapshot(
+    reason: RuntimePerformanceReason = this.snapshot.reason,
+  ): RuntimePerformanceSnapshot {
     const renderer = this.dependencies.scene.renderer;
     const info = renderer.info;
     return {
       fps: this.snapshot.fps,
       frameTimeMs: this.snapshot.frameTimeMs,
+      frameTimeP50Ms: this.snapshot.frameTimeP50Ms,
+      frameTimeP95Ms: this.snapshot.frameTimeP95Ms,
       pixelRatio: renderer.getPixelRatio(),
       fpsCap: this.fpsCapValue,
       physicsEnabled: this.physicsEnabledValue,
@@ -201,11 +220,25 @@ export class RuntimeGraphicsController {
   }
 
   public recordFrame(now: number): void {
+    if (this.lastRecordedFrameTime > 0) {
+      const duration = now - this.lastRecordedFrameTime;
+      if (
+        Number.isFinite(duration) &&
+        duration > 0 &&
+        this.frameDurationCount < this.frameDurations.length
+      ) {
+        this.frameDurations[this.frameDurationCount] = duration;
+        this.frameDurationCount += 1;
+      }
+    }
+    this.lastRecordedFrameTime = now;
     this.performanceFrameCount += 1;
     const windowDuration = now - this.performanceWindowStart;
     if (windowDuration < 1000) return;
     const fps = this.performanceFrameCount * 1000 / windowDuration;
     const frameTimeMs = windowDuration / this.performanceFrameCount;
+    const frameTimeP50Ms = this.frameTimePercentile(0.5, frameTimeMs);
+    const frameTimeP95Ms = this.frameTimePercentile(0.95, frameTimeMs);
     const adjustment = this.adaptiveQuality.evaluate(
       fps, this.dependencies.scene.renderer.getPixelRatio(), this.fpsCapValue, now,
     );
@@ -214,12 +247,24 @@ export class RuntimeGraphicsController {
       ...this.getSnapshot(adjustment?.reason ?? "sample"),
       fps,
       frameTimeMs,
+      frameTimeP50Ms,
+      frameTimeP95Ms,
     };
     if (adjustment || now - this.lastPerformanceReport >= 2000) {
       this.dependencies.onPerformance(this.snapshot);
       this.lastPerformanceReport = now;
     }
     this.performanceFrameCount = 0;
+    this.frameDurationCount = 0;
     this.performanceWindowStart = now;
+  }
+
+  private frameTimePercentile(percentile: number, fallback: number): number {
+    if (this.frameDurationCount === 0) return fallback;
+    const values = Array.from(
+      this.frameDurations.subarray(0, this.frameDurationCount),
+    ).sort((left, right) => left - right);
+    const index = Math.max(0, Math.ceil(percentile * values.length) - 1);
+    return values[index] ?? fallback;
   }
 }

@@ -96,6 +96,8 @@ describe("runtime graphics controller", () => {
         pixelRatio: 1.35,
         fps: 40,
         frameTimeMs: 25,
+        frameTimeP50Ms: 25,
+        frameTimeP95Ms: 25,
         drawCalls: 5,
         triangles: 10,
         geometries: 2,
@@ -117,6 +119,8 @@ describe("runtime graphics controller", () => {
       expect.objectContaining({
         fps: 2,
         frameTimeMs: 500,
+        frameTimeP50Ms: 990,
+        frameTimeP95Ms: 990,
       }),
     );
   });

@@ -37,6 +37,8 @@ void main() {
       final snapshot = VrmPerformanceSnapshot.fromJson(<String, Object>{
         'fps': 57.5,
         'frameTimeMs': 17.4,
+        'frameTimeP50Ms': 16.8,
+        'frameTimeP95Ms': 24.2,
         'pixelRatio': 1.35,
         'fpsCap': 60,
         'physicsEnabled': true,
@@ -50,7 +52,9 @@ void main() {
 
       expect(snapshot.fps, 57.5);
       expect(snapshot.pixelRatio, 1.35);
-      expect(snapshot.reason, 'performanceDown');
+      expect(snapshot.frameTimeP50Ms, 16.8);
+      expect(snapshot.frameTimeP95Ms, 24.2);
+      expect(snapshot.reason, VrmPerformanceReason.performanceDown);
       expect(snapshot.triangles, 120000);
     });
 
@@ -63,6 +67,8 @@ void main() {
         () => VrmPerformanceSnapshot.fromJson(<String, Object>{
           'fps': 60,
           'frameTimeMs': 16.67,
+          'frameTimeP50Ms': 16.5,
+          'frameTimeP95Ms': 18.2,
           'pixelRatio': 1,
           'fpsCap': 59.5,
           'physicsEnabled': true,
@@ -72,6 +78,42 @@ void main() {
           'geometries': 3,
           'textures': 4,
           'reason': 'sample',
+        }),
+        throwsFormatException,
+      );
+      expect(
+        () => VrmPerformanceSnapshot.fromJson(<String, Object>{
+          'fps': 60,
+          'frameTimeMs': 16.67,
+          'frameTimeP50Ms': 20,
+          'frameTimeP95Ms': 18,
+          'pixelRatio': 1,
+          'fpsCap': 60,
+          'physicsEnabled': true,
+          'adaptiveQualityEnabled': true,
+          'drawCalls': 1,
+          'triangles': 2,
+          'geometries': 3,
+          'textures': 4,
+          'reason': 'sample',
+        }),
+        throwsFormatException,
+      );
+      expect(
+        () => VrmPerformanceSnapshot.fromJson(<String, Object>{
+          'fps': 60,
+          'frameTimeMs': 16.67,
+          'frameTimeP50Ms': 16.5,
+          'frameTimeP95Ms': 18.2,
+          'pixelRatio': 1,
+          'fpsCap': 60,
+          'physicsEnabled': true,
+          'adaptiveQualityEnabled': true,
+          'drawCalls': 1,
+          'triangles': 2,
+          'geometries': 3,
+          'textures': 4,
+          'reason': 'unknown',
         }),
         throwsFormatException,
       );

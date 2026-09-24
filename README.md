@@ -326,7 +326,10 @@ VrmView(
 
 controller.onPerformance.listen((event) {
   final stats = event.snapshot;
-  debugPrint('${stats.fps} FPS, ${stats.triangles} triangles');
+  debugPrint(
+    '${stats.fps} FPS, p50=${stats.frameTimeP50Ms} ms, '
+    'p95=${stats.frameTimeP95Ms} ms, reason=${stats.reason.name}',
+  );
 });
 
 controller.onModelAssessment.listen((event) {
@@ -339,6 +342,12 @@ controller.onModelAssessment.listen((event) {
 ```
 
 Доступны профили `performance` (30 FPS, pixel ratio 1.0), `balanced` и `quality`. `setGraphicsSettings()` оставлен для точного ручного управления. Автоматическая политика изменяет только render resolution и не отключает spring-bone physics без решения приложения.
+
+`frameTimeMs` содержит среднее по окну telemetry, а `frameTimeP50Ms` и
+`frameTimeP95Ms` показывают типичное и худшее устойчивое время кадра без
+покадровых аллокаций. `reason` имеет строгий тип `VrmPerformanceReason`:
+`initialized`, `configurationChanged`, `sample`, `performanceDown` или
+`performanceUp`. Последние два значения точно объясняют изменение pixel ratio.
 
 `VrmModelPerformancePolicy` дополнительно анализирует размер файла, полигоны, количество и суммарную площадь текстур, morph targets и spring bones. Она не запрещает загрузку моделей. По умолчанию модель получает класс `standard`, `elevated` или `high`; для двух последних классов верхняя граница adaptive pixel ratio заранее снижается до 1.25 или 1.0. Все пороги и оба значения можно переопределить:
 

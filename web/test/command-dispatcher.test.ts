@@ -203,6 +203,8 @@ function createHost(): RuntimeCommandHost {
     getPerformanceSnapshot: vi.fn(() => ({
       fps: 60,
       frameTimeMs: 16.67,
+      frameTimeP50Ms: 16.5,
+      frameTimeP95Ms: 18.2,
       pixelRatio: 1,
       fpsCap: 60,
       physicsEnabled: true,
@@ -211,7 +213,7 @@ function createHost(): RuntimeCommandHost {
       triangles: 0,
       geometries: 0,
       textures: 0,
-      reason: "test",
+      reason: "sample" as const,
     })),
     setRenderQuality: vi.fn(),
   };

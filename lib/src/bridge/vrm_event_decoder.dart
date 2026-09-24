@@ -122,7 +122,11 @@ VrmWebGlContextEvent _decodeWebGlContext(Map<String, dynamic> payload) {
 
 VrmPerformanceEvent _decodePerformance(Map<String, dynamic> payload) {
   final snapshot = VrmPerformanceSnapshot.fromJson(payload);
-  if (snapshot.fps < 0 || snapshot.frameTimeMs < 0 || snapshot.fpsCap < 0) {
+  if (snapshot.fps < 0 ||
+      snapshot.frameTimeMs < 0 ||
+      snapshot.frameTimeP50Ms < 0 ||
+      snapshot.frameTimeP95Ms < 0 ||
+      snapshot.fpsCap < 0) {
     throw const FormatException(
       'Performance timing values must be non-negative.',
     );
