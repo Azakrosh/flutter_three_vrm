@@ -321,6 +321,13 @@ error details и функциями безопасного сужения тип
 Критерий готовности: для каждого публичного mutating API документировано и
 проверено поведение после WebView reload, lifecycle pause и dispose.
 
+Текущий прогресс: добавлен `docs/STATE_OWNERSHIP.md`; generation и строгий порядок
+replay lifecycle → graphics → background → package model → app state → camera
+принадлежат `VrmRuntimeReplayCoordinator`. Camera snapshot также перенесён в
+координатор, а потеря runtime теперь явно инвалидирует незавершённую загрузку
+модели и speech/direct-input состояние. Следующий срез — runtime-loss сигнал для
+`VrmAnimationQueue` и race-тесты model load / transition / streaming speech.
+
 ### Stage 28 — Android performance и длительная стабильность
 
 Цель: предсказуемая нагрузка на смартфон без произвольного запрета тяжёлых

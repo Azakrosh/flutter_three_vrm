@@ -50,6 +50,7 @@ class VrmView extends StatefulWidget {
 class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
   late final VrmWebViewAdapter _webView;
   late final VrmRenderLifecycleCoordinator _lifecycleCoordinator;
+  late final VrmRuntimeReplayCoordinator _replayCoordinator;
   final List<StreamSubscription<dynamic>> _subscriptions = [];
   final List<StreamSubscription<dynamic>> _controllerSubscriptions = [];
 
@@ -57,15 +58,11 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
   bool _transportAttached = false;
   bool _isRuntimeReady = false;
   bool _isDisposed = false;
-  int _runtimeGeneration = 0;
   String? _errorMessage;
   VrmModelAssessment? _modelAssessment;
   int _recoveryAttempts = 0;
   bool _recoveryInProgress = false;
   bool _recoveryRequested = false;
-  VrmTransform? _pendingCameraRestore;
-  int? _pendingCameraRevision;
-  bool _cameraRestoreInProgress = false;
 
   Color get _effectiveBackground =>
       widget.transparent ? Colors.transparent : widget.backgroundColor;
@@ -75,6 +72,7 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
     super.initState();
     _validateConfiguration();
     WidgetsBinding.instance.addObserver(this);
+    _replayCoordinator = VrmRuntimeReplayCoordinator();
     _lifecycleCoordinator = VrmRenderLifecycleCoordinator(
       platform: defaultTargetPlatform,
       initialLifecycleState: WidgetsBinding.instance.lifecycleState,
@@ -106,9 +104,7 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
     }
     if (!identical(oldWidget.controller, widget.controller)) {
       _lifecycleCoordinator.detachRuntime();
-      _pendingCameraRestore = null;
-      _pendingCameraRevision = null;
-      _cameraRestoreInProgress = false;
+      _replayCoordinator.clearCamera();
       final hadModel = oldWidget.controller.isModelLoaded;
       oldWidget.controller._bridge.detachTransport(_webView);
       final contentHost = _contentHost;
@@ -257,7 +253,7 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
     if (!mounted || _isRuntimeReady) {
       return;
     }
-    final runtimeGeneration = ++_runtimeGeneration;
+    final runtimeGeneration = _replayCoordinator.beginRuntime();
 
     setState(() {
       _isRuntimeReady = true;
@@ -268,41 +264,41 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
     _recoveryRequested = false;
 
     try {
-      await _lifecycleCoordinator.attachRuntime();
-      if (!_isCurrentRuntime(runtimeGeneration)) {
-        return;
-      }
-      await _applyGraphicsConfiguration();
-      if (!_isCurrentRuntime(runtimeGeneration)) {
-        return;
-      }
-      await widget.controller.setBackground(
-        color: _effectiveBackground,
-        transparent: widget.transparent,
-      );
-      if (!_isCurrentRuntime(runtimeGeneration)) {
-        return;
-      }
-
       final folder = widget.initialModelFolder;
       final file = widget.initialModelFile;
-      if (folder != null && file != null) {
-        await widget.controller.loadModel(folder, file);
-        if (!_isCurrentRuntime(runtimeGeneration)) {
-          return;
-        }
-      }
-
-      if (mounted) {
-        await widget.onCreated?.call(widget.controller);
-        if (!_isCurrentRuntime(runtimeGeneration)) {
-          return;
-        }
-      }
-      await _restoreCameraAfterRecovery();
-      if (!_isCurrentRuntime(runtimeGeneration)) {
-        return;
-      }
+      await _replayCoordinator.replay(
+        generation: runtimeGeneration,
+        steps: [
+          VrmRuntimeReplayStep(
+            VrmRuntimeReplayPhase.lifecycle,
+            _lifecycleCoordinator.attachRuntime,
+          ),
+          VrmRuntimeReplayStep(
+            VrmRuntimeReplayPhase.graphics,
+            _applyGraphicsConfiguration,
+          ),
+          VrmRuntimeReplayStep(
+            VrmRuntimeReplayPhase.background,
+            () => widget.controller.setBackground(
+              color: _effectiveBackground,
+              transparent: widget.transparent,
+            ),
+          ),
+          if (folder != null && file != null)
+            VrmRuntimeReplayStep(
+              VrmRuntimeReplayPhase.packageModel,
+              () => widget.controller.loadModel(folder, file),
+            ),
+          VrmRuntimeReplayStep(
+            VrmRuntimeReplayPhase.applicationState,
+            () async => widget.onCreated?.call(widget.controller),
+          ),
+          VrmRuntimeReplayStep(
+            VrmRuntimeReplayPhase.camera,
+            () => _restoreCameraAfterRecovery(runtimeGeneration),
+          ),
+        ],
+      );
     } on Object catch (error, stackTrace) {
       if (!_isCurrentRuntime(runtimeGeneration)) {
         return;
@@ -316,7 +312,7 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
     return mounted &&
         !_isDisposed &&
         _isRuntimeReady &&
-        _runtimeGeneration == generation;
+        _replayCoordinator.isCurrent(generation);
   }
 
   Future<void> _applyBackgroundSafely() async {
@@ -344,7 +340,7 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
 
   void _handleRuntimeResourceError(String message) {
     final error = StateError('WebView runtime resource error: $message');
-    _runtimeGeneration += 1;
+    _replayCoordinator.invalidateRuntime();
     _lifecycleCoordinator.detachRuntime();
     widget.controller._markRuntimeUnavailable(error);
     if (mounted && !_isDisposed) {
@@ -398,9 +394,11 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
     if (contentHost == null || !contentHost.isStarted) {
       throw StateError('VRM runtime content host is not available.');
     }
-    _pendingCameraRestore ??= widget.controller._lastKnownCameraTransform;
-    _pendingCameraRevision ??= widget.controller._cameraTransformRevision;
-    _runtimeGeneration += 1;
+    _replayCoordinator.captureCamera(
+      widget.controller._lastKnownCameraTransform,
+      widget.controller._cameraTransformRevision,
+    );
+    _replayCoordinator.invalidateRuntime();
     _lifecycleCoordinator.detachRuntime();
     widget.controller._markRuntimeUnavailable(
       StateError('VRM runtime is reloading.'),
@@ -415,30 +413,15 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
     await _webView.load(contentHost.runtimeUri);
   }
 
-  Future<void> _restoreCameraAfterRecovery() async {
-    final transform = _pendingCameraRestore;
-    final revision = _pendingCameraRevision;
-    if (transform == null ||
-        revision == null ||
-        _cameraRestoreInProgress ||
-        !widget.controller.isModelLoaded) {
-      return;
-    }
-
-    if (widget.controller._cameraTransformRevision != revision) {
-      _pendingCameraRestore = null;
-      _pendingCameraRevision = null;
-      return;
-    }
-
-    _cameraRestoreInProgress = true;
-    try {
-      await widget.controller.setTransform(transform);
-      _pendingCameraRestore = null;
-      _pendingCameraRevision = null;
-    } finally {
-      _cameraRestoreInProgress = false;
-    }
+  Future<void> _restoreCameraAfterRecovery([int? generation]) async {
+    final activeGeneration = generation ?? _replayCoordinator.activeGeneration;
+    if (activeGeneration == null) return;
+    await _replayCoordinator.restoreCamera(
+      generation: activeGeneration,
+      modelLoaded: widget.controller.isModelLoaded,
+      currentRevision: widget.controller._cameraTransformRevision,
+      apply: widget.controller.setTransform,
+    );
   }
 
   Future<void> _applyGraphicsConfiguration() async {
@@ -489,6 +472,7 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
   void dispose() {
     final shouldDisposeRuntime = _transportAttached && _isRuntimeReady;
     _isDisposed = true;
+    _replayCoordinator.dispose();
     _lifecycleCoordinator.dispose();
     WidgetsBinding.instance.removeObserver(this);
 

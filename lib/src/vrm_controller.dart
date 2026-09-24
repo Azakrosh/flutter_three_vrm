@@ -242,15 +242,21 @@ class VrmController {
 
   /// Reloads the embedded runtime. [VrmView.onCreated] runs again afterwards.
   Future<void> reloadRuntime() async {
-    _isModelLoaded = false;
-    _abandonSpeechSession();
+    _invalidateTransientRuntimeState();
     await _bridge.reloadRuntime();
   }
 
   void _markRuntimeUnavailable(Object error) {
+    _invalidateTransientRuntimeState();
+    _bridge.markRuntimeUnavailable(error);
+  }
+
+  void _invalidateTransientRuntimeState() {
+    _modelLoadGeneration += 1;
+    _isLoadingModel = false;
     _isModelLoaded = false;
     _abandonSpeechSession();
-    _bridge.markRuntimeUnavailable(error);
+    _clearDirectSpeechInputs();
   }
 
   void _publishModelAssessment(VrmModelAssessment assessment) {
@@ -273,8 +279,7 @@ class VrmController {
 
   /// Disposes this controller and its event streams.
   Future<void> dispose() async {
-    _isModelLoaded = false;
-    _abandonSpeechSession();
+    _invalidateTransientRuntimeState();
     await _stateSubscription.cancel();
     await _bridge.dispose();
   }

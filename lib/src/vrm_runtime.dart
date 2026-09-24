@@ -32,6 +32,7 @@ import 'models/vrm_transform.dart';
 import 'models/vrm_wind.dart';
 import 'platform/create_vrm_webview_adapter.dart';
 import 'platform/vrm_webview_adapter.dart';
+import 'recovery/vrm_runtime_replay_coordinator.dart';
 
 part 'bridge/vrm_bridge.dart';
 part 'vrm_controller.dart';
