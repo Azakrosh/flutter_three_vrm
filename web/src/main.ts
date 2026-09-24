@@ -114,6 +114,7 @@ export {
 export {
   findAnimationLightingPayloadError,
 } from "./animation-lighting-codec";
+export { findRuntimeEventDomainError } from "./event-protocol-codec";
 export {
   findInteractionCommandPayloadError,
   parseRuntimeBackgroundConfig,

@@ -198,7 +198,7 @@ GitHub Actions; Windows smoke запускается. Нужны отдельн�
 protocol v3. Исключение в поведении по решению пользователя: клик больше не
 поворачивает аватар и не меняет взгляд.
 
-Статус: в работе. Добавлен общий manifest protocol v3, Dart bridge принимает
+Статус: завершён. Добавлен общий manifest protocol v3, Dart bridge принимает
 только enum-команды, TypeScript проверяет command/event имена и обязательные
 поля payload, а CI сверяет manifest с TypeScript dispatcher. Browser transport,
 глобальные callbacks, response/error envelopes и platform message sinks уже
@@ -271,9 +271,13 @@ model-report и performance events проверяются на полноту п
 получили точный empty-object контракт и отклоняют неожиданные поля на runtime
 boundary. Результат dispatcher теперь вычисляется из имени команды: query
 возвращают свои доменные типы, а mutation-команды — только `null`; success и
-response envelope больше не хранят `unknown`. Следующий срез — строгая
-доменная проверка event payload на web boundary и отказ от fallback-значений в
-Dart event decoder.
+response envelope больше не хранят `unknown`. В Stage 26.26 все event payload
+получили доменную проверку диапазонов, enum-состояний и empty-object событий на
+web boundary. Dart bridge использует отдельный тестируемый decoder для всех 14
+событий и больше не подменяет отсутствующие name/progress/camera/tap/expression
+значения fallback-данными. Оставшийся `unknown` ограничен недоверенным JSON,
+error details и функциями безопасного сужения типов. Все критерии Stage 26
+закрыты; дальнейшая работа переходит к Stage 27 — state ownership и recovery.
 
 Работы:
 

@@ -4,7 +4,6 @@ typedef VrmJavaScriptRunner = Future<void> Function(String source);
 typedef VrmRuntimeReloader = Future<void> Function();
 
 final class _VrmBridge {
-  static const int _protocolVersion = 3;
   static const Duration _commandTimeout = Duration(minutes: 2);
   static const int _maxIgnoredResponseIds = 256;
   final StreamController<VrmEvent> _eventController =
@@ -90,7 +89,7 @@ final class _VrmBridge {
   }
 
   void _handleResponse(Map<String, dynamic> envelope) {
-    if (envelope['version'] != _protocolVersion) {
+    if (envelope['version'] != vrmProtocolVersion) {
       throw FormatException(
         'Unsupported VRM protocol version: ${envelope['version']}.',
       );
@@ -128,133 +127,11 @@ final class _VrmBridge {
   }
 
   void _handleEvent(Map<String, dynamic> decoded) {
-    if (decoded['version'] != _protocolVersion) {
-      throw FormatException(
-        'Unsupported VRM protocol version: ${decoded['version']}.',
-      );
+    final event = decodeVrmRuntimeEventEnvelope(decoded);
+    if (event case VrmStateChangedEvent(state: 'initialized')) {
+      _runtimeReady = true;
     }
-    final eventName = decoded['event'];
-    if (eventName is! String) {
-      throw const FormatException('Bridge event name is missing.');
-    }
-    final event = vrmProtocolEventFromWireName(eventName);
-    if (event == null) {
-      throw FormatException('Unknown VRM runtime event: $eventName.');
-    }
-    final rawPayload = decoded['payload'];
-    if (rawPayload is! Map<String, dynamic>) {
-      throw FormatException('VRM runtime event $eventName payload is invalid.');
-    }
-    final payload = rawPayload;
-
-    switch (event) {
-      case VrmProtocolEvent.onModelLoaded:
-        _eventController.add(
-          VrmModelLoadedEvent(
-            name: payload['name'] as String? ?? 'VRM Model',
-            version: payload['version'] as String? ?? '1.0',
-          ),
-        );
-      case VrmProtocolEvent.onModelLoadProgress:
-        _eventController.add(
-          VrmModelLoadProgressEvent(
-            percent: (payload['percent'] as num?)?.toInt() ?? 0,
-            loaded: (payload['loaded'] as num?)?.toInt() ?? 0,
-            total: (payload['total'] as num?)?.toInt() ?? 0,
-          ),
-        );
-      case VrmProtocolEvent.onModelReport:
-        _eventController.add(
-          VrmModelReportEvent(report: VrmModelReport.fromJson(payload)),
-        );
-      case VrmProtocolEvent.onModelUnloaded:
-        _eventController.add(VrmModelUnloadedEvent());
-      case VrmProtocolEvent.onAnimationStarted:
-        final playbackId = payload['playbackId'];
-        if (playbackId is! String || playbackId.isEmpty) {
-          throw const FormatException(
-            'Animation started event playbackId is missing.',
-          );
-        }
-        _eventController.add(
-          VrmAnimationStartedEvent(
-            name: payload['name'] as String? ?? 'Animation',
-            playbackId: playbackId,
-          ),
-        );
-      case VrmProtocolEvent.onAnimationFinished:
-        final playbackId = payload['playbackId'];
-        if (playbackId is! String || playbackId.isEmpty) {
-          throw const FormatException(
-            'Animation finished event playbackId is missing.',
-          );
-        }
-        _eventController.add(
-          VrmAnimationFinishedEvent(
-            name: payload['name'] as String? ?? 'Animation',
-            playbackId: playbackId,
-          ),
-        );
-      case VrmProtocolEvent.onExpressionChanged:
-        _eventController.add(
-          VrmExpressionChangedEvent(
-            expression: VrmExpression.fromString(
-              payload['expression'] as String? ?? '',
-            ),
-            layer: ExpressionLayer.fromString(
-              payload['layer'] as String? ?? '',
-            ),
-          ),
-        );
-      case VrmProtocolEvent.onSpeechFinished:
-        final sessionId = payload['sessionId'];
-        if (sessionId is! String || sessionId.isEmpty) {
-          throw const FormatException('Speech event sessionId is missing.');
-        }
-        _eventController.add(VrmSpeechFinishedEvent(sessionId: sessionId));
-      case VrmProtocolEvent.onError:
-        _eventController.add(
-          VrmErrorEvent(
-            message: payload['message'] as String? ?? 'Unknown WebGL error',
-          ),
-        );
-      case VrmProtocolEvent.onStateChanged:
-        if (payload['state'] == 'initialized') {
-          _runtimeReady = true;
-        }
-        _eventController.add(
-          VrmStateChangedEvent(state: payload['state'] as String? ?? ''),
-        );
-      case VrmProtocolEvent.onCameraChanged:
-        _eventController.add(
-          VrmCameraChangedEvent(
-            x: (payload['x'] as num?)?.toDouble(),
-            y: (payload['y'] as num?)?.toDouble(),
-            zoom: (payload['zoom'] as num?)?.toDouble(),
-            userInitiated: payload['userInitiated'] == true,
-          ),
-        );
-      case VrmProtocolEvent.onPerformance:
-        _eventController.add(
-          VrmPerformanceEvent(
-            snapshot: VrmPerformanceSnapshot.fromJson(payload),
-          ),
-        );
-      case VrmProtocolEvent.onWebGlContextChanged:
-        final state = switch (payload['state']) {
-          'lost' => VrmWebGlContextState.lost,
-          'restored' => VrmWebGlContextState.restored,
-          _ => throw const FormatException('Unknown WebGL context state.'),
-        };
-        _eventController.add(VrmWebGlContextEvent(state: state));
-      case VrmProtocolEvent.onTap:
-        _eventController.add(
-          VrmTapEvent(
-            x: (payload['x'] as num?)?.toDouble() ?? 0,
-            y: (payload['y'] as num?)?.toDouble() ?? 0,
-          ),
-        );
-    }
+    _eventController.add(event);
   }
 
   Future<void> sendCommand(
@@ -335,7 +212,7 @@ final class _VrmBridge {
     _pending[id] = _PendingCommand(completer: completer, timer: timer);
 
     final command = jsonEncode(<String, Object?>{
-      'version': _protocolVersion,
+      'version': vrmProtocolVersion,
       'id': id,
       'type': 'command',
       'action': action.name,

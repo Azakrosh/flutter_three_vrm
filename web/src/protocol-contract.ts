@@ -45,6 +45,7 @@ import {
   type RuntimePhysicsConfig,
   type RuntimeWindConfig,
 } from "./interaction-protocol-codec";
+import { findRuntimeEventDomainError } from "./event-protocol-codec";
 
 export const runtimeCommandNames = [
   "loadModelFromUrl",
@@ -502,5 +503,5 @@ export function findRuntimeEventPayloadError(
       return `Event payload ${eventName}.${field} must be ${article} ${kind}.`;
     }
   }
-  return null;
+  return findRuntimeEventDomainError(eventName, payload);
 }

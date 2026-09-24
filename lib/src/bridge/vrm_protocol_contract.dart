@@ -1,3 +1,5 @@
+const int vrmProtocolVersion = 3;
+
 /// Internal command names shared with the web runtime protocol contract.
 enum VrmProtocolCommand {
   loadModelFromUrl,

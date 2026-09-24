@@ -29,6 +29,7 @@
 - Add typed animation, lighting, runtime-health, and model-report contracts; ensure optional-only commands still reach nested boundary codecs and harden their Dart decoders.
 - Add exact expression, gaze, physics, wind, background, and event payload contracts with domain-aware boundary validation; treat speech `sil` frames as mouth closure.
 - Reject extra fields for argument-free commands and derive dispatcher/success-response result types from the concrete query command instead of `unknown`.
+- Validate event domains before WebView transport and decode all 14 Dart runtime events strictly without silently substituting fallback values.
 - Keep Android hidden-lifecycle smoke polling independent of a rendered frame so model recovery cannot stall the test harness.
 - Scope animation lifecycle events and queues to opaque playback IDs so unrelated or replaced animations cannot advance a queue.
 - Enforce transform, adaptive-quality, recovery, and model-performance configuration contracts in release builds instead of relying on debug-only asserts.

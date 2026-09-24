@@ -566,11 +566,11 @@ describe("bridge protocol", () => {
   it("creates typed success and failure envelopes", () => {
     expect(success("1", { ready: true }).ok).toBe(true);
     expect(failure("2", "failed", "Failure").ok).toBe(false);
-    expect(event("onStateChanged", { state: "ready" })).toEqual({
+    expect(event("onStateChanged", { state: "initialized" })).toEqual({
       version: protocolVersion,
       type: "event",
       event: "onStateChanged",
-      payload: { state: "ready" },
+      payload: { state: "initialized" },
     });
   });
 
@@ -609,6 +609,58 @@ describe("bridge protocol", () => {
       }),
     );
   });
+
+  it.each([
+    [
+      "onModelLoadProgress",
+      { percent: 50.5, loaded: 5, total: 10 },
+      "Event payload onModelLoadProgress is invalid: percent must be a non-negative safe integer.",
+    ],
+    [
+      "onModelLoadProgress",
+      { percent: 50, loaded: 11, total: 10 },
+      "Event payload onModelLoadProgress is invalid: loaded must not exceed total.",
+    ],
+    [
+      "onModelReport",
+      { ...modelReportEventPayload(), height: 0 },
+      "Event payload onModelReport is invalid: height must be a positive finite number.",
+    ],
+    [
+      "onModelUnloaded",
+      { stale: true },
+      "Event payload onModelUnloaded is invalid: payload must be empty.",
+    ],
+    [
+      "onExpressionChanged",
+      { expression: "smirk", layer: "eyes" },
+      "Event payload onExpressionChanged is invalid: expression must be a supported VRM expression.",
+    ],
+    [
+      "onStateChanged",
+      { state: "ready" },
+      'Event payload onStateChanged is invalid: state must be "initialized".',
+    ],
+    [
+      "onCameraChanged",
+      { x: 0, y: 0, zoom: 0, userInitiated: false },
+      "Event payload onCameraChanged is invalid: zoom must be a positive finite number.",
+    ],
+    [
+      "onPerformance",
+      { ...performanceEventPayload(), pixelRatio: 0 },
+      "Event payload onPerformance is invalid: pixelRatio must be a positive finite number.",
+    ],
+    [
+      "onWebGLContextChanged",
+      { state: "suspended" },
+      'Event payload onWebGLContextChanged is invalid: state must be "lost" or "restored".',
+    ],
+  ])("rejects invalid event domain values for %s", (name, payload, message) => {
+    expect(() => event(name as never, payload as never)).toThrowError(
+      expect.objectContaining({ code: "invalidEventPayload", message }),
+    );
+  });
 });
 
 function speechCommand(action: string, payload: Record<string, unknown>) {
@@ -633,4 +685,43 @@ function structuredCommand(action: string, payload: Record<string, unknown>) {
       payload,
     }),
   );
+}
+
+function modelReportEventPayload() {
+  return {
+    name: "Avatar",
+    vrmVersion: "1.0",
+    sourceBytes: 1024,
+    height: 1.7,
+    meshes: 1,
+    skinnedMeshes: 1,
+    geometries: 1,
+    materials: 1,
+    textures: 1,
+    texturePixels: 1024,
+    estimatedTextureMemoryBytes: 4096,
+    maxTextureWidth: 32,
+    maxTextureHeight: 32,
+    vertices: 3,
+    triangles: 1,
+    morphTargets: 0,
+    humanoidBones: 1,
+    springBoneJoints: 0,
+  };
+}
+
+function performanceEventPayload() {
+  return {
+    fps: 60,
+    frameTimeMs: 16.67,
+    pixelRatio: 1,
+    fpsCap: 60,
+    physicsEnabled: true,
+    adaptiveQualityEnabled: true,
+    drawCalls: 1,
+    triangles: 1,
+    geometries: 1,
+    textures: 1,
+    reason: "sample",
+  };
 }
