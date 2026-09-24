@@ -22,11 +22,15 @@ describe("runtime bridge", () => {
         maxTextureSize: 4096,
         maxTextures: 16,
         maxVertexTextures: 16,
+        rendererTextureCount: 2,
+        estimatedTextureMemoryBytes: 4096,
+        lastModelLoadDurationMs: 250.5,
         modelLoaded: false,
         animationActive: false,
         animationPaused: false,
         renderingPaused: false,
         contextLost: false,
+        contextLossCount: 0,
       }),
     );
 

@@ -107,11 +107,20 @@ debugPrint(
   'runtime=${health.runtimeVersion}, '
   'three=r${health.threeRevision}, '
   'WebGL ${health.webGlVersion}, '
-  'maxTexture=${health.maxTextureSize}',
+  'textures=${health.rendererTextureCount}, '
+  'modelTextureMemory=${health.estimatedTextureMemoryBytes}, '
+  'load=${health.lastModelLoadDurationMs.toStringAsFixed(1)} ms, '
+  'contextLosses=${health.contextLossCount}',
 );
 ```
 
-`VrmRuntimeHealth` также сообщает версии protocol/three-vrm, наличие модели и анимации, pause render loop и потерю WebGL context. Это предназначено для диагностики и integration smoke-тестов, а не для доступа к низкоуровневому renderer.
+`VrmRuntimeHealth` также сообщает версии protocol/three-vrm, наличие модели и
+анимации, pause render loop, текущую и накопленную потерю WebGL context,
+количество выделенных renderer-текстур, расчётную память текстур модели и время
+последней успешной загрузки. Счётчик context loss живёт до пересоздания WebView,
+а метрика загрузки не меняется при отменённом или неуспешном запросе. Это
+предназначено для диагностики и integration smoke-тестов, а не для доступа к
+низкоуровневому renderer.
 
 При ошибке главного документа `VrmView` выполняет не более двух попыток восстановления с exponential backoff. Ошибки текстур и других дочерних ресурсов не перезапускают весь runtime. Политику можно изменить или отключить:
 

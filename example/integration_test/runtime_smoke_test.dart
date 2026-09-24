@@ -27,6 +27,8 @@ void main() {
     expect(initialHealth.threeRevision, '180');
     expect(initialHealth.threeVrmVersion, '3.5.5');
     expect(initialHealth.maxTextureSize, greaterThan(0));
+    expect(initialHealth.contextLossCount, 0);
+    expect(initialHealth.lastModelLoadDurationMs, 0);
 
     await _waitForModel(tester, controller);
     debugPrint('runtime_smoke: initial model ready');
@@ -34,6 +36,13 @@ void main() {
     expect(report.meshes, greaterThan(0));
     expect(report.triangles, greaterThan(0));
     expect(report.humanoidBones, greaterThan(0));
+    final loadedHealth = await controller.getRuntimeHealth();
+    expect(loadedHealth.lastModelLoadDurationMs, greaterThan(0));
+    expect(
+      loadedHealth.estimatedTextureMemoryBytes,
+      report.estimatedTextureMemoryBytes,
+    );
+    expect(loadedHealth.rendererTextureCount, greaterThanOrEqualTo(0));
 
     await _waitForAnimation(tester, controller);
     await _verifyMotionTransitions(tester, controller);

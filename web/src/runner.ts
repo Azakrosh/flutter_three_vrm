@@ -16,6 +16,7 @@ import {
   RuntimeSceneController,
   RuntimeBackgroundController,
   RuntimeGraphicsController,
+  RuntimeDiagnostics,
   VrmModelLoader,
   VrmAnimationLoader,
   VrmModelSession,
@@ -70,6 +71,7 @@ class VrmRunner implements RuntimeCommandHost {
   private readonly graphicsController!: RuntimeGraphicsController;
   private readonly frameScheduler!: RuntimeFrameScheduler;
   private readonly pageLifecycle!: RuntimePageLifecycle;
+  private readonly runtimeDiagnostics = new RuntimeDiagnostics();
   private sceneController!: RuntimeSceneController;
   private cameraController!: RuntimeCameraController;
   private modelBoundingHeight = 1.6;
@@ -277,11 +279,12 @@ class VrmRunner implements RuntimeCommandHost {
   }
 
   public async loadModelFromUrl(url: string): Promise<void> {
+    const startedAtMs = performance.now();
     try {
       const loaded = await this.modelLoader.load(url, (progress) => {
         this.notifyFlutter('onModelLoadProgress', progress);
       });
-      this.setupLoadedVrm(loaded.vrm, loaded.sourceBytes);
+      this.setupLoadedVrm(loaded.vrm, loaded.sourceBytes, startedAtMs);
     } catch (error) {
       if (!isRuntimeCanceledError(error)) {
         this.notifyFlutter('onError', {
@@ -300,7 +303,11 @@ class VrmRunner implements RuntimeCommandHost {
     this.animationLoader.cancel();
   }
 
-  private setupLoadedVrm(vrm: LoadedVrm, sourceBytes: number): void {
+  private setupLoadedVrm(
+    vrm: LoadedVrm,
+    sourceBytes: number,
+    loadStartedAtMs: number,
+  ): void {
     if (this.currentVrm) this.unloadModel();
 
     const report = this.modelSession.attach(vrm, {
@@ -315,6 +322,10 @@ class VrmRunner implements RuntimeCommandHost {
     this.motionController.resetModelState();
     this.modelBoundingHeight = report.height;
     this.frameAvatar(0);
+    this.runtimeDiagnostics.recordSuccessfulModelLoad(
+      loadStartedAtMs,
+      performance.now(),
+    );
 
     this.notifyFlutter('onModelLoaded', {
       name: report.name,
@@ -337,12 +348,18 @@ class VrmRunner implements RuntimeCommandHost {
   public getRuntimeHealth(): RuntimeHealth {
     const runtimeInfo = getRuntimeInfo();
     const capabilities = this.renderer?.capabilities;
+    const performanceSnapshot = this.graphicsController.getSnapshot();
     return {
       ...runtimeInfo,
       webGlVersion: capabilities?.isWebGL2 ? 2 : 1,
       maxTextureSize: capabilities?.maxTextureSize || 0,
       maxTextures: capabilities?.maxTextures || 0,
       maxVertexTextures: capabilities?.maxVertexTextures || 0,
+      rendererTextureCount: performanceSnapshot.textures,
+      estimatedTextureMemoryBytes:
+        this.modelReport?.estimatedTextureMemoryBytes ?? 0,
+      lastModelLoadDurationMs:
+        this.runtimeDiagnostics.lastModelLoadDurationMs,
       modelLoaded: Boolean(this.currentVrm),
       // A fade-out remains active after currentAction is cleared, until the
       // retiring action has reached the normalized rest pose.
@@ -350,6 +367,7 @@ class VrmRunner implements RuntimeCommandHost {
       animationPaused: this.motionController.isPaused,
       renderingPaused: this.frameScheduler.isPaused,
       contextLost: this.sceneController.contextLost,
+      contextLossCount: this.runtimeDiagnostics.contextLossCount,
     };
   }
 
@@ -587,6 +605,7 @@ class VrmRunner implements RuntimeCommandHost {
   }
 
   private onWebGlContextLost(): void {
+    this.runtimeDiagnostics.recordContextLoss();
     this.notifyFlutter('onWebGLContextChanged', { state: 'lost' });
   }
 

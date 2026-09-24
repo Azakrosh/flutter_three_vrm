@@ -11,11 +11,15 @@ final class VrmRuntimeHealth {
     required this.maxTextureSize,
     required this.maxTextures,
     required this.maxVertexTextures,
+    required this.rendererTextureCount,
+    required this.estimatedTextureMemoryBytes,
+    required this.lastModelLoadDurationMs,
     required this.modelLoaded,
     required this.animationActive,
     required this.animationPaused,
     required this.renderingPaused,
     required this.contextLost,
+    required this.contextLossCount,
   });
 
   final String runtimeVersion;
@@ -26,11 +30,15 @@ final class VrmRuntimeHealth {
   final int maxTextureSize;
   final int maxTextures;
   final int maxVertexTextures;
+  final int rendererTextureCount;
+  final int estimatedTextureMemoryBytes;
+  final double lastModelLoadDurationMs;
   final bool modelLoaded;
   final bool animationActive;
   final bool animationPaused;
   final bool renderingPaused;
   final bool contextLost;
+  final int contextLossCount;
 
   factory VrmRuntimeHealth.fromJson(Object? value) {
     if (value is! Map<Object?, Object?>) {
@@ -57,19 +65,35 @@ final class VrmRuntimeHealth {
       throw FormatException('$name must be a boolean.');
     }
 
+    double finiteNumber(String name) {
+      final field = value[name];
+      if (field is num && field.isFinite) return field.toDouble();
+      throw FormatException('$name must be a finite number.');
+    }
+
     final protocolVersion = integer('protocolVersion');
     final webGlVersion = integer('webGlVersion');
     final maxTextureSize = integer('maxTextureSize');
     final maxTextures = integer('maxTextures');
     final maxVertexTextures = integer('maxVertexTextures');
+    final rendererTextureCount = integer('rendererTextureCount');
+    final estimatedTextureMemoryBytes = integer('estimatedTextureMemoryBytes');
+    final lastModelLoadDurationMs = finiteNumber('lastModelLoadDurationMs');
+    final contextLossCount = integer('contextLossCount');
     if (protocolVersion < 1) {
       throw const FormatException('protocolVersion must be positive.');
     }
     if (webGlVersion != 1 && webGlVersion != 2) {
       throw const FormatException('webGlVersion must be 1 or 2.');
     }
-    if (maxTextureSize < 0 || maxTextures < 0 || maxVertexTextures < 0) {
-      throw const FormatException('WebGL limits must not be negative.');
+    if (maxTextureSize < 0 ||
+        maxTextures < 0 ||
+        maxVertexTextures < 0 ||
+        rendererTextureCount < 0 ||
+        estimatedTextureMemoryBytes < 0 ||
+        lastModelLoadDurationMs < 0 ||
+        contextLossCount < 0) {
+      throw const FormatException('Runtime metrics must not be negative.');
     }
 
     return VrmRuntimeHealth(
@@ -81,11 +105,15 @@ final class VrmRuntimeHealth {
       maxTextureSize: maxTextureSize,
       maxTextures: maxTextures,
       maxVertexTextures: maxVertexTextures,
+      rendererTextureCount: rendererTextureCount,
+      estimatedTextureMemoryBytes: estimatedTextureMemoryBytes,
+      lastModelLoadDurationMs: lastModelLoadDurationMs,
       modelLoaded: boolean('modelLoaded'),
       animationActive: boolean('animationActive'),
       animationPaused: boolean('animationPaused'),
       renderingPaused: boolean('renderingPaused'),
       contextLost: boolean('contextLost'),
+      contextLossCount: contextLossCount,
     );
   }
 }

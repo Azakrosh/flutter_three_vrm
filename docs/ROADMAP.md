@@ -360,8 +360,10 @@ WebView через `EagerGestureRecognizer`. Все критерии Stage 27 з
 Текущий прогресс: telemetry snapshot получил frame-time p50/p95 из фиксированного
 буфера без покадровых аллокаций. Причина события и изменения adaptive pixel ratio
 типизирована единым enum на TypeScript/Dart boundary. Embedded runtime пересобран
-и contract остаётся на protocol v3. Следующий срез — Android FPS/pixel-ratio
-profile и длительный load/speech/motion soak.
+и contract остаётся на protocol v3. Runtime health дополнен текущим количеством
+renderer-текстур, расчётной памятью текстур модели, временем последней успешной
+загрузки и накопительным context-loss counter за жизнь WebView. Следующий срез —
+Android FPS/pixel-ratio profile и длительный load/speech/motion soak.
 
 Критерий готовности: документированный профиль нагрузки и отсутствие
 неограниченного роста ресурсов в длительных сценариях.

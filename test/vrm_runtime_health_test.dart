@@ -13,17 +13,25 @@ void main() {
         'maxTextureSize': 16384,
         'maxTextures': 16,
         'maxVertexTextures': 16,
+        'rendererTextureCount': 4,
+        'estimatedTextureMemoryBytes': 67108864,
+        'lastModelLoadDurationMs': 812.5,
         'modelLoaded': true,
         'animationActive': true,
         'animationPaused': false,
         'renderingPaused': false,
         'contextLost': false,
+        'contextLossCount': 1,
       });
 
       expect(health.protocolVersion, 3);
       expect(health.threeRevision, '180');
       expect(health.webGlVersion, 2);
       expect(health.maxTextureSize, 16384);
+      expect(health.rendererTextureCount, 4);
+      expect(health.estimatedTextureMemoryBytes, 67108864);
+      expect(health.lastModelLoadDurationMs, 812.5);
+      expect(health.contextLossCount, 1);
       expect(health.modelLoaded, isTrue);
       expect(health.animationActive, isTrue);
       expect(health.animationPaused, isFalse);
@@ -42,6 +50,39 @@ void main() {
         () => VrmRuntimeHealth.fromJson(<String, Object>{
           'runtimeVersion': 'test',
           'protocolVersion': 3.5,
+        }),
+        throwsFormatException,
+      );
+      final valid = <String, Object>{
+        'runtimeVersion': 'test',
+        'protocolVersion': 3,
+        'threeRevision': '180',
+        'threeVrmVersion': '3.5.5',
+        'webGlVersion': 2,
+        'maxTextureSize': 4096,
+        'maxTextures': 16,
+        'maxVertexTextures': 16,
+        'rendererTextureCount': 0,
+        'estimatedTextureMemoryBytes': 0,
+        'lastModelLoadDurationMs': 0,
+        'modelLoaded': false,
+        'animationActive': false,
+        'animationPaused': false,
+        'renderingPaused': false,
+        'contextLost': false,
+        'contextLossCount': 0,
+      };
+      expect(
+        () => VrmRuntimeHealth.fromJson(<String, Object>{
+          ...valid,
+          'contextLossCount': -1,
+        }),
+        throwsFormatException,
+      );
+      expect(
+        () => VrmRuntimeHealth.fromJson(<String, Object>{
+          ...valid,
+          'lastModelLoadDurationMs': double.nan,
         }),
         throwsFormatException,
       );

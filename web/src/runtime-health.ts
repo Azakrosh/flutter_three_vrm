@@ -7,9 +7,13 @@ export interface RuntimeHealth {
   readonly maxTextureSize: number;
   readonly maxTextures: number;
   readonly maxVertexTextures: number;
+  readonly rendererTextureCount: number;
+  readonly estimatedTextureMemoryBytes: number;
+  readonly lastModelLoadDurationMs: number;
   readonly modelLoaded: boolean;
   readonly animationActive: boolean;
   readonly animationPaused: boolean;
   readonly renderingPaused: boolean;
   readonly contextLost: boolean;
+  readonly contextLossCount: number;
 }

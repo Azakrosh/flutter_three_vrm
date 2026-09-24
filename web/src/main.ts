@@ -221,6 +221,8 @@ export {
 
 export { type RuntimeHealth } from "./runtime-health";
 
+export { RuntimeDiagnostics } from "./runtime-diagnostics";
+
 export {
   RuntimeBackgroundController,
   type RuntimeBackgroundDependencies,
