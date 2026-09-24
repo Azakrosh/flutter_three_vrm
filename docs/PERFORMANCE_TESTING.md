@@ -72,3 +72,19 @@ WebGL 2, debug integration build, preset `performance`:
 Pose, поэтому важнее отсутствие накопительного ухудшения и стабильный texture
 baseline. Для сравнения устройств сохраняйте всю строку `runtime_soak` и
 используйте одну и ту же модель, длительность и build mode.
+
+На том же устройстве расширенный gate `300 s / 10 load cycles` также прошёл:
+
+| Метрика | Результат |
+|---|---:|
+| Telemetry samples | 158 |
+| FPS min–max / average | 28.2–36.6 / 29.6 |
+| Max frame-time p50 / p95 | 34.3 ms / 60.0 ms |
+| Pixel ratio | 1.00 |
+| Renderer textures, loaded / unloaded | 28 / 0 во всех 10 циклах |
+| Estimated model texture memory | 92.3 MiB |
+| WebGL context losses | 0 |
+| Model load time min–max / average | 301.5–450.6 / 374.5 ms |
+
+За пять минут выполнено около 600 streaming amplitude batches и 120 плановых
+VRMA/Pose-переключений. Накопительного роста renderer resources не обнаружено.
