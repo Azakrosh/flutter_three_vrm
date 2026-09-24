@@ -4,6 +4,7 @@ import {
   Group,
   Mesh,
   MeshStandardMaterial,
+  ShaderMaterial,
   Texture,
 } from "three";
 import { describe, expect, it } from "vitest";
@@ -16,13 +17,24 @@ describe("runtime model report", () => {
     const geometry = new BoxGeometry(1, 1, 1);
     const texture = new Texture();
     texture.image = {
-      width: 512,
-      height: 256,
+      width: 1,
+      height: 1,
+      naturalWidth: 512,
+      naturalHeight: 256,
     } as unknown as HTMLImageElement;
     const material = new MeshStandardMaterial({ map: texture });
+    const uniformTexture = new Texture();
+    uniformTexture.image = {
+      width: 64,
+      height: 32,
+    } as unknown as HTMLImageElement;
+    const shaderMaterial = new ShaderMaterial({
+      uniforms: { map: { value: uniformTexture } },
+    });
     scene.add(
       new Mesh(geometry, material),
       new Mesh(geometry, material),
+      new Mesh(geometry, shaderMaterial),
     );
     const vrm = {
       scene,
@@ -42,13 +54,15 @@ describe("runtime model report", () => {
       vrmVersion: "1",
       sourceBytes: 4096,
       height: 1.72,
-      meshes: 2,
+      meshes: 3,
       skinnedMeshes: 0,
       geometries: 1,
-      materials: 1,
-      textures: 1,
-      texturePixels: 512 * 256,
-      estimatedTextureMemoryBytes: Math.round(512 * 256 * 4 * 4 / 3),
+      materials: 2,
+      textures: 2,
+      texturePixels: 512 * 256 + 64 * 32,
+      estimatedTextureMemoryBytes: Math.round(
+        (512 * 256 + 64 * 32) * 4 * 4 / 3,
+      ),
       maxTextureWidth: 512,
       maxTextureHeight: 256,
       vertices: 24,

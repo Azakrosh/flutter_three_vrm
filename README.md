@@ -374,6 +374,10 @@ VrmView(
 Чтобы получать только предупреждения без автоматической настройки, установите `autoTunePixelRatio: false`. При выключенном `VrmAdaptiveQualitySettings.enabled` политика также не меняет render resolution.
 
 При потере WebGL-контекста runtime приостанавливает обновление сцены, а после восстановления повторно компилирует материалы и продолжает render loop. Состояние доступно через `onWebGlContextChanged`.
+
+Повторяемый физический Android gate, параметры длительного прогона и первый
+референсный профиль описаны в [docs/PERFORMANCE_TESTING.md](docs/PERFORMANCE_TESTING.md).
+
 ## Lip sync
 
 Аудио воспроизводит Flutter-приложение. Пакет получает только амплитуду или временную шкалу визем:

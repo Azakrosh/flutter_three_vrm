@@ -362,8 +362,13 @@ WebView через `EagerGestureRecognizer`. Все критерии Stage 27 з
 типизирована единым enum на TypeScript/Dart boundary. Embedded runtime пересобран
 и contract остаётся на protocol v3. Runtime health дополнен текущим количеством
 renderer-текстур, расчётной памятью текстур модели, временем последней успешной
-загрузки и накопительным context-loss counter за жизнь WebView. Следующий срез —
-Android FPS/pixel-ratio profile и длительный load/speech/motion soak.
+загрузки и накопительным context-loss counter за жизнь WebView. Добавлен
+конфигурируемый `performance_soak_test.dart`: на физическом moto g55 5G быстрый
+профиль держит renderer textures на 28/0 во всех load/unload циклах, pixel ratio
+1.0 и не теряет WebGL context во время streaming speech и VRMA/Pose-переходов.
+Процедура и первый профиль зафиксированы в `docs/PERFORMANCE_TESTING.md`.
+Следующий gate — пятиминутный прогон с десятью циклами и повтор на втором
+низкопроизводительном Android-устройстве.
 
 Критерий готовности: документированный профиль нагрузки и отсутствие
 неограниченного роста ресурсов в длительных сценариях.

@@ -70,11 +70,10 @@ export function createRuntimeModelReport(
     for (const material of objectMaterials) {
       if (material === undefined || materials.has(material)) continue;
       materials.add(material);
-      for (const value of Object.values(material)) {
-        if (!isTexture(value) || textures.has(value)) continue;
-        textures.add(value);
-        const width = readImageDimension(value.image, "width");
-        const imageHeight = readImageDimension(value.image, "height");
+      for (const texture of findMaterialTextures(material)) {
+        if (textures.has(texture)) continue;
+        textures.add(texture);
+        const { width, height: imageHeight } = readTextureDimensions(texture);
         maxTextureWidth = Math.max(maxTextureWidth, width);
         maxTextureHeight = Math.max(maxTextureHeight, imageHeight);
         texturePixels += width * imageHeight;
@@ -123,19 +122,68 @@ function isTexture(value: unknown): value is Texture {
   );
 }
 
+function* findMaterialTextures(material: Material): Generator<Texture> {
+  for (const value of Object.values(material)) {
+    yield* readTextureValues(value);
+  }
+  if (!("uniforms" in material) || !isRecord(material.uniforms)) return;
+  for (const uniform of Object.values(material.uniforms)) {
+    const value = isRecord(uniform) && "value" in uniform
+      ? uniform.value
+      : uniform;
+    yield* readTextureValues(value);
+  }
+}
+
+function* readTextureValues(value: unknown): Generator<Texture> {
+  if (isTexture(value)) {
+    yield value;
+    return;
+  }
+  if (!Array.isArray(value)) return;
+  for (const item of value) {
+    if (isTexture(item)) yield item;
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function readTextureDimensions(texture: Texture): {
+  readonly width: number;
+  readonly height: number;
+} {
+  const image = Array.isArray(texture.image)
+    ? texture.image[0]
+    : texture.image;
+  const mipmap = texture.mipmaps[0];
+  const width = readImageDimension(image, [
+    "naturalWidth",
+    "videoWidth",
+    "displayWidth",
+    "width",
+  ]) || readImageDimension(mipmap, ["width"]);
+  const height = readImageDimension(image, [
+    "naturalHeight",
+    "videoHeight",
+    "displayHeight",
+    "height",
+  ]) || readImageDimension(mipmap, ["height"]);
+  return { width, height };
+}
+
 function readImageDimension(
   image: unknown,
-  dimension: "width" | "height",
+  fields: readonly string[],
 ): number {
-  if (
-    typeof image !== "object" ||
-    image === null ||
-    !(dimension in image)
-  ) {
-    return 0;
+  if (typeof image !== "object" || image === null) return 0;
+  const record = image as Record<string, unknown>;
+  for (const field of fields) {
+    const value = Number(record[field]);
+    if (Number.isFinite(value) && value > 0) return value;
   }
-  const value = Number((image as Record<string, unknown>)[dimension]);
-  return Number.isFinite(value) && value > 0 ? value : 0;
+  return 0;
 }
 
 function readMetaString(meta: unknown, field: string): string | undefined {
