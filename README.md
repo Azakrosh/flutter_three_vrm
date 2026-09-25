@@ -452,6 +452,10 @@ corepack pnpm verify:build
 Канонический план, аудит текущей архитектуры и следующие этапы находятся в
 [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
+Точные гарантии ошибок, ownership, motion transitions, realtime speech,
+lifecycle и короткие рецепты публичного API собраны в
+[`docs/API_SEMANTICS.md`](docs/API_SEMANTICS.md).
+
 Integration-проверки разделены на независимые runtime/scene, motion/speech,
 lifecycle/recovery и Android performance gates. Они пройдены на физическом
 Android 16 устройстве и в Windows WebView2. Полная матрица, назначение каждого

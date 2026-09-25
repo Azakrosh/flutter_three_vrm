@@ -377,6 +377,8 @@ Android-устройстве.
 
 ### Stage 29 — тестовая матрица и документация API
 
+Статус: выполнено.
+
 Цель: превратить существующие гарантии в повторяемые release gates.
 
 Работы:
@@ -398,8 +400,10 @@ physical Android 16 и Windows WebView2. Web model-loader дополнитель
 bytes и генерируемый external-resource glTF byte bundle без нового стороннего
 asset. В `tool/run_integration_matrix.ps1` добавлена единая команда для всех
 platform gates и Android soak. Каноническая матрица находится в
-`docs/TEST_MATRIX.md`. Следующий срез — сводная документация семантики ошибок,
-ownership, motion transitions и realtime speech, затем минимальные API-примеры.
+`docs/TEST_MATRIX.md`. Семантика ошибок, ownership, motion transitions и
+realtime speech, а также минимальные рецепты всех высокоуровневых блоков
+зафиксированы в `docs/API_SEMANTICS.md`. Release-gate срез зафиксирован коммитом
+`b8f4d8b`.
 
 ### Stage 30 — подготовка публикации
 

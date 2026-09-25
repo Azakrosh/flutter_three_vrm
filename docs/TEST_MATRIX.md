@@ -78,7 +78,8 @@ Integration gates требуют `example/assets/vrm/sample.vrm` и
 проверить право на распространение каждого файла. Тестовая матрица не является
 разрешением включать сторонний avatar в Git.
 
-## Следующие gates Stage 29
+## Статус Stage 29
 
-- документированные error/ownership/transition/speech semantics;
-- минимальные примеры высокоуровневых API.
+Все запланированные gates реализованы. Error, ownership, transition и speech
+semantics вместе с минимальными API-рецептами зафиксированы в
+[`API_SEMANTICS.md`](API_SEMANTICS.md).
