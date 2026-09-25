@@ -47,6 +47,8 @@ flutter test integration_test/runtime_smoke_test.dart -d <device-id>
 
 Параметры быстрого и пятиминутного performance gate описаны в
 [`PERFORMANCE_TESTING.md`](PERFORMANCE_TESTING.md).
+Подготовленный physical low-end pre-release gate для Firebase Test Lab описан в
+[`FIREBASE_TEST_LAB.md`](FIREBASE_TEST_LAB.md).
 
 ## Подтверждённая матрица
 

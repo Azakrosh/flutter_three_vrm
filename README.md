@@ -377,6 +377,8 @@ VrmView(
 
 Повторяемый физический Android gate, параметры длительного прогона и первый
 референсный профиль описаны в [docs/PERFORMANCE_TESTING.md](docs/PERFORMANCE_TESTING.md).
+Сборка instrumentation APK и запуск low-end physical gate через Firebase Test
+Lab описаны в [docs/FIREBASE_TEST_LAB.md](docs/FIREBASE_TEST_LAB.md).
 
 ## Lip sync
 

@@ -33,6 +33,10 @@ flutter test integration_test/performance_soak_test.dart -d <android-device> `
 Используйте только модели и анимации, которые разрешено хранить и запускать в
 вашем окружении.
 
+Подготовка instrumentation APK, выбор физического low-end устройства и запуск
+через Firebase Test Lab описаны в
+[`FIREBASE_TEST_LAB.md`](FIREBASE_TEST_LAB.md).
+
 ## Критерии
 
 Тест не вводит лимиты на размер файла, полигоны или текстуры. Он падает, если:
