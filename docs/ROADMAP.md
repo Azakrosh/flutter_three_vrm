@@ -387,6 +387,12 @@ Android-устройстве.
 - документировать ошибки, ownership, transition и speech semantics;
 - добавить минимальные примеры для каждого высокоуровневого блока API.
 
+Текущий прогресс: монолитный `runtime_smoke_test.dart` разделён на независимые
+runtime/scene, motion/speech и lifecycle/recovery gates с общим harness. Все три
+сценария отдельно прошли на physical Android 16 и Windows WebView2. Каноническая
+матрица добавлена в `docs/TEST_MATRIX.md`. Следующий срез — replacement/cancel/
+reload race tests на model-session и transport границах.
+
 ### Stage 30 — подготовка публикации
 
 Статус: отложено до отдельного решения.
