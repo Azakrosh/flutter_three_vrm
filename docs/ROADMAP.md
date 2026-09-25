@@ -346,6 +346,8 @@ WebView через `EagerGestureRecognizer`. Все критерии Stage 27 з
 
 ### Stage 28 — Android performance и длительная стабильность
 
+Статус: выполнено.
+
 Цель: предсказуемая нагрузка на смартфон без произвольного запрета тяжёлых
 моделей.
 
@@ -369,14 +371,14 @@ renderer-текстур, расчётной памятью текстур мод
 Процедура и первый профиль зафиксированы в `docs/PERFORMANCE_TESTING.md`.
 Пятиминутный gate с десятью циклами также пройден: 158 telemetry samples,
 средние 29.6 FPS при cap 30, p95 не выше 60.0 ms, texture baseline 28/0 и ноль
-context loss. Следующий gate — повтор на втором низкопроизводительном
-Android-устройстве. Поскольку локального low-end устройства нет, этот прогон
-перенесён в физический Firebase Test Lab pre-release gate. Instrumentation
-runner, ARM64 app/test APK build, проверка physical device/ABI и повторные
-запуски подготовлены в `tool/run_firebase_soak.ps1`; процедура зафиксирована в
-`docs/FIREBASE_TEST_LAB.md`. До фактических облачных результатов low-end
-валидация остаётся честно отмеченной как ожидающая выполнения и не блокирует
-остальную разработку.
+context loss. Второй gate пройден 25 сентября 2026 года в Firebase Test Lab на
+физическом low-end Samsung Galaxy A03s (`a03su`), Android 13/API 33 и Android
+System WebView 106.0.5249.126. Полный прогон длительностью 300 секунд с десятью
+load/unload циклами завершился со средними 30.1 FPS, стабильными textures 28/0,
+pixel ratio 1.0, нулём context loss и без накопительного роста ресурсов.
+Matrix `matrix-1mjgm2x82h693` и подробная телеметрия зафиксированы в
+`docs/FIREBASE_TEST_LAB.md`. Повторные облачные прогоны остаются pre-release
+regression gate, а первичная low-end валидация Stage 28 выполнена.
 
 Критерий готовности: документированный профиль нагрузки и отсутствие
 неограниченного роста ресурсов в длительных сценариях.

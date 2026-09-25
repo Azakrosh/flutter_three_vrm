@@ -56,6 +56,9 @@ flutter test integration_test/runtime_smoke_test.dart -d <device-id>
 и resource-loading gates прошли на:
 
 - moto g55 5G, Android 16 (API 36), Android System WebView, WebGL 2;
+- Samsung Galaxy A03s (`a03su`), physical Firebase Test Lab low-end device,
+  Android 13 (API 33), Android System WebView 106.0.5249.126, полный
+  300-секундный performance soak с десятью load/unload циклами;
 - Windows 10 x64, WebView2, WebGL 2.
 
 Android integration harness не передаёт синтетический `WidgetTester.tapAt` в

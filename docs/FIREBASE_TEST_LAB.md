@@ -121,7 +121,8 @@ Git.
 
 ## Критерии приёмки
 
-Каждый из трёх прогонов должен удовлетворять строгим инвариантам теста:
+В рекомендуемом тройном pre-release gate каждый прогон должен удовлетворять
+строгим инвариантам теста:
 
 - `contextLossCount == 0`;
 - нет runtime errors;
@@ -138,15 +139,29 @@ FPS, frame-time percentiles и model load time сохраняются как п�
 
 ## Результат low-end gate
 
-После выполнения добавьте сюда:
+25 сентября 2026 года gate выполнен на физическом Samsung Galaxy A03s
+(`a03su`, Firebase capacity `LOW`), Android 13/API 33, ARM64, 720×1600 и Android
+System WebView 106.0.5249.126.
 
-- дату;
-- Firebase `model-id`, устройство, Android/API и WebView;
-- параметры duration/load cycles и количество повторов;
-- три строки `runtime_soak`;
-- ссылки или matrix IDs;
-- итог pass/fail и найденные отклонения.
+Сначала пройден infrastructure smoke: 30 секунд, два load/unload цикла,
+`matrix-3a60i6kr97quj`, один test case passed. Затем пройден полный gate:
 
-До этого момента Stage 28 считается подтверждённым на основном moto g55 и
-готовым к внешнему low-end pre-release gate, но не заявляет пройденную low-end
-валидацию.
+- matrix: `matrix-1mjgm2x82h693`;
+- параметры: 300 секунд, 10 load/unload циклов, timeout 15 минут;
+- execution: 403 секунды, один test case, failures/errors/skipped — 0/0/0;
+- 173 telemetry samples, FPS 0.2–39.3, среднее 30.1;
+- maximum observed frame p50/p95 window: 5555/5555 ms во время тяжёлого
+  load/unload окна; устойчивый средний FPS остался 30.1;
+- pixel ratio: 1.0–1.0;
+- renderer textures: `28,28,28,28,28,28,28,28,28,28` после load и
+  `0,0,0,0,0,0,0,0,0,0` после unload;
+- estimated model texture memory: 96,818,517 bytes (92.3 MiB);
+- model loads: 1246.5–2557.4 ms, финальная загрузка после циклов — 1279.1 ms;
+- `contextLossCount == 0`, runtime errors и накопительный resource drift не
+  обнаружены;
+- итог Firebase Test Lab: `Passed` / `SUCCESS`.
+
+Результат доступен в [Firebase Console](https://console.firebase.google.com/project/flutteria-ef3c7/testlab/histories/bh.8c1f5d4b709a96df/matrices/5410733905587373434).
+Этим первичная low-end валидация Stage 28 выполнена. Три повторных запуска
+сохраняются как рекомендуемый pre-release regression gate, а не как условие
+достоверности уже полученного профиля.
