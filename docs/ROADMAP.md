@@ -388,10 +388,18 @@ Android-устройстве.
 - добавить минимальные примеры для каждого высокоуровневого блока API.
 
 Текущий прогресс: монолитный `runtime_smoke_test.dart` разделён на независимые
-runtime/scene, motion/speech и lifecycle/recovery gates с общим harness. Все три
-сценария отдельно прошли на physical Android 16 и Windows WebView2. Каноническая
-матрица добавлена в `docs/TEST_MATRIX.md`. Следующий срез — replacement/cancel/
-reload race tests на model-session и transport границах.
+runtime/scene, motion/speech и lifecycle/recovery gates с общим harness. Добавлен
+четвёртый gate для replacement/cancel/reload races. Он обнаружил и закрыл гонку
+transport boundary: быстрый error-response мог завершить внутренний Completer до
+возврата Future вызывающему коду. Все четыре сценария отдельно прошли на
+physical Android 16 и Windows WebView2. Web model-loader дополнительно проверяет
+правило newest-request-wins, даже когда старый fetch игнорирует AbortSignal.
+`resource_loading_test.dart` на обеих платформах проверяет authenticated VRM
+bytes и генерируемый external-resource glTF byte bundle без нового стороннего
+asset. В `tool/run_integration_matrix.ps1` добавлена единая команда для всех
+platform gates и Android soak. Каноническая матрица находится в
+`docs/TEST_MATRIX.md`. Следующий срез — сводная документация семантики ошибок,
+ownership, motion transitions и realtime speech, затем минимальные API-примеры.
 
 ### Stage 30 — подготовка публикации
 

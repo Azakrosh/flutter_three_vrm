@@ -25,6 +25,8 @@
 | `runtime_smoke_test.dart` | обязательно | обязательно | Runtime health, model report, background, renderer recreation, camera, wind/physics и pointer contract |
 | `motion_speech_test.dart` | обязательно | обязательно | VRMA → Pose, Pose → Pose, Pose → VRMA, reset, finite playback, viseme/amplitude speech и stale session |
 | `runtime_recovery_test.dart` | обязательно | обязательно | Platform lifecycle, reload во время inactive/hidden, model replay и camera restoration |
+| `runtime_race_test.dart` | обязательно | обязательно | Model replacement, explicit cancel и reload с незавершённой загрузкой |
+| `resource_loading_test.dart` | обязательно | обязательно | Authenticated VRM bytes и external-resource glTF byte bundle |
 | `performance_soak_test.dart` | обязательно | не применяется | FPS/pixel ratio, resource baseline, context loss и длительный speech/motion soak |
 
 Пример запуска одного сценария:
@@ -34,13 +36,22 @@ cd example
 flutter test integration_test/runtime_smoke_test.dart -d <device-id>
 ```
 
+Полная cross-platform matrix запускается одной командой из корня пакета:
+
+```powershell
+.\tool\run_integration_matrix.ps1 -AndroidDeviceId <device-id>
+```
+
+Для локального Windows-only прогона используйте `-SkipAndroid`; быстрый Android
+прогон без двадцатисекундного soak — `-SkipPerformance -SkipWindows`.
+
 Параметры быстрого и пятиминутного performance gate описаны в
 [`PERFORMANCE_TESTING.md`](PERFORMANCE_TESTING.md).
 
 ## Подтверждённая матрица
 
-25 сентября 2026 года независимые runtime, motion/speech и recovery gates
-прошли на:
+25 сентября 2026 года независимые runtime, motion/speech, recovery, model-race
+и resource-loading gates прошли на:
 
 - moto g55 5G, Android 16 (API 36), Android System WebView, WebGL 2;
 - Windows 10 x64, WebView2, WebGL 2.
@@ -49,6 +60,16 @@ Android integration harness не передаёт синтетический `Wi
 native PlatformView. Pointer path поэтому проверяется web unit-тестом и Windows
 end-to-end gate; реальные Android gestures передаются WebView через
 `EagerGestureRecognizer`.
+
+Model-race gate проверяет, что при конкурентной замене побеждает последняя
+загрузка, explicit cancel завершает активный запрос с `canceled`, а reload
+инвалидирует старый запрос и восстанавливает модель. Gate также защищает от
+быстрого error-response до подписки вызывающего кода на Future команды.
+
+Resource-loading gate читает локальный VRM как результат Flutter API-клиента и
+передаёт его через `loadModelFromBytes()`. Затем он создаёт детерминированный
+glTF JSON + отдельный `buffers/motion.bin`, проверяя bundle routing, parsing,
+humanoid retargeting и finite playback без стороннего animation asset в Git.
 
 ## Локальные assets
 
@@ -59,7 +80,5 @@ Integration gates требуют `example/assets/vrm/sample.vrm` и
 
 ## Следующие gates Stage 29
 
-- replacement/cancel/reload race на transport и model-session границах;
-- authenticated model bytes без передачи credentials в WebView;
-- glTF с явным external-resource bundle;
-- повторяемая команда запуска всей platform matrix.
+- документированные error/ownership/transition/speech semantics;
+- минимальные примеры высокоуровневых API.

@@ -184,10 +184,13 @@ final class _VrmBridge {
     _failPending(error);
   }
 
+  // Keep this method synchronous until the response Future is returned. A
+  // fast WebView error response can otherwise complete the pending command
+  // before the caller has any opportunity to attach an error handler.
   Future<Object?> requestCommand(
     VrmProtocolCommand action, [
     Map<String, dynamic>? payload,
-  ]) async {
+  ]) {
     final runner = _runJavaScript;
     if (runner == null) {
       throw StateError('VrmView is not attached to this controller.');
@@ -219,12 +222,26 @@ final class _VrmBridge {
       'payload': payload ?? const <String, dynamic>{},
     });
 
-    try {
-      await runner('window.flutterVrmDispatch(${jsonEncode(command)});');
-    } on Object catch (error, stackTrace) {
+    void failDispatch(Object error, StackTrace stackTrace) {
       final pending = _pending.remove(id);
       pending?.timer.cancel();
       pending?.completer.completeError(error, stackTrace);
+    }
+
+    try {
+      final dispatch = runner(
+        'window.flutterVrmDispatch(${jsonEncode(command)});',
+      );
+      unawaited(
+        dispatch.then<void>(
+          (_) {},
+          onError: (Object error, StackTrace stackTrace) {
+            failDispatch(error, stackTrace);
+          },
+        ),
+      );
+    } on Object catch (error, stackTrace) {
+      failDispatch(error, stackTrace);
     }
 
     return completer.future;
