@@ -647,6 +647,7 @@ class VrmRunner implements RuntimeCommandHost {
   }
 
   private renderFrame({ now, delta, elapsedTime }: RuntimeFrame): void {
+    const updateStartedAt = performance.now();
     this.motionController.update(delta);
 
     if (this.currentVrm) {
@@ -665,8 +666,14 @@ class VrmRunner implements RuntimeCommandHost {
 
     this.cameraController.updateAnimation(elapsedTime);
 
+    const renderStartedAt = performance.now();
     this.sceneController.updateAndRender();
-    this.graphicsController.recordFrame(now);
+    const renderFinishedAt = performance.now();
+    this.graphicsController.recordFrame(
+      now,
+      Math.max(0, renderStartedAt - updateStartedAt),
+      Math.max(0, renderFinishedAt - renderStartedAt),
+    );
   }
 
   public getAvatarTransform(): RuntimeCameraTransform {

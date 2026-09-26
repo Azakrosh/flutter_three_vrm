@@ -5,6 +5,7 @@
 - Separate model/animation operational stalls from steady-state frame telemetry and adaptive-quality decisions.
 - Add host-process RSS snapshots, Flutter memory-pressure events, and per-phase RSS reporting to the Android soak gate.
 - Add an Android API 29+ `PowerManager` thermal-status plugin with lifecycle-safe listener cleanup and explicit unsupported-platform fallback.
+- Explain long frames with steady-window counts, CPU update/render-submit p95, conservative source classification, and full adaptive-quality decision state.
 - Add a shared protocol-v3 command/event manifest, typed Dart command catalog, and runtime-boundary payload validation.
 - Verify that Dart, TypeScript, and the runner dispatcher expose the same protocol contract in tests and CI.
 - Move browser bridge installation, platform message transport, response correlation, and error envelopes into a strictly typed TypeScript module.

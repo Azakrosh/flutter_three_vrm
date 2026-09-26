@@ -168,6 +168,18 @@ initial asset model и camera snapshot replay-ятся пакетом.
 `getRuntimeHealth()` являются высокоуровневой диагностикой. Они не открывают
 renderer и не вводят жёсткие лимиты на полигоны, текстуры или размер файла.
 
+`VrmPerformanceSnapshot` объясняет steady-state нагрузку, а не только сообщает
+FPS. `longFrameCount`, `longestFrameMs` и `longFrameThresholdMs` описывают
+длинные интервалы текущего окна. `updateTimeP95Ms` измеряет CPU-обновление
+аватара, `renderTimeP95Ms` — синхронную часть вызова renderer. Поле
+`longFrameSource` принимает `runtimeUpdate`, `renderSubmission` или
+`externalScheduling`. Последнее объединяет задержки браузерного scheduler,
+compositor, GPU и ОС: runtime не выдаёт эту категорию за точный GPU-профиль.
+
+`adaptiveDecision` вместе с target FPS, slow/fast counters и оставшимся cooldown
+объясняет, почему pixel ratio был изменён или оставлен прежним. Operational
+model/animation operations сбрасывают окно и в эти счётчики не попадают.
+
 ### Ресурсы процесса хоста
 
 `captureHostResourceSnapshot()` синхронно возвращает RSS Flutter-процесса,

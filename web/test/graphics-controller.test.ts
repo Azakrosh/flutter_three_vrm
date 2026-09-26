@@ -67,6 +67,7 @@ describe("runtime graphics controller", () => {
     expect(harness.recreateRenderer).toHaveBeenCalledWith(false);
     expect(graphics.fpsCap).toBe(30);
     expect(harness.ratio()).toBe(1);
+    expect(graphics.getSnapshot().adaptiveTargetFps).toBe(30);
 
     graphics.setPreset("quality");
     expect(harness.scene.setShadows).toHaveBeenLastCalledWith(true);
@@ -143,6 +144,43 @@ describe("runtime graphics controller", () => {
     expect(snapshot.frameTimeP50Ms).toBe(40);
     expect(snapshot.frameTimeP95Ms).toBe(960);
     expect(snapshot.frameTimeP95Ms).toBeLessThan(5960);
+  });
+
+  it("attributes long frames to measured runtime phases", () => {
+    const harness = createHarness();
+    const graphics = harness.controller;
+    graphics.setSettings({ fpsCap: 60 });
+    graphics.setAdaptiveQuality({
+      enabled: true,
+      targetFps: 60,
+      minPixelRatio: 0.75,
+      maxPixelRatio: 1.5,
+    });
+    graphics.recordFrame(1000, 2, 3);
+    graphics.recordFrame(1040, 30, 4);
+    graphics.recordFrame(2040, 30, 4);
+
+    expect(graphics.getSnapshot()).toMatchObject({
+      frameSampleCount: 2,
+      longFrameCount: 2,
+      longestFrameMs: 1000,
+      longFrameThresholdMs: 25,
+      updateTimeP95Ms: 30,
+      renderTimeP95Ms: 4,
+      longFrameSource: "runtimeUpdate",
+    });
+  });
+
+  it("classifies unexplained long intervals as external scheduling", () => {
+    const harness = createHarness();
+    const graphics = harness.controller;
+    graphics.recordFrame(1000, 1, 2);
+    graphics.recordFrame(2000, 1, 2);
+
+    expect(graphics.getSnapshot()).toMatchObject({
+      longFrameCount: 1,
+      longFrameSource: "externalScheduling",
+    });
   });
 });
 

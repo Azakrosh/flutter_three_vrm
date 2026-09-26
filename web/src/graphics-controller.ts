@@ -1,5 +1,9 @@
 import { MathUtils } from "three";
-import { AdaptiveQualityController, type AdaptiveQualityConfig } from "./performance";
+import {
+  AdaptiveQualityController,
+  type AdaptiveQualityConfig,
+  type AdaptiveQualityDecision,
+} from "./performance";
 import type { RuntimeSceneController } from "./scene-controller";
 
 export interface RuntimeGraphicsSettings {
@@ -16,6 +20,12 @@ export type RuntimePerformanceReason =
   | "sample"
   | "performanceDown"
   | "performanceUp";
+
+export type RuntimeLongFrameSource =
+  | "none"
+  | "runtimeUpdate"
+  | "renderSubmission"
+  | "externalScheduling";
 
 export function parseRuntimeGraphicsSettings(
   value: unknown,
@@ -61,10 +71,22 @@ export interface RuntimePerformanceSnapshot {
   readonly frameTimeMs: number;
   readonly frameTimeP50Ms: number;
   readonly frameTimeP95Ms: number;
+  readonly frameSampleCount: number;
+  readonly longFrameCount: number;
+  readonly longestFrameMs: number;
+  readonly longFrameThresholdMs: number;
+  readonly updateTimeP95Ms: number;
+  readonly renderTimeP95Ms: number;
+  readonly longFrameSource: RuntimeLongFrameSource;
   readonly pixelRatio: number;
   readonly fpsCap: number;
   readonly physicsEnabled: boolean;
   readonly adaptiveQualityEnabled: boolean;
+  readonly adaptiveTargetFps: number;
+  readonly adaptiveSlowWindowCount: number;
+  readonly adaptiveFastWindowCount: number;
+  readonly adaptiveCooldownRemainingMs: number;
+  readonly adaptiveDecision: AdaptiveQualityDecision;
   readonly drawCalls: number;
   readonly triangles: number;
   readonly geometries: number;
@@ -90,6 +112,11 @@ export class RuntimeGraphicsController {
   private performanceFrameCount = 0;
   private readonly frameDurations = new Float64Array(240);
   private frameDurationCount = 0;
+  private readonly updateDurations = new Float64Array(240);
+  private readonly renderDurations = new Float64Array(240);
+  private workloadDurationCount = 0;
+  private longFrameCount = 0;
+  private longestFrameMs = 0;
   private lastRecordedFrameTime = 0;
   private lastPerformanceReport = 0;
   private snapshot: RuntimePerformanceSnapshot;
@@ -104,10 +131,22 @@ export class RuntimeGraphicsController {
       frameTimeMs: 0,
       frameTimeP50Ms: 0,
       frameTimeP95Ms: 0,
+      frameSampleCount: 0,
+      longFrameCount: 0,
+      longestFrameMs: 0,
+      longFrameThresholdMs: this.longFrameThresholdMs(),
+      updateTimeP95Ms: 0,
+      renderTimeP95Ms: 0,
+      longFrameSource: "none",
       pixelRatio: Math.min(dependencies.devicePixelRatio(), 1.5),
       fpsCap: this.fpsCapValue,
       physicsEnabled: this.physicsEnabledValue,
       adaptiveQualityEnabled: this.adaptiveQuality.config.enabled,
+      adaptiveTargetFps: this.adaptiveTargetFps(),
+      adaptiveSlowWindowCount: 0,
+      adaptiveFastWindowCount: 0,
+      adaptiveCooldownRemainingMs: 0,
+      adaptiveDecision: this.adaptiveQuality.diagnostics.decision,
       drawCalls: 0,
       triangles: 0,
       geometries: 0,
@@ -142,6 +181,9 @@ export class RuntimeGraphicsController {
     this.performanceWindowStart = now;
     this.performanceFrameCount = 0;
     this.frameDurationCount = 0;
+    this.workloadDurationCount = 0;
+    this.longFrameCount = 0;
+    this.longestFrameMs = 0;
     this.lastRecordedFrameTime = 0;
   }
 
@@ -207,10 +249,23 @@ export class RuntimeGraphicsController {
       frameTimeMs: this.snapshot.frameTimeMs,
       frameTimeP50Ms: this.snapshot.frameTimeP50Ms,
       frameTimeP95Ms: this.snapshot.frameTimeP95Ms,
+      frameSampleCount: this.snapshot.frameSampleCount,
+      longFrameCount: this.snapshot.longFrameCount,
+      longestFrameMs: this.snapshot.longestFrameMs,
+      longFrameThresholdMs: this.snapshot.longFrameThresholdMs,
+      updateTimeP95Ms: this.snapshot.updateTimeP95Ms,
+      renderTimeP95Ms: this.snapshot.renderTimeP95Ms,
+      longFrameSource: this.snapshot.longFrameSource,
       pixelRatio: renderer.getPixelRatio(),
       fpsCap: this.fpsCapValue,
       physicsEnabled: this.physicsEnabledValue,
       adaptiveQualityEnabled: this.adaptiveQuality.config.enabled,
+      adaptiveTargetFps: this.adaptiveTargetFps(),
+      adaptiveSlowWindowCount: this.adaptiveQuality.diagnostics.slowWindowCount,
+      adaptiveFastWindowCount: this.adaptiveQuality.diagnostics.fastWindowCount,
+      adaptiveCooldownRemainingMs:
+        this.adaptiveQuality.diagnostics.cooldownRemainingMs,
+      adaptiveDecision: this.adaptiveQuality.diagnostics.decision,
       drawCalls: info?.render.calls ?? 0,
       triangles: info?.render.triangles ?? 0,
       geometries: info?.memory.geometries ?? 0,
@@ -219,7 +274,12 @@ export class RuntimeGraphicsController {
     };
   }
 
-  public recordFrame(now: number): void {
+  public recordFrame(
+    now: number,
+    updateTimeMs = 0,
+    renderTimeMs = 0,
+  ): void {
+    this.recordWorkload(updateTimeMs, renderTimeMs);
     if (this.lastRecordedFrameTime > 0) {
       const duration = now - this.lastRecordedFrameTime;
       if (
@@ -229,6 +289,10 @@ export class RuntimeGraphicsController {
       ) {
         this.frameDurations[this.frameDurationCount] = duration;
         this.frameDurationCount += 1;
+        if (duration > this.longFrameThresholdMs()) {
+          this.longFrameCount += 1;
+          this.longestFrameMs = Math.max(this.longestFrameMs, duration);
+        }
       }
     }
     this.lastRecordedFrameTime = now;
@@ -239,6 +303,14 @@ export class RuntimeGraphicsController {
     const frameTimeMs = windowDuration / this.performanceFrameCount;
     const frameTimeP50Ms = this.frameTimePercentile(0.5, frameTimeMs);
     const frameTimeP95Ms = this.frameTimePercentile(0.95, frameTimeMs);
+    const updateTimeP95Ms = this.workloadPercentile(
+      this.updateDurations,
+      0.95,
+    );
+    const renderTimeP95Ms = this.workloadPercentile(
+      this.renderDurations,
+      0.95,
+    );
     const adjustment = this.adaptiveQuality.evaluate(
       fps, this.dependencies.scene.renderer.getPixelRatio(), this.fpsCapValue, now,
     );
@@ -249,6 +321,16 @@ export class RuntimeGraphicsController {
       frameTimeMs,
       frameTimeP50Ms,
       frameTimeP95Ms,
+      frameSampleCount: this.frameDurationCount,
+      longFrameCount: this.longFrameCount,
+      longestFrameMs: this.longestFrameMs,
+      longFrameThresholdMs: this.longFrameThresholdMs(),
+      updateTimeP95Ms,
+      renderTimeP95Ms,
+      longFrameSource: this.classifyLongFrameSource(
+        updateTimeP95Ms,
+        renderTimeP95Ms,
+      ),
     };
     if (adjustment || now - this.lastPerformanceReport >= 2000) {
       this.dependencies.onPerformance(this.snapshot);
@@ -256,7 +338,58 @@ export class RuntimeGraphicsController {
     }
     this.performanceFrameCount = 0;
     this.frameDurationCount = 0;
+    this.workloadDurationCount = 0;
+    this.longFrameCount = 0;
+    this.longestFrameMs = 0;
     this.performanceWindowStart = now;
+  }
+
+  private recordWorkload(updateTimeMs: number, renderTimeMs: number): void {
+    if (this.workloadDurationCount >= this.updateDurations.length) return;
+    if (
+      !Number.isFinite(updateTimeMs) ||
+      updateTimeMs < 0 ||
+      !Number.isFinite(renderTimeMs) ||
+      renderTimeMs < 0
+    ) return;
+    this.updateDurations[this.workloadDurationCount] = updateTimeMs;
+    this.renderDurations[this.workloadDurationCount] = renderTimeMs;
+    this.workloadDurationCount += 1;
+  }
+
+  private workloadPercentile(
+    values: Float64Array,
+    percentile: number,
+  ): number {
+    if (this.workloadDurationCount === 0) return 0;
+    const sorted = Array.from(
+      values.subarray(0, this.workloadDurationCount),
+    ).sort((left, right) => left - right);
+    const index = Math.max(0, Math.ceil(percentile * sorted.length) - 1);
+    return sorted[index] ?? 0;
+  }
+
+  private longFrameThresholdMs(): number {
+    return 1500 / this.adaptiveTargetFps();
+  }
+
+  private adaptiveTargetFps(): number {
+    const target = this.adaptiveQuality.config.targetFps;
+    return this.fpsCapValue > 0 ? Math.min(target, this.fpsCapValue) : target;
+  }
+
+  private classifyLongFrameSource(
+    updateTimeP95Ms: number,
+    renderTimeP95Ms: number,
+  ): RuntimeLongFrameSource {
+    if (this.longFrameCount === 0) return "none";
+    const attributableThreshold = this.longFrameThresholdMs() * 0.5;
+    if (
+      updateTimeP95Ms >= attributableThreshold &&
+      updateTimeP95Ms >= renderTimeP95Ms
+    ) return "runtimeUpdate";
+    if (renderTimeP95Ms >= attributableThreshold) return "renderSubmission";
+    return "externalScheduling";
   }
 
   private frameTimePercentile(percentile: number, fallback: number): number {

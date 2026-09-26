@@ -92,16 +92,49 @@ enum VrmPerformanceReason {
   performanceUp,
 }
 
+/// Best-effort source classification for long steady-state frame intervals.
+enum VrmLongFrameSource {
+  none,
+  runtimeUpdate,
+  renderSubmission,
+  externalScheduling,
+}
+
+/// Explanation of the latest adaptive-quality policy decision.
+enum VrmAdaptiveQualityDecision {
+  disabled,
+  stable,
+  collectingSlow,
+  collectingFast,
+  cooldown,
+  atMinimum,
+  atMaximum,
+  decrease,
+  increase,
+}
+
 final class VrmPerformanceSnapshot {
   const VrmPerformanceSnapshot({
     required this.fps,
     required this.frameTimeMs,
     required this.frameTimeP50Ms,
     required this.frameTimeP95Ms,
+    required this.frameSampleCount,
+    required this.longFrameCount,
+    required this.longestFrameMs,
+    required this.longFrameThresholdMs,
+    required this.updateTimeP95Ms,
+    required this.renderTimeP95Ms,
+    required this.longFrameSource,
     required this.pixelRatio,
     required this.fpsCap,
     required this.physicsEnabled,
     required this.adaptiveQualityEnabled,
+    required this.adaptiveTargetFps,
+    required this.adaptiveSlowWindowCount,
+    required this.adaptiveFastWindowCount,
+    required this.adaptiveCooldownRemainingMs,
+    required this.adaptiveDecision,
     required this.drawCalls,
     required this.triangles,
     required this.geometries,
@@ -113,10 +146,22 @@ final class VrmPerformanceSnapshot {
   final double frameTimeMs;
   final double frameTimeP50Ms;
   final double frameTimeP95Ms;
+  final int frameSampleCount;
+  final int longFrameCount;
+  final double longestFrameMs;
+  final double longFrameThresholdMs;
+  final double updateTimeP95Ms;
+  final double renderTimeP95Ms;
+  final VrmLongFrameSource longFrameSource;
   final double pixelRatio;
   final int fpsCap;
   final bool physicsEnabled;
   final bool adaptiveQualityEnabled;
+  final int adaptiveTargetFps;
+  final int adaptiveSlowWindowCount;
+  final int adaptiveFastWindowCount;
+  final double adaptiveCooldownRemainingMs;
+  final VrmAdaptiveQualityDecision adaptiveDecision;
   final int drawCalls;
   final int triangles;
   final int geometries;
@@ -133,12 +178,53 @@ final class VrmPerformanceSnapshot {
       frameTimeMs: _finiteDouble(value['frameTimeMs'], 'frameTimeMs'),
       frameTimeP50Ms: _finiteDouble(value['frameTimeP50Ms'], 'frameTimeP50Ms'),
       frameTimeP95Ms: _finiteDouble(value['frameTimeP95Ms'], 'frameTimeP95Ms'),
+      frameSampleCount: _integer(value['frameSampleCount'], 'frameSampleCount'),
+      longFrameCount: _integer(value['longFrameCount'], 'longFrameCount'),
+      longestFrameMs: _finiteDouble(value['longestFrameMs'], 'longestFrameMs'),
+      longFrameThresholdMs: _finiteDouble(
+        value['longFrameThresholdMs'],
+        'longFrameThresholdMs',
+      ),
+      updateTimeP95Ms: _finiteDouble(
+        value['updateTimeP95Ms'],
+        'updateTimeP95Ms',
+      ),
+      renderTimeP95Ms: _finiteDouble(
+        value['renderTimeP95Ms'],
+        'renderTimeP95Ms',
+      ),
+      longFrameSource: _enumByName(
+        value['longFrameSource'],
+        VrmLongFrameSource.values,
+        'longFrameSource',
+      ),
       pixelRatio: _finiteDouble(value['pixelRatio'], 'pixelRatio'),
       fpsCap: _integer(value['fpsCap'], 'fpsCap'),
       physicsEnabled: _boolean(value['physicsEnabled'], 'physicsEnabled'),
       adaptiveQualityEnabled: _boolean(
         value['adaptiveQualityEnabled'],
         'adaptiveQualityEnabled',
+      ),
+      adaptiveTargetFps: _integer(
+        value['adaptiveTargetFps'],
+        'adaptiveTargetFps',
+      ),
+      adaptiveSlowWindowCount: _integer(
+        value['adaptiveSlowWindowCount'],
+        'adaptiveSlowWindowCount',
+      ),
+      adaptiveFastWindowCount: _integer(
+        value['adaptiveFastWindowCount'],
+        'adaptiveFastWindowCount',
+      ),
+      adaptiveCooldownRemainingMs: _finiteDouble(
+        value['adaptiveCooldownRemainingMs'],
+        'adaptiveCooldownRemainingMs',
+      ),
+      adaptiveDecision: _enumByName(
+        value['adaptiveDecision'],
+        VrmAdaptiveQualityDecision.values,
+        'adaptiveDecision',
       ),
       drawCalls: _integer(value['drawCalls'], 'drawCalls'),
       triangles: _integer(value['triangles'], 'triangles'),
@@ -150,6 +236,16 @@ final class VrmPerformanceSnapshot {
         snapshot.frameTimeMs < 0 ||
         snapshot.frameTimeP50Ms < 0 ||
         snapshot.frameTimeP95Ms < 0 ||
+        snapshot.frameSampleCount < 0 ||
+        snapshot.longFrameCount < 0 ||
+        snapshot.longestFrameMs < 0 ||
+        snapshot.longFrameThresholdMs <= 0 ||
+        snapshot.updateTimeP95Ms < 0 ||
+        snapshot.renderTimeP95Ms < 0 ||
+        snapshot.adaptiveTargetFps <= 0 ||
+        snapshot.adaptiveSlowWindowCount < 0 ||
+        snapshot.adaptiveFastWindowCount < 0 ||
+        snapshot.adaptiveCooldownRemainingMs < 0 ||
         snapshot.fpsCap < 0) {
       throw const FormatException(
         'Performance timing values must be non-negative.',
@@ -158,6 +254,25 @@ final class VrmPerformanceSnapshot {
     if (snapshot.frameTimeP50Ms > snapshot.frameTimeP95Ms) {
       throw const FormatException(
         'frameTimeP50Ms must not exceed frameTimeP95Ms.',
+      );
+    }
+    if (snapshot.longFrameCount > snapshot.frameSampleCount) {
+      throw const FormatException(
+        'longFrameCount must not exceed frameSampleCount.',
+      );
+    }
+    if (snapshot.longFrameCount == 0 &&
+        (snapshot.longestFrameMs != 0 ||
+            snapshot.longFrameSource != VrmLongFrameSource.none)) {
+      throw const FormatException(
+        'Empty long-frame samples must use zero duration and none source.',
+      );
+    }
+    if (snapshot.longFrameCount > 0 &&
+        (snapshot.longestFrameMs <= snapshot.longFrameThresholdMs ||
+            snapshot.longFrameSource == VrmLongFrameSource.none)) {
+      throw const FormatException(
+        'Long-frame diagnostics must include duration and source.',
       );
     }
     if (snapshot.pixelRatio <= 0) {
@@ -182,6 +297,15 @@ VrmPerformanceReason _performanceReason(Object? value) {
     }
   }
   throw const FormatException('Unknown performance reason.');
+}
+
+T _enumByName<T extends Enum>(Object? value, List<T> values, String name) {
+  if (value is String) {
+    for (final candidate in values) {
+      if (candidate.name == value) return candidate;
+    }
+  }
+  throw FormatException('Unknown $name.');
 }
 
 double _finiteDouble(Object? value, String name) {

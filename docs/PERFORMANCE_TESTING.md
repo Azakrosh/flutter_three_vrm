@@ -22,6 +22,12 @@ Runtime сбрасывает frame timing после тяжёлых model/animat
 операционная пауза больше не считается одним длинным steady-state кадром и не
 должна сама по себе понижать adaptive quality.
 
+Steady-строка также содержит количество и максимальную длительность long frames,
+их наблюдаемый source, p95 CPU update/render submission и набор решений adaptive
+quality. `externalScheduling` означает, что измеренные CPU-фазы не объясняют
+интервал; сюда могут входить browser scheduler, compositor, GPU и ОС. Это не
+утверждение о конкретном GPU bottleneck.
+
 RSS охватывает Flutter-процесс и имеет платформозависимую семантику; отдельный
 Android WebView renderer process и GPU allocations могут в него не входить.
 Сравнивайте только прогоны одной сборки, модели, устройства и длительности.
@@ -129,3 +135,10 @@ Steady FPS находился в диапазоне 28.6–29.4 при cap 30, p
 501.6/388.1/332.1 ms, финальная загрузка — 351.0 ms. Разрыв timing window после
 model/animation operations устранил многосекундный percentile, наблюдавшийся в
 старом смешанном Firebase-профиле, не скрывая реальные load durations.
+
+После добавления source diagnostics тот же короткий профиль показал 2 long
+frames из 267 steady samples, максимум 63.7 ms. CPU update p95 не превышал
+6.0 ms, render submission p95 — 8.5 ms, поэтому source определён как
+`externalScheduling`. Adaptive policy находилась в состояниях
+`stable/collectingFast`, сохранив pixel ratio 1.0. Это профиль наблюдаемости, а
+не универсальный порог для других устройств.

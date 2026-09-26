@@ -210,6 +210,15 @@ void main() {
       expect(sample.fpsCap, 30);
       expect(sample.pixelRatio, inInclusiveRange(0.75, 1));
       expect(sample.frameTimeP50Ms, lessThanOrEqualTo(sample.frameTimeP95Ms));
+      expect(sample.longFrameCount, lessThanOrEqualTo(sample.frameSampleCount));
+      expect(sample.longFrameThresholdMs, greaterThan(0));
+      if (sample.longFrameCount == 0) {
+        expect(sample.longestFrameMs, 0);
+        expect(sample.longFrameSource, VrmLongFrameSource.none);
+      } else {
+        expect(sample.longestFrameMs, greaterThan(sample.longFrameThresholdMs));
+        expect(sample.longFrameSource, isNot(VrmLongFrameSource.none));
+      }
     }
     for (final health in healthSamples) {
       expect(health.contextLost, isFalse);
@@ -242,6 +251,27 @@ void main() {
     final p95Values = measuredSteadySamples
         .map((sample) => sample.frameTimeP95Ms)
         .toList();
+    final longestFrameValues = measuredSteadySamples
+        .map((sample) => sample.longestFrameMs)
+        .toList();
+    final updateP95Values = measuredSteadySamples
+        .map((sample) => sample.updateTimeP95Ms)
+        .toList();
+    final renderP95Values = measuredSteadySamples
+        .map((sample) => sample.renderTimeP95Ms)
+        .toList();
+    final longFrameCount = measuredSteadySamples.fold<int>(
+      0,
+      (total, sample) => total + sample.longFrameCount,
+    );
+    final longFrameSources = measuredSteadySamples
+        .map((sample) => sample.longFrameSource.name)
+        .toSet()
+        .join(',');
+    final adaptiveDecisions = measuredSteadySamples
+        .map((sample) => sample.adaptiveDecision.name)
+        .toSet()
+        .join(',');
     if (measuredLoadSamples.isNotEmpty) {
       final loadP50Values = measuredLoadSamples
           .map((sample) => sample.frameTimeP50Ms)
@@ -264,6 +294,13 @@ void main() {
       '(avg=${_average(fpsValues).toStringAsFixed(1)}), '
       'frameP50Max=${p50Values.reduce(_max).toStringAsFixed(1)}ms, '
       'frameP95Max=${p95Values.reduce(_max).toStringAsFixed(1)}ms, '
+      'longFrames=$longFrameCount/'
+      '${measuredSteadySamples.fold<int>(0, (total, sample) => total + sample.frameSampleCount)}, '
+      'longestFrameMax=${longestFrameValues.reduce(_max).toStringAsFixed(1)}ms, '
+      'longFrameSources=$longFrameSources, '
+      'updateP95Max=${updateP95Values.reduce(_max).toStringAsFixed(1)}ms, '
+      'renderP95Max=${renderP95Values.reduce(_max).toStringAsFixed(1)}ms, '
+      'adaptiveDecisions=$adaptiveDecisions, '
       'pixelRatio=${ratios.reduce(_min).toStringAsFixed(2)}-'
       '${ratios.reduce(_max).toStringAsFixed(2)}, '
       'textures=${loadedTextureCounts.join(',')}/'

@@ -367,6 +367,12 @@ debugPrint('Flutter host RSS: ${host.currentRssBytes} bytes');
 покадровых аллокаций. `reason` имеет строгий тип `VrmPerformanceReason`:
 `initialized`, `configurationChanged`, `sample`, `performanceDown` или
 `performanceUp`. Последние два значения точно объясняют изменение pixel ratio.
+`longFrameCount`, `longestFrameMs` и `longFrameSource` показывают редкие
+steady-state задержки; `updateTimeP95Ms` и `renderTimeP95Ms` помогают отделить
+CPU-обновление аватара от синхронной части renderer. `adaptiveDecision`,
+slow/fast counters и cooldown объясняют решение adaptive policy. Значение
+`externalScheduling` объединяет scheduler/compositor/GPU/OS и не является
+утверждением о конкретном GPU bottleneck.
 
 `VrmModelPerformancePolicy` дополнительно анализирует размер файла, полигоны, количество и суммарную площадь текстур, morph targets и spring bones. Она не запрещает загрузку моделей. По умолчанию модель получает класс `standard`, `elevated` или `high`; для двух последних классов верхняя граница adaptive pixel ratio заранее снижается до 1.25 или 1.0. Все пороги и оба значения можно переопределить:
 

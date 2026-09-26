@@ -24,6 +24,11 @@ const nonNegativeIntegerModelReportFields = [
   "springBoneJoints",
 ] as const;
 const nonNegativeIntegerPerformanceFields = [
+  "frameSampleCount",
+  "longFrameCount",
+  "adaptiveTargetFps",
+  "adaptiveSlowWindowCount",
+  "adaptiveFastWindowCount",
   "drawCalls",
   "triangles",
   "geometries",
@@ -102,6 +107,11 @@ function validateRuntimeEventDomain(
         "frameTimeMs",
         "frameTimeP50Ms",
         "frameTimeP95Ms",
+        "longestFrameMs",
+        "longFrameThresholdMs",
+        "updateTimeP95Ms",
+        "renderTimeP95Ms",
+        "adaptiveCooldownRemainingMs",
         "fpsCap",
       ] as const) {
         if (!isNonNegativeFinite(payload[field])) {
@@ -118,6 +128,26 @@ function validateRuntimeEventDomain(
       }
       for (const field of nonNegativeIntegerPerformanceFields) {
         requireNonNegativeSafeInteger(payload[field], field);
+      }
+      if (Number(payload.longFrameCount) > Number(payload.frameSampleCount)) {
+        throw new TypeError("longFrameCount must not exceed frameSampleCount.");
+      }
+      if (!["none", "runtimeUpdate", "renderSubmission", "externalScheduling"]
+        .includes(String(payload.longFrameSource))) {
+        throw new TypeError("longFrameSource must be a supported source.");
+      }
+      if (![
+        "disabled",
+        "stable",
+        "collectingSlow",
+        "collectingFast",
+        "cooldown",
+        "atMinimum",
+        "atMaximum",
+        "decrease",
+        "increase",
+      ].includes(String(payload.adaptiveDecision))) {
+        throw new TypeError("adaptiveDecision must be a supported decision.");
       }
       if (![
         "initialized",

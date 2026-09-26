@@ -473,8 +473,16 @@ low-memory callbacks, а soak-отчёт печатает строку `runtime_
 moto g55 подтвердил `thermal=none`, `memoryPressure=0`, loaded host RSS
 465.5/469.9/467.3/466.2 MiB, unloaded RSS 442.2/458.3/454.4/460.8 MiB, max RSS
 481.4 MiB и прежние стабильные renderer textures 28/0. Flutter suite: 93 теста;
-Android и Windows debug builds собираются. Следующий срез — причины длинных
-кадров и adaptive-quality transitions.
+Android и Windows debug builds собираются. Четвёртый срез добавляет причины
+длинных кадров и adaptive-quality transitions напрямую в
+`VrmPerformanceSnapshot`: long-frame threshold/count/max, p95 CPU update и
+render submission, осторожную классификацию `externalScheduling`, а также
+adaptive target, slow/fast counters, cooldown и решение политики. Operational
+reset по-прежнему очищает все эти окна. Physical soak на moto g55 обнаружил 2
+long frames из 267 (максимум 63.7 ms): update p95 6.0 ms и render submission p95
+8.5 ms не объясняют задержку, поэтому source корректно классифицирован как
+`externalScheduling`. Adaptive decisions были `stable/collectingFast`, pixel
+ratio остался 1.0. Следующий шаг — повторить профиль на low-end устройствах.
 
 Критерии готовности:
 

@@ -10,6 +10,25 @@ export interface QualityAdjustment {
   readonly reason: "performanceDown" | "performanceUp";
 }
 
+export type AdaptiveQualityDecision =
+  | "disabled"
+  | "stable"
+  | "collectingSlow"
+  | "collectingFast"
+  | "cooldown"
+  | "atMinimum"
+  | "atMaximum"
+  | "decrease"
+  | "increase";
+
+export interface AdaptiveQualityDiagnostics {
+  readonly decision: AdaptiveQualityDecision;
+  readonly effectiveTargetFps: number;
+  readonly slowWindowCount: number;
+  readonly fastWindowCount: number;
+  readonly cooldownRemainingMs: number;
+}
+
 const defaultConfig: AdaptiveQualityConfig = {
   enabled: true,
   targetFps: 55,
@@ -58,9 +77,20 @@ export class AdaptiveQualityController {
   private slowWindows = 0;
   private fastWindows = 0;
   private lastAdjustmentMs = Number.NEGATIVE_INFINITY;
+  private _diagnostics: AdaptiveQualityDiagnostics = {
+    decision: "stable",
+    effectiveTargetFps: defaultConfig.targetFps,
+    slowWindowCount: 0,
+    fastWindowCount: 0,
+    cooldownRemainingMs: 0,
+  };
 
   public get config(): AdaptiveQualityConfig {
     return this._config;
+  }
+
+  public get diagnostics(): AdaptiveQualityDiagnostics {
+    return this._diagnostics;
   }
 
   public configure(value: unknown): AdaptiveQualityConfig {
@@ -70,6 +100,13 @@ export class AdaptiveQualityController {
     this.slowWindows = 0;
     this.fastWindows = 0;
     this.lastAdjustmentMs = Number.NEGATIVE_INFINITY;
+    this._diagnostics = {
+      decision: config.enabled ? "stable" : "disabled",
+      effectiveTargetFps: config.targetFps,
+      slowWindowCount: 0,
+      fastWindowCount: 0,
+      cooldownRemainingMs: 0,
+    };
     return config;
   }
 
@@ -80,25 +117,39 @@ export class AdaptiveQualityController {
     nowMs: number,
   ): QualityAdjustment | null {
     const config = this._config;
-    if (!config.enabled || !Number.isFinite(measuredFps) || measuredFps <= 0) return null;
-
     const effectiveTarget = fpsCap > 0
       ? Math.min(config.targetFps, fpsCap)
       : config.targetFps;
+    if (!config.enabled || !Number.isFinite(measuredFps) || measuredFps <= 0) {
+      this.setDiagnostics(config.enabled ? "stable" : "disabled", effectiveTarget, 0);
+      return null;
+    }
     if (measuredFps < effectiveTarget * 0.82) {
-      this.slowWindows += 1;
+      this.slowWindows = Math.min(this.slowWindows + 1, 3);
       this.fastWindows = 0;
     } else if (measuredFps >= effectiveTarget * 0.97) {
-      this.fastWindows += 1;
+      this.fastWindows = Math.min(this.fastWindows + 1, 8);
       this.slowWindows = 0;
     } else {
       this.slowWindows = 0;
       this.fastWindows = 0;
     }
 
-    if (nowMs - this.lastAdjustmentMs < 4000) return null;
+    const cooldownRemainingMs = Math.max(
+      0,
+      4000 - (nowMs - this.lastAdjustmentMs),
+    );
 
-    if (this.slowWindows >= 3 && currentPixelRatio > config.minPixelRatio + 0.01) {
+    if (this.slowWindows >= 3) {
+      if (currentPixelRatio <= config.minPixelRatio + 0.01) {
+        this.setDiagnostics("atMinimum", effectiveTarget, cooldownRemainingMs);
+        return null;
+      }
+      if (cooldownRemainingMs > 0) {
+        this.setDiagnostics("cooldown", effectiveTarget, cooldownRemainingMs);
+        return null;
+      }
+      this.setDiagnostics("decrease", effectiveTarget, 0);
       this.slowWindows = 0;
       this.lastAdjustmentMs = nowMs;
       return {
@@ -106,7 +157,16 @@ export class AdaptiveQualityController {
         reason: "performanceDown",
       };
     }
-    if (this.fastWindows >= 8 && currentPixelRatio < config.maxPixelRatio - 0.01) {
+    if (this.fastWindows >= 8) {
+      if (currentPixelRatio >= config.maxPixelRatio - 0.01) {
+        this.setDiagnostics("atMaximum", effectiveTarget, cooldownRemainingMs);
+        return null;
+      }
+      if (cooldownRemainingMs > 0) {
+        this.setDiagnostics("cooldown", effectiveTarget, cooldownRemainingMs);
+        return null;
+      }
+      this.setDiagnostics("increase", effectiveTarget, 0);
       this.fastWindows = 0;
       this.lastAdjustmentMs = nowMs;
       return {
@@ -114,7 +174,30 @@ export class AdaptiveQualityController {
         reason: "performanceUp",
       };
     }
+    this.setDiagnostics(
+      this.slowWindows > 0
+        ? "collectingSlow"
+        : this.fastWindows > 0
+          ? "collectingFast"
+          : "stable",
+      effectiveTarget,
+      cooldownRemainingMs,
+    );
     return null;
+  }
+
+  private setDiagnostics(
+    decision: AdaptiveQualityDecision,
+    effectiveTargetFps: number,
+    cooldownRemainingMs: number,
+  ): void {
+    this._diagnostics = {
+      decision,
+      effectiveTargetFps,
+      slowWindowCount: this.slowWindows,
+      fastWindowCount: this.fastWindows,
+      cooldownRemainingMs,
+    };
   }
 }
 
