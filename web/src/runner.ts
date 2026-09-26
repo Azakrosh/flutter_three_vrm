@@ -292,6 +292,10 @@ class VrmRunner implements RuntimeCommandHost {
         });
       }
       throw error;
+    } finally {
+      // Fetch can complete with expensive parsing/GPU preparation or fail after
+      // blocking work. Neither outcome belongs to a steady rendering window.
+      this.frameScheduler.resetTiming();
     }
   }
 
@@ -326,7 +330,6 @@ class VrmRunner implements RuntimeCommandHost {
       loadStartedAtMs,
       performance.now(),
     );
-
     this.notifyFlutter('onModelLoaded', {
       name: report.name,
       version: report.vrmVersion,
@@ -383,6 +386,7 @@ class VrmRunner implements RuntimeCommandHost {
 
     this.gazeController.resetForModel();
     this.windPhysicsController.resetForModel();
+    this.frameScheduler.resetTiming();
 
     this.notifyFlutter('onModelUnloaded', {});
   }
@@ -404,6 +408,10 @@ class VrmRunner implements RuntimeCommandHost {
         });
       }
       throw error;
+    } finally {
+      // Animation parsing/retargeting is an operational pause even when it is
+      // canceled or rejected and must not drive adaptive quality.
+      this.frameScheduler.resetTiming();
     }
   }
 

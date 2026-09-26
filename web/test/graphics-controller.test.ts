@@ -124,6 +124,26 @@ describe("runtime graphics controller", () => {
       }),
     );
   });
+
+  it("starts a clean percentile window after an operational pause", () => {
+    const harness = createHarness();
+    const graphics = harness.controller;
+    graphics.recordFrame(1000);
+    graphics.recordFrame(1040);
+
+    graphics.resetTiming(7000);
+    graphics.recordFrame(7010);
+    graphics.recordFrame(7050);
+    graphics.recordFrame(8010);
+
+    expect(harness.onPerformance).toHaveBeenCalled();
+    const snapshot = graphics.getSnapshot();
+    expect(snapshot.fps).toBeCloseTo(3000 / 1010);
+    expect(snapshot.frameTimeMs).toBeCloseTo(1010 / 3);
+    expect(snapshot.frameTimeP50Ms).toBe(40);
+    expect(snapshot.frameTimeP95Ms).toBe(960);
+    expect(snapshot.frameTimeP95Ms).toBeLessThan(5960);
+  });
 });
 
 function createHarness() {

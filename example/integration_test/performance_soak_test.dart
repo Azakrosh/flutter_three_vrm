@@ -25,13 +25,18 @@ void main() {
 
     final controller = VrmController();
     final errors = <String>[];
-    final eventSamples = <VrmPerformanceSnapshot>[];
+    final loadPhaseSamples = <VrmPerformanceSnapshot>[];
+    final steadyStateSamples = <VrmPerformanceSnapshot>[];
     final healthSamples = <VrmRuntimeHealth>[];
+    var performancePhase = _PerformancePhase.load;
     final errorSubscription = controller.onError.listen(
       (event) => errors.add(event.message),
     );
     final performanceSubscription = controller.onPerformance.listen(
-      (event) => eventSamples.add(event.snapshot),
+      (event) => switch (performancePhase) {
+        _PerformancePhase.load => loadPhaseSamples.add(event.snapshot),
+        _PerformancePhase.steady => steadyStateSamples.add(event.snapshot),
+      },
     );
     addTearDown(() async {
       await errorSubscription.cancel();
@@ -118,6 +123,7 @@ void main() {
     const batchDuration = Duration(milliseconds: 500);
     const frameDuration = Duration(milliseconds: 50);
     final totalDuration = Duration(seconds: _soakSeconds);
+    performancePhase = _PerformancePhase.steady;
     final stopwatch = Stopwatch()..start();
     var batchIndex = 0;
     while (stopwatch.elapsed < totalDuration) {
@@ -168,12 +174,15 @@ void main() {
 
     final finalSnapshot = await controller.getPerformanceSnapshot();
     final finalHealth = await controller.getRuntimeHealth();
-    final allSamples = <VrmPerformanceSnapshot>[
-      ...eventSamples.where((sample) => sample.fps > 0),
+    final measuredLoadSamples = loadPhaseSamples
+        .where((sample) => sample.fps > 0)
+        .toList();
+    final measuredSteadySamples = <VrmPerformanceSnapshot>[
+      ...steadyStateSamples.where((sample) => sample.fps > 0),
       if (finalSnapshot.fps > 0) finalSnapshot,
     ];
-    expect(allSamples, isNotEmpty);
-    for (final sample in allSamples) {
+    expect(measuredSteadySamples, isNotEmpty);
+    for (final sample in [...measuredLoadSamples, ...measuredSteadySamples]) {
       expect(sample.fpsCap, 30);
       expect(sample.pixelRatio, inInclusiveRange(0.75, 1));
       expect(sample.frameTimeP50Ms, lessThanOrEqualTo(sample.frameTimeP95Ms));
@@ -190,22 +199,40 @@ void main() {
     expect(finalHealth.contextLossCount, 0);
     expect(errors, isEmpty);
 
-    final fpsValues = allSamples.map((sample) => sample.fps).toList();
+    final fpsValues = measuredSteadySamples
+        .map((sample) => sample.fps)
+        .toList();
     expect(
       _average(fpsValues),
       lessThanOrEqualTo(finalSnapshot.fpsCap + 5),
       reason: 'The sustained FPS average must respect the configured cap.',
     );
-    final ratios = allSamples.map((sample) => sample.pixelRatio).toList();
-    final p50Values = allSamples
+    final ratios = measuredSteadySamples
+        .map((sample) => sample.pixelRatio)
+        .toList();
+    final p50Values = measuredSteadySamples
         .map((sample) => sample.frameTimeP50Ms)
         .toList();
-    final p95Values = allSamples
+    final p95Values = measuredSteadySamples
         .map((sample) => sample.frameTimeP95Ms)
         .toList();
+    if (measuredLoadSamples.isNotEmpty) {
+      final loadP50Values = measuredLoadSamples
+          .map((sample) => sample.frameTimeP50Ms)
+          .toList();
+      final loadP95Values = measuredLoadSamples
+          .map((sample) => sample.frameTimeP95Ms)
+          .toList();
+      debugPrint(
+        'runtime_soak_load: loads=$_loadCycles, '
+        'samples=${measuredLoadSamples.length}, '
+        'frameP50Max=${loadP50Values.reduce(_max).toStringAsFixed(1)}ms, '
+        'frameP95Max=${loadP95Values.reduce(_max).toStringAsFixed(1)}ms',
+      );
+    }
     debugPrint(
-      'runtime_soak: duration=${_soakSeconds}s, loads=$_loadCycles, '
-      'samples=${allSamples.length}, '
+      'runtime_soak_steady: duration=${_soakSeconds}s, loads=$_loadCycles, '
+      'samples=${measuredSteadySamples.length}, '
       'fps=${fpsValues.reduce(_min).toStringAsFixed(1)}-'
       '${fpsValues.reduce(_max).toStringAsFixed(1)} '
       '(avg=${_average(fpsValues).toStringAsFixed(1)}), '
@@ -243,3 +270,5 @@ T _max<T extends num>(T first, T second) => first > second ? first : second;
 
 double _average(List<double> values) =>
     values.reduce((first, second) => first + second) / values.length;
+
+enum _PerformancePhase { load, steady }

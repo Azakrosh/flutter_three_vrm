@@ -11,6 +11,15 @@
 - непрерывный amplitude timeline вместе с плавными VRMA/Pose-переходами;
 - отсутствие runtime-ошибок на всём интервале.
 
+Начиная со Stage 31 тест разделяет две фазы:
+
+- `runtime_soak_load` — model load/unload, parsing, GPU upload и disposal;
+- `runtime_soak_steady` — устойчивый rendering со speech и VRMA/Pose-переходами.
+
+Runtime сбрасывает frame timing после тяжёлых model/animation operations, поэтому
+операционная пауза больше не считается одним длинным steady-state кадром и не
+должна сама по себе понижать adaptive quality.
+
 ## Запуск
 
 Быстрый gate использует 20 секунд и три load/unload цикла:
@@ -45,8 +54,9 @@ flutter test integration_test/performance_soak_test.dart -d <android-device> `
 - число renderer-текстур растёт более чем на одну между одинаковыми загрузками;
 - после выгрузок texture baseline растёт более чем на одну;
 - одинаковая модель даёт разные оценки texture memory;
-- устойчивое среднее FPS превышает cap больше чем на допустимую погрешность
-  telemetry (отдельное окно может кратковременно выйти выше cap);
+- устойчивое среднее FPS в `runtime_soak_steady` превышает cap больше чем на
+  допустимую погрешность telemetry (отдельное окно может кратковременно выйти
+  выше cap);
 - pixel ratio выходит за настроенный диапазон;
 - нарушается `p50 <= p95` или runtime сообщает ошибку.
 
@@ -74,8 +84,9 @@ WebGL 2, debug integration build, preset `performance`:
 
 Минимальный FPS и высокий p95 включают стартовые загрузки VRMA и переключения
 Pose, поэтому важнее отсутствие накопительного ухудшения и стабильный texture
-baseline. Для сравнения устройств сохраняйте всю строку `runtime_soak` и
-используйте одну и ту же модель, длительность и build mode.
+baseline. Для сравнения устройств сохраняйте строки `runtime_soak_load` и
+`runtime_soak_steady` и используйте одну и ту же модель, длительность и build
+mode.
 
 На том же устройстве расширенный gate `300 s / 10 load cycles` также прошёл:
 
@@ -92,3 +103,19 @@ baseline. Для сравнения устройств сохраняйте вс
 
 За пять минут выполнено около 600 streaming amplitude batches и 120 плановых
 VRMA/Pose-переключений. Накопительного роста renderer resources не обнаружено.
+
+## Stage 31: проверка фазовой телеметрии
+
+26 сентября 2026 года короткий gate `20 s / 3 load cycles` повторён на том же
+moto g55 5G после разделения operational и steady-state timing windows:
+
+| Фаза | Samples | FPS average | Max p50 | Max p95 |
+|---|---:|---:|---:|---:|
+| Load/unload | 3 | профильная метрика не применяется | 34.0 ms | 69.3 ms |
+| Steady rendering | 9 | 29.3 | 34.1 ms | 39.8 ms |
+
+Steady FPS находился в диапазоне 28.6–29.4 при cap 30, pixel ratio оставался
+1.0, renderer textures — 28/0 во всех трёх циклах. Model load занял
+501.6/388.1/332.1 ms, финальная загрузка — 351.0 ms. Разрыв timing window после
+model/animation operations устранил многосекундный percentile, наблюдавшийся в
+старом смешанном Firebase-профиле, не скрывая реальные load durations.

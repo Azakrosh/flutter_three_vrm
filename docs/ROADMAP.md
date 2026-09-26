@@ -1,8 +1,8 @@
 # План рефакторинга и развития flutter_three_vrm
 
 Статус: активный рабочий документ
-Дата аудита: 2026-09-24
-Проверенная база: `f2aa0cf feat: define transient runtime session ownership`
+Дата аудита: 2026-09-26
+Проверенная база: `f254508 docs: record Firebase low-end performance gate`
 Целевые платформы: Android и Windows; приоритет — Android
 
 ## 1. Откуда восстановлен первоначальный план
@@ -65,6 +65,10 @@
 | 25 | Playback identity и изоляция очереди от посторонних анимаций | Выполнено |
 | 26 | Полный TypeScript runtime, строгие command/event codecs и protocol v3 | Выполнено |
 | 27 | State ownership, ordered replay и recovery contract | Выполнено |
+| 28 | Android performance telemetry и физический low-end Firebase gate | Выполнено |
+| 29 | Изолированные integration gates и документация API semantics | Выполнено |
+| 30 | Подготовка публикации | Отложено |
+| 31 | Android performance observability и управление нагрузкой по фазам | В работе |
 
 ## 3. Состояние реализации
 
@@ -122,55 +126,61 @@ WebView runtime
 
 ### Текущий размер и покрытие
 
-- Flutter library: 35 файлов, примерно 6200 строк;
-- web source: 34 файла, примерно 6900 строк;
+- Flutter library: 36 файлов, примерно 6340 строк;
+- web source: 35 файлов, примерно 7090 строк;
 - `runner.ts`: примерно 675 строк;
 - `VrmController`: примерно 1430 строк;
 - Flutter unit tests: 86;
-- web unit tests: 162;
-- один сквозной runtime smoke-сценарий, примерно 435 строк.
+- web unit tests: 167;
+- integration matrix разделена на runtime/scene, motion/speech,
+  lifecycle/recovery, model-race, resource-loading и performance soak gates.
 
 Числа нужны как ориентир концентрации ответственности, а не как целевые KPI.
 
 ## 4. Оставшиеся архитектурные риски
 
-### Закрыто в Stage 26.20 — весь runtime проверяется TypeScript
+### Закрытые архитектурные риски
 
-`web/tsconfig.json` включает `src/**/*.ts` и `test/**/*.ts`, в том числе
-`web/src/runner.ts`. Facade явно реализует `RuntimeCommandHost`, а координация
-модели, кадра, lifecycle и protocol events проходит строгий `tsc --noEmit`.
+- весь web runtime входит в строгий `tsc --noEmit`;
+- все command/event payload и query results имеют boundary codecs, а `unknown`
+  остаётся только на входе недоверенного JSON и в error details;
+- protocol v3, Dart serializers и TypeScript dispatcher сверяются contract
+  tests;
+- state ownership, replay order и recovery semantics зафиксированы в
+  `docs/STATE_OWNERSHIP.md` и проверены recovery/race tests;
+- integration matrix разделена на независимые gates и запускается общей
+  командой для Android/Windows;
+- физический low-end Android подтверждён Firebase Test Lab gate.
 
-### P0 — wire contract ещё не полностью типизирован
+### Закрыто в Stage 31.1 — измерения разных фаз нагрузки
 
-Protocol v3 имеет общий каталог 49 command и 14 event, типизированный
-TypeScript dispatcher и enum-команды в Dart. Однако часть payload/result
-остаётся `RuntimeRecord`/`unknown` в TypeScript и `Map<String, dynamic>` в
-Dart. Для них ещё нужны точные codecs и contract tests.
+Исторический soak-профиль включал parsing, GPU upload и disposal модели в то же
+окно, что steady-state rendering. Это давало полезный worst-case, но не позволяло
+отличить длинный операционный stall от устойчивой деградации FPS и могло
+ошибочно влиять на adaptive quality. Первый срез Stage 31 отделяет load/unload
+окна, сбрасывает frame timing после model/animation operations и сохраняет
+steady-state профиль отдельно. Физический gate на moto g55 подтвердил, что
+многосекундный ложный percentile исчез, а устойчивый профиль сохранился.
 
-Это незавершённая часть самого первого roadmap-пункта про типизированный bridge.
+### P1 — нет системной памяти и thermal diagnostics
 
-### P1 — два крупных центра ответственности
+Runtime видит renderer counters и расчётную память текстур, но не различает
+Dart/Java/native memory, pressure callbacks и thermal throttling Android.
+Без этих сигналов нельзя объяснить деградацию на длительном мобильном сеансе.
 
-`runner.ts` всё ещё объединяет protocol facade, управление активной моделью
-и содержимое кадра, хотя теперь целиком входит в строгую проверку TypeScript.
-`VrmController` одновременно валидирует
-данные, управляет hosted resources, сериализует protocol payload и предоставляет
-публичный API. Любое изменение затрагивает слишком большой контекст.
+### P1 — ограниченная повторяемость low-end профиля
 
-### P1 — recovery state распределён между несколькими владельцами
+Galaxy A03s прошёл полный Firebase gate один раз после отдельного smoke-run.
+Нужны повторные прогоны одной сборки и второе low-end устройство другого
+производителя, чтобы отделить регрессию runtime от вариативности облачного
+железа и версии WebView.
 
-Камера и конфигурация восстанавливаются через `VrmView`/`VrmController`,
-очередь — самостоятельно, а защищённая модель — через повторный
-`VrmView.onCreated` в приложении. Эта семантика разумна, но пока не описана как
-единая таблица ownership/replay order и потому уязвима при добавлении новых
-состояний.
+### P2 — крупный публичный controller
 
-### P1 — интеграционные проверки недостаточно изолированы
-
-Smoke-тест покрывает много важных сценариев, но является одним большим тестом.
-Сбой позднего шага затрудняет локализацию. Физический Android не запускается в
-GitHub Actions; Windows smoke запускается. Нужны отдельные contract/race/soak
-сценарии, при этом физический Android остаётся release gate.
+Web runtime уже разделён на специализированные controllers, но
+`VrmController` остаётся крупным публичным facade. Разделять его следует только
+внутренне и только при изменении затронутой области, без расширения API ради
+самого рефакторинга.
 
 ### P2 — публикационная готовность отложена
 
@@ -180,8 +190,8 @@ GitHub Actions; Windows smoke запускается. Нужны отдельн�
 
 ## 5. Текущее направление
 
-Ближайшее направление: **типизированное и модульное ядро runtime без расширения
-публичного API**.
+Ближайшее направление: **измеримая Android performance observability без
+расширения низкоуровневого публичного API**.
 
 Сейчас не следует:
 
@@ -191,7 +201,9 @@ GitHub Actions; Windows smoke запускается. Нужны отдельн�
 - менять protocol v3 только ради рефакторинга;
 - одновременно переделывать lifecycle, motion и speech semantics.
 
-Сначала нужно уменьшить риск уже реализованного функционала.
+Сначала нужно научиться отличать steady-state render pressure от загрузки,
+thermal throttling и системного memory pressure, а затем принимать решения об
+adaptive policy на физических данных.
 
 ## 6. Следующие этапы
 
@@ -419,6 +431,48 @@ realtime speech, а также минимальные рецепты всех в
 
 Включает GitHub metadata, package metadata, API docs, versioning policy,
 release checklist, clean-clone verification и окончательный аудит лицензий.
+
+### Stage 31 — Android performance observability и управление нагрузкой
+
+Статус: в работе.
+
+Цель: получать объяснимый профиль нагрузки на Android и не принимать решения
+adaptive quality по паузам загрузки/выгрузки модели.
+
+Работы:
+
+1. Разделить load/unload и steady-state render telemetry без изменения
+   protocol v3 и публичного API.
+2. Сбрасывать frame timing после model/animation parsing, GPU upload и disposal,
+   чтобы операционный stall не считался устойчивой частотой кадров.
+3. Добавить фазовые строки soak-отчёта и применять FPS assertions только к
+   steady-state samples.
+4. Исследовать Android memory-pressure и thermal signals, определить безопасный
+   высокоуровневый diagnostics contract.
+5. Добавить причины длинных кадров и adaptive-quality transitions в диагностике.
+6. Повторить полный gate на Galaxy A03s и втором low-end устройстве другого
+   производителя; сохранить сопоставимые профили одной сборки.
+
+Текущий прогресс: runtime начинает новое timing window после успешной загрузки
+модели, выгрузки модели и загрузки/ретаргетинга анимации. Soak harness отдельно
+собирает `runtime_soak_load` и `runtime_soak_steady`; средний FPS и frame-time
+steady-state больше не загрязняются десятью подготовительными load/unload
+циклами. Protocol v3 и публичные модели не изменены. Регрессия покрыта web unit
+test; 167 web tests, TypeScript typecheck, Flutter analyze и 86 Flutter tests
+проходят. Короткий physical gate на moto g55 5G также пройден: load-фаза дала
+p50/p95 не выше 34.0/69.3 ms, steady-фаза — средние 29.3 FPS и p50/p95 не выше
+34.1/39.8 ms при cap 30; многосекундный ложный frame-time исчез, textures
+остались стабильны 28/0. Первый срез подтверждён; следующий — проектирование
+memory/thermal diagnostics.
+
+Критерии готовности:
+
+- load/unload pauses не влияют на steady-state FPS и adaptive-quality windows;
+- отчёт отдельно показывает operational stalls и устойчивый rendering profile;
+- причины adaptive transitions и длинных кадров диагностируемы;
+- memory/thermal policy основана на доступных Android signals и имеет
+  platform-safe fallback;
+- повторные low-end gates не показывают накопительного роста ресурсов.
 
 ## 7. Правила обновления roadmap
 
