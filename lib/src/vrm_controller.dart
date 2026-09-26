@@ -3,6 +3,7 @@ part of 'vrm_runtime.dart';
 /// Primary controller for loading, animating, and interacting with one VRM model.
 class VrmController {
   final _VrmBridge _bridge = _VrmBridge();
+  final VrmHostResourceMonitor _hostResourceMonitor = VrmHostResourceMonitor();
   final VrmModelSessionState _modelState = VrmModelSessionState();
   final VrmSpeechSessionState _speechState = VrmSpeechSessionState();
   late final StreamSubscription<VrmEvent> _stateSubscription;
@@ -51,6 +52,25 @@ class VrmController {
 
   /// Input type accepted by the current speech timeline.
   VrmSpeechMode? get speechMode => _speechState.activeMode;
+
+  /// Captures current resource diagnostics for the Flutter host process.
+  ///
+  /// RSS accounting is platform dependent and includes the whole application,
+  /// not only the avatar runtime. Use it to compare trends between equivalent
+  /// soak runs rather than as an absolute memory limit.
+  VrmHostResourceSnapshot captureHostResourceSnapshot() {
+    _ensureNotDisposed();
+    return _hostResourceMonitor.capture();
+  }
+
+  void _recordHostMemoryPressure() {
+    if (_isDisposed) return;
+    _bridge.publishEvent(
+      VrmHostMemoryPressureEvent(
+        snapshot: _hostResourceMonitor.recordMemoryPressure(),
+      ),
+    );
+  }
 
   void _attachContentHost(VrmContentHost contentHost) {
     _contentHost = contentHost;
@@ -1290,6 +1310,12 @@ class VrmController {
       .eventStream
       .where((event) => event is VrmRuntimeUnavailableEvent)
       .cast<VrmRuntimeUnavailableEvent>();
+
+  /// Low-memory notifications observed by the attached [VrmView].
+  Stream<VrmHostMemoryPressureEvent> get onHostMemoryPressure => _bridge
+      .eventStream
+      .where((event) => event is VrmHostMemoryPressureEvent)
+      .cast<VrmHostMemoryPressureEvent>();
 
   Stream<VrmPerformanceEvent> get onPerformance => _bridge.eventStream
       .where((event) => event is VrmPerformanceEvent)

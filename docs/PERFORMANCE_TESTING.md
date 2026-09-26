@@ -15,10 +15,19 @@
 
 - `runtime_soak_load` — model load/unload, parsing, GPU upload и disposal;
 - `runtime_soak_steady` — устойчивый rendering со speech и VRMA/Pose-переходами.
+- `runtime_soak_host` — RSS Flutter-процесса в начале и конце, RSS high-water
+  mark, число memory-pressure событий и доступность thermal status.
 
 Runtime сбрасывает frame timing после тяжёлых model/animation operations, поэтому
 операционная пауза больше не считается одним длинным steady-state кадром и не
 должна сама по себе понижать adaptive quality.
+
+RSS охватывает весь процесс приложения и имеет платформозависимую семантику.
+Сравнивайте только прогоны одной сборки, модели, устройства и длительности.
+Отрицательная `rssDeltaMiB` допустима после освобождения памяти. Пакет намеренно
+не вводит pass/fail порог RSS и не реагирует автоматически на memory pressure.
+До подключения нативного Android thermal bridge поле `thermal` равно
+`unavailable`; это явный fallback, а не показание нормальной температуры.
 
 ## Запуск
 

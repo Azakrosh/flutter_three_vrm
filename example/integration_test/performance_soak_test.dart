@@ -24,10 +24,12 @@ void main() {
     }
 
     final controller = VrmController();
+    final initialHostResources = controller.captureHostResourceSnapshot();
     final errors = <String>[];
     final loadPhaseSamples = <VrmPerformanceSnapshot>[];
     final steadyStateSamples = <VrmPerformanceSnapshot>[];
     final healthSamples = <VrmRuntimeHealth>[];
+    final memoryPressureSamples = <VrmHostResourceSnapshot>[];
     var performancePhase = _PerformancePhase.load;
     final errorSubscription = controller.onError.listen(
       (event) => errors.add(event.message),
@@ -38,9 +40,13 @@ void main() {
         _PerformancePhase.steady => steadyStateSamples.add(event.snapshot),
       },
     );
+    final memoryPressureSubscription = controller.onHostMemoryPressure.listen(
+      (event) => memoryPressureSamples.add(event.snapshot),
+    );
     addTearDown(() async {
       await errorSubscription.cancel();
       await performanceSubscription.cancel();
+      await memoryPressureSubscription.cancel();
       await controller.dispose();
     });
 
@@ -174,6 +180,16 @@ void main() {
 
     final finalSnapshot = await controller.getPerformanceSnapshot();
     final finalHealth = await controller.getRuntimeHealth();
+    final finalHostResources = controller.captureHostResourceSnapshot();
+    expect(
+      finalHostResources.memoryPressureCount,
+      greaterThanOrEqualTo(initialHostResources.memoryPressureCount),
+    );
+    expect(
+      memoryPressureSamples.length,
+      finalHostResources.memoryPressureCount -
+          initialHostResources.memoryPressureCount,
+    );
     final measuredLoadSamples = loadPhaseSamples
         .where((sample) => sample.fps > 0)
         .toList();
@@ -247,6 +263,16 @@ void main() {
       'loadMs=${loadDurationsMs.map((value) => value.toStringAsFixed(1)).join(',')}/'
       '${finalHealth.lastModelLoadDurationMs.toStringAsFixed(1)}',
     );
+    debugPrint(
+      'runtime_soak_host: rssMiB='
+      '${_mib(initialHostResources.currentRssBytes)}-'
+      '${_mib(finalHostResources.currentRssBytes)}, '
+      'rssDeltaMiB='
+      '${_mib(finalHostResources.currentRssBytes - initialHostResources.currentRssBytes)}, '
+      'maxRssMiB=${_mib(finalHostResources.maxRssBytes)}, '
+      'memoryPressure=${finalHostResources.memoryPressureCount}, '
+      'thermal=${finalHostResources.thermalStatus.name}',
+    );
 
     await controller.unloadModel();
     // Model assessment restores adaptive-quality settings asynchronously after
@@ -270,5 +296,7 @@ T _max<T extends num>(T first, T second) => first > second ? first : second;
 
 double _average(List<double> values) =>
     values.reduce((first, second) => first + second) / values.length;
+
+String _mib(int bytes) => (bytes / (1024 * 1024)).toStringAsFixed(1);
 
 enum _PerformancePhase { load, steady }

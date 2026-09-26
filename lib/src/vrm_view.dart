@@ -469,6 +469,11 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
   }
 
   @override
+  void didHaveMemoryPressure() {
+    widget.controller._recordHostMemoryPressure();
+  }
+
+  @override
   void dispose() {
     final shouldDisposeRuntime = _transportAttached && _isRuntimeReady;
     _isDisposed = true;

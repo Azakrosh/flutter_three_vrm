@@ -1,5 +1,6 @@
 import 'vrm_expression.dart';
 import 'vrm_graphics.dart';
+import 'vrm_host_resources.dart';
 import 'vrm_model_report.dart';
 import 'vrm_model_performance.dart';
 
@@ -104,6 +105,16 @@ class VrmRuntimeUnavailableEvent extends VrmEvent {
   VrmRuntimeUnavailableEvent({required this.reason});
 
   final String reason;
+}
+
+/// Emitted when Flutter reports that the host is under memory pressure.
+///
+/// This is a package-side event and does not change rendering settings or
+/// unload the current avatar.
+class VrmHostMemoryPressureEvent extends VrmEvent {
+  VrmHostMemoryPressureEvent({required this.snapshot});
+
+  final VrmHostResourceSnapshot snapshot;
 }
 
 /// Emitted when the user changes pan or zoom.

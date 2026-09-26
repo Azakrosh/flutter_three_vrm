@@ -1,6 +1,7 @@
 export 'src/vrm_runtime.dart';
 export 'src/models/vrm_expression.dart';
 export 'src/models/vrm_graphics.dart';
+export 'src/models/vrm_host_resources.dart';
 export 'src/models/vrm_camera_mode.dart';
 export 'src/models/vrm_animation_options.dart';
 export 'src/models/vrm_lip_sync_data.dart';

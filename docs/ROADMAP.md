@@ -457,13 +457,18 @@ adaptive quality по паузам загрузки/выгрузки модел�
 модели, выгрузки модели и загрузки/ретаргетинга анимации. Soak harness отдельно
 собирает `runtime_soak_load` и `runtime_soak_steady`; средний FPS и frame-time
 steady-state больше не загрязняются десятью подготовительными load/unload
-циклами. Protocol v3 и публичные модели не изменены. Регрессия покрыта web unit
+циклами. Protocol v3 не изменён. Регрессия покрыта web unit
 test; 167 web tests, TypeScript typecheck, Flutter analyze и 86 Flutter tests
 проходят. Короткий physical gate на moto g55 5G также пройден: load-фаза дала
 p50/p95 не выше 34.0/69.3 ms, steady-фаза — средние 29.3 FPS и p50/p95 не выше
 34.1/39.8 ms при cap 30; многосекундный ложный frame-time исчез, textures
-остались стабильны 28/0. Первый срез подтверждён; следующий — проектирование
-memory/thermal diagnostics.
+остались стабильны 28/0. Первый срез подтверждён. Второй срез добавил независимый
+от protocol v3 host-diagnostics контракт: `captureHostResourceSnapshot()`
+измеряет current/max RSS процесса, `onHostMemoryPressure` считает системные
+low-memory callbacks, а soak-отчёт печатает строку `runtime_soak_host`. Событие
+является наблюдаемым и не выгружает модель автоматически. Thermal status пока
+честно возвращает `unavailable`; следующий срез — Android `PowerManager` bridge
+с API-safe fallback. Flutter test suite после добавления контракта: 90 тестов.
 
 Критерии готовности:
 
