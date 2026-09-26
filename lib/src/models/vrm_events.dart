@@ -117,6 +117,13 @@ class VrmHostMemoryPressureEvent extends VrmEvent {
   final VrmHostResourceSnapshot snapshot;
 }
 
+/// Emitted when the Android operating system reports a new thermal state.
+class VrmHostThermalStatusChangedEvent extends VrmEvent {
+  VrmHostThermalStatusChangedEvent({required this.snapshot});
+
+  final VrmHostResourceSnapshot snapshot;
+}
+
 /// Emitted when the user changes pan or zoom.
 class VrmCameraChangedEvent extends VrmEvent {
   final double? x;

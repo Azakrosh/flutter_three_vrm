@@ -348,6 +348,16 @@ controller.onModelAssessment.listen((event) {
     '${assessment.warnings.map((warning) => warning.metric.name).join(', ')}',
   );
 });
+
+controller.onHostMemoryPressure.listen((event) {
+  debugPrint('memory pressure #${event.snapshot.memoryPressureCount}');
+});
+controller.onHostThermalStatusChanged.listen((event) {
+  debugPrint('thermal: ${event.snapshot.thermalStatus.name}');
+});
+
+final host = controller.captureHostResourceSnapshot();
+debugPrint('Flutter host RSS: ${host.currentRssBytes} bytes');
 ```
 
 Доступны профили `performance` (30 FPS, pixel ratio 1.0), `balanced` и `quality`. `setGraphicsSettings()` оставлен для точного ручного управления. Автоматическая политика изменяет только render resolution и не отключает spring-bone physics без решения приложения.
@@ -374,6 +384,11 @@ VrmView(
 Чтобы получать только предупреждения без автоматической настройки, установите `autoTunePixelRatio: false`. При выключенном `VrmAdaptiveQualitySettings.enabled` политика также не меняет render resolution.
 
 При потере WebGL-контекста runtime приостанавливает обновление сцены, а после восстановления повторно компилирует материалы и продолжает render loop. Состояние доступно через `onWebGlContextChanged`.
+
+Host diagnostics не вводит жёстких лимитов и ничего не выгружает автоматически.
+На Android API 29+ thermal status поступает из `PowerManager`; Windows и более
+старый Android возвращают `unavailable`. RSS относится к Flutter-процессу и
+может не включать отдельный WebView renderer и GPU allocations.
 
 Повторяемый физический Android gate, параметры длительного прогона и первый
 референсный профиль описаны в [docs/PERFORMANCE_TESTING.md](docs/PERFORMANCE_TESTING.md).

@@ -466,9 +466,15 @@ p50/p95 не выше 34.0/69.3 ms, steady-фаза — средние 29.3 FPS 
 от protocol v3 host-diagnostics контракт: `captureHostResourceSnapshot()`
 измеряет current/max RSS процесса, `onHostMemoryPressure` считает системные
 low-memory callbacks, а soak-отчёт печатает строку `runtime_soak_host`. Событие
-является наблюдаемым и не выгружает модель автоматически. Thermal status пока
-честно возвращает `unavailable`; следующий срез — Android `PowerManager` bridge
-с API-safe fallback. Flutter test suite после добавления контракта: 90 тестов.
+является наблюдаемым и не выгружает модель автоматически. Третий срез добавил
+нативный Android `PowerManager` bridge: API 29+ публикует текущий status и его
+изменения, Windows/старый Android используют `unavailable`, listener снимается
+при detach от `VrmView` и Flutter engine. Финальный короткий physical soak на
+moto g55 подтвердил `thermal=none`, `memoryPressure=0`, loaded host RSS
+465.5/469.9/467.3/466.2 MiB, unloaded RSS 442.2/458.3/454.4/460.8 MiB, max RSS
+481.4 MiB и прежние стабильные renderer textures 28/0. Flutter suite: 93 теста;
+Android и Windows debug builds собираются. Следующий срез — причины длинных
+кадров и adaptive-quality transitions.
 
 Критерии готовности:
 

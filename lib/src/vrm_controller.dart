@@ -3,7 +3,8 @@ part of 'vrm_runtime.dart';
 /// Primary controller for loading, animating, and interacting with one VRM model.
 class VrmController {
   final _VrmBridge _bridge = _VrmBridge();
-  final VrmHostResourceMonitor _hostResourceMonitor = VrmHostResourceMonitor();
+  late final VrmHostResourceMonitor _hostResourceMonitor;
+  late final VrmPlatformThermalMonitor _platformThermalMonitor;
   final VrmModelSessionState _modelState = VrmModelSessionState();
   final VrmSpeechSessionState _speechState = VrmSpeechSessionState();
   late final StreamSubscription<VrmEvent> _stateSubscription;
@@ -12,8 +13,15 @@ class VrmController {
   VrmTransform? _lastKnownCameraTransform;
   int _cameraTransformRevision = 0;
   VrmContentHost? _contentHost;
+  int _hostResourceMonitoringClients = 0;
 
   VrmController() {
+    _platformThermalMonitor = VrmPlatformThermalMonitor(
+      onStatusChanged: _publishThermalStatus,
+    );
+    _hostResourceMonitor = VrmHostResourceMonitor(
+      thermalStatusReader: () => _platformThermalMonitor.status,
+    );
     _stateSubscription = _bridge.eventStream.listen((event) {
       switch (event) {
         case VrmModelLoadedEvent():
@@ -68,6 +76,31 @@ class VrmController {
     _bridge.publishEvent(
       VrmHostMemoryPressureEvent(
         snapshot: _hostResourceMonitor.recordMemoryPressure(),
+      ),
+    );
+  }
+
+  void _attachHostResourceMonitoring() {
+    _ensureNotDisposed();
+    _hostResourceMonitoringClients += 1;
+    if (_hostResourceMonitoringClients == 1) {
+      _platformThermalMonitor.start();
+    }
+  }
+
+  void _detachHostResourceMonitoring() {
+    if (_hostResourceMonitoringClients == 0) return;
+    _hostResourceMonitoringClients -= 1;
+    if (_hostResourceMonitoringClients == 0) {
+      unawaited(_platformThermalMonitor.stop());
+    }
+  }
+
+  void _publishThermalStatus(VrmThermalStatus status) {
+    if (_isDisposed) return;
+    _bridge.publishEvent(
+      VrmHostThermalStatusChangedEvent(
+        snapshot: _hostResourceMonitor.capture(),
       ),
     );
   }
@@ -277,7 +310,9 @@ class VrmController {
   Future<void> dispose() async {
     if (_isDisposed) return;
     _isDisposed = true;
+    _hostResourceMonitoringClients = 0;
     _invalidateTransientRuntimeState();
+    await _platformThermalMonitor.stop();
     await _stateSubscription.cancel();
     await _bridge.dispose();
   }
@@ -1316,6 +1351,12 @@ class VrmController {
       .eventStream
       .where((event) => event is VrmHostMemoryPressureEvent)
       .cast<VrmHostMemoryPressureEvent>();
+
+  /// Android thermal-state changes; unavailable on unsupported platforms.
+  Stream<VrmHostThermalStatusChangedEvent> get onHostThermalStatusChanged =>
+      _bridge.eventStream
+          .where((event) => event is VrmHostThermalStatusChangedEvent)
+          .cast<VrmHostThermalStatusChangedEvent>();
 
   Stream<VrmPerformanceEvent> get onPerformance => _bridge.eventStream
       .where((event) => event is VrmPerformanceEvent)

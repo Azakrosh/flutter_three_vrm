@@ -88,6 +88,7 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
     _webView = createVrmWebViewAdapter(backgroundColor: _effectiveBackground);
     _subscriptions.add(_webView.errors.listen(_handleRuntimeResourceError));
     _bindController(widget.controller);
+    widget.controller._attachHostResourceMonitoring();
     unawaited(_initialize());
   }
 
@@ -103,6 +104,8 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
       );
     }
     if (!identical(oldWidget.controller, widget.controller)) {
+      oldWidget.controller._detachHostResourceMonitoring();
+      widget.controller._attachHostResourceMonitoring();
       _lifecycleCoordinator.detachRuntime();
       _replayCoordinator.clearCamera();
       final hadModel = oldWidget.controller.isModelLoaded;
@@ -480,6 +483,7 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
     _replayCoordinator.dispose();
     _lifecycleCoordinator.dispose();
     WidgetsBinding.instance.removeObserver(this);
+    widget.controller._detachHostResourceMonitoring();
 
     for (final subscription in [
       ..._subscriptions,

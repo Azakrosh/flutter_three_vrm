@@ -34,6 +34,7 @@ import 'models/vrm_wind.dart';
 import 'platform/create_vrm_webview_adapter.dart';
 import 'platform/vrm_webview_adapter.dart';
 import 'performance/vrm_host_resource_monitor.dart';
+import 'performance/vrm_platform_thermal_monitor.dart';
 import 'recovery/vrm_model_session_state.dart';
 import 'recovery/vrm_runtime_replay_coordinator.dart';
 import 'recovery/vrm_speech_session_state.dart';

@@ -1,0 +1,65 @@
+import 'dart:async';
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_three_vrm/flutter_three_vrm.dart';
+import 'package:flutter_three_vrm/src/performance/vrm_platform_thermal_monitor.dart';
+
+void main() {
+  test('maps every Android thermal status and rejects unknown values', () {
+    expect(vrmThermalStatusFromAndroidCode(0), VrmThermalStatus.none);
+    expect(vrmThermalStatusFromAndroidCode(1), VrmThermalStatus.light);
+    expect(vrmThermalStatusFromAndroidCode(2), VrmThermalStatus.moderate);
+    expect(vrmThermalStatusFromAndroidCode(3), VrmThermalStatus.severe);
+    expect(vrmThermalStatusFromAndroidCode(4), VrmThermalStatus.critical);
+    expect(vrmThermalStatusFromAndroidCode(5), VrmThermalStatus.emergency);
+    expect(vrmThermalStatusFromAndroidCode(6), VrmThermalStatus.shutdown);
+    expect(vrmThermalStatusFromAndroidCode(7), VrmThermalStatus.unavailable);
+    expect(vrmThermalStatusFromAndroidCode(null), VrmThermalStatus.unavailable);
+  });
+
+  test(
+    'monitor deduplicates events and returns to fallback after stop',
+    () async {
+      final events = StreamController<Object?>.broadcast();
+      final changes = <VrmThermalStatus>[];
+      final monitor = VrmPlatformThermalMonitor(
+        isAndroid: true,
+        eventStreamFactory: () => events.stream,
+        onStatusChanged: changes.add,
+      );
+
+      monitor.start();
+      monitor.start();
+      events
+        ..add(0)
+        ..add(0)
+        ..add(3);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(changes, [VrmThermalStatus.none, VrmThermalStatus.severe]);
+      expect(monitor.status, VrmThermalStatus.severe);
+
+      await monitor.stop();
+      expect(monitor.status, VrmThermalStatus.unavailable);
+      await events.close();
+    },
+  );
+
+  test('monitor does not open the channel outside Android', () async {
+    var opened = false;
+    final monitor = VrmPlatformThermalMonitor(
+      isAndroid: false,
+      eventStreamFactory: () {
+        opened = true;
+        return const Stream<Object?>.empty();
+      },
+      onStatusChanged: (_) {},
+    );
+
+    monitor.start();
+
+    expect(opened, isFalse);
+    expect(monitor.status, VrmThermalStatus.unavailable);
+    await monitor.stop();
+  });
+}

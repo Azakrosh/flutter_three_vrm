@@ -27,7 +27,7 @@
 | `runtime_recovery_test.dart` | обязательно | обязательно | Platform lifecycle, reload во время inactive/hidden, model replay и camera restoration |
 | `runtime_race_test.dart` | обязательно | обязательно | Model replacement, explicit cancel и reload с незавершённой загрузкой |
 | `resource_loading_test.dart` | обязательно | обязательно | Authenticated VRM bytes и external-resource glTF byte bundle |
-| `performance_soak_test.dart` | обязательно | не применяется | FPS/pixel ratio, resource baseline, context loss и длительный speech/motion soak |
+| `performance_soak_test.dart` | обязательно | не применяется | Load/steady FPS, pixel ratio, renderer/RSS baseline, memory pressure, thermal status, context loss и длительный speech/motion soak |
 
 Пример запуска одного сценария:
 

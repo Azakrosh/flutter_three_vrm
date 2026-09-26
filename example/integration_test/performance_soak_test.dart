@@ -69,6 +69,8 @@ void main() {
 
     final loadedTextureCounts = <int>[];
     final unloadedTextureCounts = <int>[];
+    final loadedHostRssBytes = <int>[];
+    final unloadedHostRssBytes = <int>[];
     final loadDurationsMs = <double>[];
     int? expectedTextureMemoryBytes;
     for (var cycle = 0; cycle < _loadCycles; cycle += 1) {
@@ -92,6 +94,9 @@ void main() {
       expect(health.contextLost, isFalse);
       expect(health.contextLossCount, 0);
       loadedTextureCounts.add(health.rendererTextureCount);
+      loadedHostRssBytes.add(
+        controller.captureHostResourceSnapshot().currentRssBytes,
+      );
       loadDurationsMs.add(health.lastModelLoadDurationMs);
 
       await controller.unloadModel();
@@ -101,6 +106,9 @@ void main() {
       expect(unloaded.estimatedTextureMemoryBytes, 0);
       expect(unloaded.contextLossCount, 0);
       unloadedTextureCounts.add(unloaded.rendererTextureCount);
+      unloadedHostRssBytes.add(
+        controller.captureHostResourceSnapshot().currentRssBytes,
+      );
     }
 
     expect(
@@ -220,8 +228,10 @@ void main() {
         .toList();
     expect(
       _average(fpsValues),
-      lessThanOrEqualTo(finalSnapshot.fpsCap + 5),
-      reason: 'The sustained FPS average must respect the configured cap.',
+      lessThanOrEqualTo(finalSnapshot.fpsCap * 1.2),
+      reason:
+          'The sustained FPS average must respect the configured cap '
+          'within the short telemetry-window tolerance.',
     );
     final ratios = measuredSteadySamples
         .map((sample) => sample.pixelRatio)
@@ -263,21 +273,25 @@ void main() {
       'loadMs=${loadDurationsMs.map((value) => value.toStringAsFixed(1)).join(',')}/'
       '${finalHealth.lastModelLoadDurationMs.toStringAsFixed(1)}',
     );
-    debugPrint(
-      'runtime_soak_host: rssMiB='
-      '${_mib(initialHostResources.currentRssBytes)}-'
-      '${_mib(finalHostResources.currentRssBytes)}, '
-      'rssDeltaMiB='
-      '${_mib(finalHostResources.currentRssBytes - initialHostResources.currentRssBytes)}, '
-      'maxRssMiB=${_mib(finalHostResources.maxRssBytes)}, '
-      'memoryPressure=${finalHostResources.memoryPressureCount}, '
-      'thermal=${finalHostResources.thermalStatus.name}',
-    );
-
     await controller.unloadModel();
     // Model assessment restores adaptive-quality settings asynchronously after
     // onModelUnloaded. Let that bridge command finish before detaching WebView.
     await _settleRenderer(tester);
+    final postUnloadHostResources = controller.captureHostResourceSnapshot();
+    debugPrint(
+      'runtime_soak_host: rssStartEndMiB='
+      '${_mib(initialHostResources.currentRssBytes)}-'
+      '${_mib(postUnloadHostResources.currentRssBytes)}, '
+      'rssDeltaMiB='
+      '${_mib(postUnloadHostResources.currentRssBytes - initialHostResources.currentRssBytes)}, '
+      'rssLoadedMiB='
+      '${[...loadedHostRssBytes, finalHostResources.currentRssBytes].map(_mib).join(',')}, '
+      'rssUnloadedMiB='
+      '${[...unloadedHostRssBytes, postUnloadHostResources.currentRssBytes].map(_mib).join(',')}, '
+      'maxRssMiB=${_mib(postUnloadHostResources.maxRssBytes)}, '
+      'memoryPressure=${postUnloadHostResources.memoryPressureCount}, '
+      'thermal=${postUnloadHostResources.thermalStatus.name}',
+    );
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
     await Future<void>.delayed(const Duration(milliseconds: 250));

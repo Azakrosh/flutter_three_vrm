@@ -22,12 +22,14 @@ Runtime сбрасывает frame timing после тяжёлых model/animat
 операционная пауза больше не считается одним длинным steady-state кадром и не
 должна сама по себе понижать adaptive quality.
 
-RSS охватывает весь процесс приложения и имеет платформозависимую семантику.
+RSS охватывает Flutter-процесс и имеет платформозависимую семантику; отдельный
+Android WebView renderer process и GPU allocations могут в него не входить.
 Сравнивайте только прогоны одной сборки, модели, устройства и длительности.
 Отрицательная `rssDeltaMiB` допустима после освобождения памяти. Пакет намеренно
 не вводит pass/fail порог RSS и не реагирует автоматически на memory pressure.
-До подключения нативного Android thermal bridge поле `thermal` равно
-`unavailable`; это явный fallback, а не показание нормальной температуры.
+На Android API 29+ `thermal` приходит из `PowerManager`; на Windows и более
+старом Android он равен `unavailable`. Это явный fallback, а не показание
+нормальной температуры.
 
 ## Запуск
 
@@ -64,8 +66,7 @@ flutter test integration_test/performance_soak_test.dart -d <android-device> `
 - после выгрузок texture baseline растёт более чем на одну;
 - одинаковая модель даёт разные оценки texture memory;
 - устойчивое среднее FPS в `runtime_soak_steady` превышает cap больше чем на
-  допустимую погрешность telemetry (отдельное окно может кратковременно выйти
-  выше cap);
+  20% (отдельное короткое telemetry-окно может кратковременно выйти выше cap);
 - pixel ratio выходит за настроенный диапазон;
 - нарушается `p50 <= p95` или runtime сообщает ошибку.
 
