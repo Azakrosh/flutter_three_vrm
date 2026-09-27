@@ -229,3 +229,10 @@ Motorola, matrix `matrix-3j5zg3s0r91pw`, `Passed`:
 
 Полные результаты: [Galaxy A03s](https://console.firebase.google.com/project/flutteria-ef3c7/testlab/histories/bh.8c1f5d4b709a96df/matrices/7175066308969411909),
 [Motorola moto g 5G (2022)](https://console.firebase.google.com/project/flutteria-ef3c7/testlab/histories/bh.8c1f5d4b709a96df/matrices/6982582576624081497).
+
+Первый Stage 32 smoke нового RSS-формата выполнен на Motorola той же модели:
+`matrix-1wa37sfxsm6wy`, 20 секунд, 3 load/unload цикла, `Passed`. App APK SHA-256
+`8B9295254831EEFCE34551C552C1DB8BCB3FDD225F7DCF9B96ADAA2FA3547132`.
+Отчёт показал sampled peak 665.1 MiB, normalized max 673.0 MiB и отрицательные
+post-warm-up slopes −50.37/−43.87 MiB за цикл для loaded/unloaded samples.
+[Результат в Firebase Console](https://console.firebase.google.com/project/flutteria-ef3c7/testlab/histories/bh.8c1f5d4b709a96df/matrices/8384152883712981631).

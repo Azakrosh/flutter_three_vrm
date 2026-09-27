@@ -50,6 +50,29 @@ void main() {
       expect(monitor.capture().memoryPressureCount, 2);
     });
 
+    test('normalizes a falling platform max against observed current RSS', () {
+      final currentValues = <int>[300, 200].iterator;
+      final maxValues = <int>[100, 50].iterator;
+      final monitor = VrmHostResourceMonitor(
+        currentRssReader: () {
+          currentValues.moveNext();
+          return currentValues.current;
+        },
+        maxRssReader: () {
+          maxValues.moveNext();
+          return maxValues.current;
+        },
+      );
+
+      final first = monitor.capture();
+      final second = monitor.capture();
+
+      expect(first.currentRssBytes, 300);
+      expect(first.maxRssBytes, 300);
+      expect(second.currentRssBytes, 200);
+      expect(second.maxRssBytes, 300);
+    });
+
     test('uses safe fallback values for unavailable signals', () {
       final monitor = VrmHostResourceMonitor(
         currentRssReader: () => -1,

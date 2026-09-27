@@ -29,6 +29,13 @@ final class VrmHostResourceSnapshot {
 
   final DateTime capturedAt;
   final int currentRssBytes;
+
+  /// Greatest non-negative value observed by this monitor from either the
+  /// platform peak reader or [currentRssBytes].
+  ///
+  /// Some Android runtimes report a platform max RSS below a previously read
+  /// current RSS. The monitor normalizes that platform inconsistency and keeps
+  /// this value monotonic for the lifetime of the controller.
   final int maxRssBytes;
 
   /// Number of low-memory notifications observed since controller creation.

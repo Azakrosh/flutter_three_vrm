@@ -309,6 +309,19 @@ void main() {
     // onModelUnloaded. Let that bridge command finish before detaching WebView.
     await _settleRenderer(tester);
     final postUnloadHostResources = controller.captureHostResourceSnapshot();
+    final loadedRssSamples = <int>[
+      ...loadedHostRssBytes,
+      finalHostResources.currentRssBytes,
+    ];
+    final unloadedRssSamples = <int>[
+      ...unloadedHostRssBytes,
+      postUnloadHostResources.currentRssBytes,
+    ];
+    final sampledRssPeakBytes = <int>[
+      initialHostResources.currentRssBytes,
+      ...loadedRssSamples,
+      ...unloadedRssSamples,
+    ].reduce(_max);
     debugPrint(
       'runtime_soak_host: rssStartEndMiB='
       '${_mib(initialHostResources.currentRssBytes)}-'
@@ -316,9 +329,14 @@ void main() {
       'rssDeltaMiB='
       '${_mib(postUnloadHostResources.currentRssBytes - initialHostResources.currentRssBytes)}, '
       'rssLoadedMiB='
-      '${[...loadedHostRssBytes, finalHostResources.currentRssBytes].map(_mib).join(',')}, '
+      '${loadedRssSamples.map(_mib).join(',')}, '
       'rssUnloadedMiB='
-      '${[...unloadedHostRssBytes, postUnloadHostResources.currentRssBytes].map(_mib).join(',')}, '
+      '${unloadedRssSamples.map(_mib).join(',')}, '
+      'rssSampledPeakMiB=${_mib(sampledRssPeakBytes)}, '
+      'rssLoadedSlopeMiBPerCycle='
+      '${_mibDouble(_linearSlope(loadedRssSamples.skip(1).toList()))}, '
+      'rssUnloadedSlopeMiBPerCycle='
+      '${_mibDouble(_linearSlope(unloadedRssSamples.skip(1).toList()))}, '
       'maxRssMiB=${_mib(postUnloadHostResources.maxRssBytes)}, '
       'memoryPressure=${postUnloadHostResources.memoryPressureCount}, '
       'thermal=${postUnloadHostResources.thermalStatus.name}',
@@ -349,6 +367,23 @@ T _max<T extends num>(T first, T second) => first > second ? first : second;
 double _average(List<double> values) =>
     values.reduce((first, second) => first + second) / values.length;
 
+double _linearSlope(List<int> values) {
+  if (values.length < 2) return 0;
+  final meanX = (values.length - 1) / 2;
+  final meanY =
+      values.reduce((first, second) => first + second) / values.length;
+  var numerator = 0.0;
+  var denominator = 0.0;
+  for (var index = 0; index < values.length; index += 1) {
+    final centeredX = index - meanX;
+    numerator += centeredX * (values[index] - meanY);
+    denominator += centeredX * centeredX;
+  }
+  return denominator == 0 ? 0 : numerator / denominator;
+}
+
 String _mib(int bytes) => (bytes / (1024 * 1024)).toStringAsFixed(1);
+
+String _mibDouble(double bytes) => (bytes / (1024 * 1024)).toStringAsFixed(2);
 
 enum _PerformancePhase { load, steady }

@@ -511,7 +511,7 @@ protocol/build verification, Flutter analyze и 93 Flutter test проходят
 
 ### Stage 32 — memory-pressure resilience и точность host diagnostics
 
-Статус: запланировано.
+Статус: в работе.
 
 Цель: отличать нормальный прогрев Android/WebView от утечки и безопасно
 переживать системное давление памяти без произвольных лимитов модели.
@@ -528,6 +528,19 @@ protocol/build verification, Flutter analyze и 93 Flutter test проходят
    post-unload plateau.
 4. Проверить recovery после Android memory pressure; оставить автоматическую
    выгрузку модели только opt-in политикой, если измерения докажут её пользу.
+
+Текущий прогресс: первый срез нормализует ненадёжный platform max RSS внутри
+`VrmHostResourceMonitor`: `maxRssBytes` монотонно хранит максимум platform peak и
+всех current RSS, наблюдавшихся данным controller. Soak-отчёт дополнен
+`rssSampledPeakMiB`, а также linear slopes loaded/unloaded RSS после исключения
+первого warm-up sample. Значения остаются диагностическими и не вводят hard
+limit или автоматическую выгрузку модели. Контракт покрыт regression test для
+падающего platform max RSS; Flutter analyze и 94 Flutter-теста проходят.
+Короткий gate на Motorola moto g 5G (2022) пройден: sampled peak 665.1 MiB,
+normalized max 673.0 MiB, loaded/unloaded slopes после warm-up
+−50.37/−43.87 MiB за цикл, 4 memory-pressure события, `thermal=none`, context
+loss и runtime errors отсутствуют. Matrix `matrix-1wa37sfxsm6wy`. Следующий срез
+— несколько полных прогонов одной сборки для оценки межзапусковой вариативности.
 
 ## 7. Правила обновления roadmap
 

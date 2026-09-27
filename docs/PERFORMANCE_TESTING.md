@@ -15,8 +15,9 @@
 
 - `runtime_soak_load` — model load/unload, parsing, GPU upload и disposal;
 - `runtime_soak_steady` — устойчивый rendering со speech и VRMA/Pose-переходами.
-- `runtime_soak_host` — RSS Flutter-процесса в начале и конце, RSS high-water
-  mark, число memory-pressure событий и доступность thermal status.
+- `runtime_soak_host` — RSS Flutter-процесса в начале и конце, sampled peak,
+  нормализованный high-water mark, linear slope после первого warm-up цикла,
+  число memory-pressure событий и доступность thermal status.
 
 Runtime сбрасывает frame timing после тяжёлых model/animation operations, поэтому
 операционная пауза больше не считается одним длинным steady-state кадром и не
@@ -33,6 +34,10 @@ Android WebView renderer process и GPU allocations могут в него не 
 Сравнивайте только прогоны одной сборки, модели, устройства и длительности.
 Отрицательная `rssDeltaMiB` допустима после освобождения памяти. Пакет намеренно
 не вводит pass/fail порог RSS и не реагирует автоматически на memory pressure.
+`maxRssMiB` является монотонным максимумом platform max RSS и всех current RSS,
+наблюдавшихся данным controller. `rssLoadedSlopeMiBPerCycle` и
+`rssUnloadedSlopeMiBPerCycle` вычисляются методом наименьших квадратов после
+исключения первого warm-up sample; это диагностический тренд, а не leak verdict.
 На Android API 29+ `thermal` приходит из `PowerManager`; на Windows и более
 старом Android он равен `unavailable`. Это явный fallback, а не показание
 нормальной температуры.
@@ -142,3 +147,22 @@ frames из 267 steady samples, максимум 63.7 ms. CPU update p95 не п
 `externalScheduling`. Adaptive policy находилась в состояниях
 `stable/collectingFast`, сохранив pixel ratio 1.0. Это профиль наблюдаемости, а
 не универсальный порог для других устройств.
+
+## Stage 32: нормализация host-memory тренда
+
+27 сентября 2026 года новый формат `runtime_soak_host` проверен коротким
+Firebase Test Lab gate `20 s / 3 load cycles` на Motorola moto g 5G (2022),
+Android 13. Matrix `matrix-1wa37sfxsm6wy` завершился `Passed`:
+
+- sampled current-RSS peak: 665.1 MiB;
+- normalized max RSS: 673.0 MiB;
+- loaded slope после warm-up: −50.37 MiB/cycle;
+- unloaded slope после warm-up: −43.87 MiB/cycle;
+- post-unload RSS: 518.2, 537.2, 513.4, 449.4 MiB;
+- memory pressure: 4 события; thermal status: `none`;
+- context loss и runtime errors отсутствуют.
+
+Положительный общий start/end delta 149.2 MiB сам по себе не означает утечку:
+он включает запуск Flutter/WebView и первую загрузку модели. Отрицательные slopes
+после warm-up показывают, что на этом коротком прогоне sampled plateau снижался.
+Leak-вывод требует нескольких полных прогонов одной сборки.

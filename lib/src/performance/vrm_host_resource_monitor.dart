@@ -24,14 +24,23 @@ final class VrmHostResourceMonitor {
   final VrmResourceClock _clock;
   final VrmThermalStatusReader _thermalStatusReader;
   int _memoryPressureCount = 0;
+  int _observedMaxRssBytes = 0;
 
-  VrmHostResourceSnapshot capture() => VrmHostResourceSnapshot(
-    capturedAt: _clock(),
-    currentRssBytes: _nonNegative(_currentRssReader()),
-    maxRssBytes: _nonNegative(_maxRssReader()),
-    memoryPressureCount: _memoryPressureCount,
-    thermalStatus: _thermalStatusReader(),
-  );
+  VrmHostResourceSnapshot capture() {
+    final currentRssBytes = _nonNegative(_currentRssReader());
+    final platformMaxRssBytes = _nonNegative(_maxRssReader());
+    _observedMaxRssBytes = _max(
+      _observedMaxRssBytes,
+      _max(currentRssBytes, platformMaxRssBytes),
+    );
+    return VrmHostResourceSnapshot(
+      capturedAt: _clock(),
+      currentRssBytes: currentRssBytes,
+      maxRssBytes: _observedMaxRssBytes,
+      memoryPressureCount: _memoryPressureCount,
+      thermalStatus: _thermalStatusReader(),
+    );
+  }
 
   VrmHostResourceSnapshot recordMemoryPressure() {
     _memoryPressureCount += 1;
@@ -46,4 +55,6 @@ final class VrmHostResourceMonitor {
       VrmThermalStatus.unavailable;
 
   static int _nonNegative(int value) => value < 0 ? 0 : value;
+
+  static int _max(int first, int second) => first > second ? first : second;
 }
