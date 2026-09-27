@@ -162,18 +162,19 @@ WebView runtime
 steady-state профиль отдельно. Физический gate на moto g55 подтвердил, что
 многосекундный ложный percentile исчез, а устойчивый профиль сохранился.
 
-### P1 — нет системной памяти и thermal diagnostics
+### Закрыто в Stage 31 — host memory и thermal diagnostics
 
-Runtime видит renderer counters и расчётную память текстур, но не различает
-Dart/Java/native memory, pressure callbacks и thermal throttling Android.
-Без этих сигналов нельзя объяснить деградацию на длительном мобильном сеансе.
+Публичный высокоуровневый snapshot теперь показывает current/max RSS,
+количество Android memory-pressure callbacks и thermal status. Эти сигналы
+дополняют renderer counters и расчётную память текстур, не меняют модель
+автоматически и имеют безопасный fallback вне поддерживаемого Android API.
 
-### P1 — ограниченная повторяемость low-end профиля
+### Закрыто в Stage 31 — сопоставимый multi-device low-end профиль
 
-Galaxy A03s прошёл полный Firebase gate один раз после отдельного smoke-run.
-Нужны повторные прогоны одной сборки и второе low-end устройство другого
-производителя, чтобы отделить регрессию runtime от вариативности облачного
-железа и версии WebView.
+Одна ARM64 сборка прошла полный Firebase gate на Galaxy A03s и Motorola moto g
+5G (2022), оба Android 13 и 720×1600. Сравнение обнаружило и закрыло burst в
+FPS limiter на 90-Гц cadence. Тройные повторения остаются pre-release gate, но
+второй производитель и одинаковая сборка теперь проверены.
 
 ### P2 — крупный публичный controller
 
@@ -190,8 +191,8 @@ Web runtime уже разделён на специализированные co
 
 ## 5. Текущее направление
 
-Ближайшее направление: **измеримая Android performance observability без
-расширения низкоуровневого публичного API**.
+Ближайшее направление: **устойчивость к Android memory pressure и точность
+host-memory профиля без произвольных ограничений модели**.
 
 Сейчас не следует:
 
@@ -201,9 +202,10 @@ Web runtime уже разделён на специализированные co
 - менять protocol v3 только ради рефакторинга;
 - одновременно переделывать lifecycle, motion и speech semantics.
 
-Сначала нужно научиться отличать steady-state render pressure от загрузки,
-thermal throttling и системного memory pressure, а затем принимать решения об
-adaptive policy на физических данных.
+Stage 31 уже отделил steady-state render pressure от загрузки и добавил thermal/
+memory signals. Следующий шаг — отличить warm-up plateau Android/WebView от
+утечки, проверить повторяемость pressure callbacks и только затем решать, нужна
+ли opt-in recovery policy.
 
 ## 6. Следующие этапы
 
@@ -434,7 +436,7 @@ release checklist, clean-clone verification и окончательный ауд
 
 ### Stage 31 — Android performance observability и управление нагрузкой
 
-Статус: в работе.
+Статус: выполнено.
 
 Цель: получать объяснимый профиль нагрузки на Android и не принимать решения
 adaptive quality по паузам загрузки/выгрузки модели.
@@ -482,7 +484,21 @@ reset по-прежнему очищает все эти окна. Physical soak
 long frames из 267 (максимум 63.7 ms): update p95 6.0 ms и render submission p95
 8.5 ms не объясняют задержку, поэтому source корректно классифицирован как
 `externalScheduling`. Adaptive decisions были `stable/collectingFast`, pixel
-ratio остался 1.0. Следующий шаг — повторить профиль на low-end устройствах.
+ratio остался 1.0. Финальный срез выполнен 27 сентября 2026 года на одной ARM64
+сборке в Firebase Test Lab: Galaxy A03s и Motorola moto g 5G (2022), Android 13,
+720×1600. Первый Motorola gate обнаружил ошибку limiter: ранний кадр в
+tolerance-окне сохранял старую временную базу и разрешал следующий vsync,
+из-за чего среднее достигало 37.1 FPS при cap 30. После исправления и отдельного
+90-Гц regression test оба полных gate прошли; среднее — 30.1 FPS на обоих
+устройствах, textures стабильно возвращаются 28/0, context loss и runtime errors
+отсутствуют. A03s адаптивно менял pixel ratio 0.85–1.0 и получил 602 long frames
+из 3664 с source `externalScheduling`; Motorola сохранил ratio 1.0 и не
+зарегистрировал long frames. Motorola показал bounded, но высокий host-memory
+plateau: sampled RSS до 664.5 MiB и 6 memory-pressure callbacks без монотонного
+роста между десятью циклами. Подробные matrix IDs, SHA и фазовые строки сохранены
+в `docs/FIREBASE_TEST_LAB.md`. 171 web test, TypeScript typecheck,
+protocol/build verification, Flutter analyze и 93 Flutter test проходят. Все
+критерии Stage 31 закрыты.
 
 Критерии готовности:
 
@@ -492,6 +508,26 @@ ratio остался 1.0. Следующий шаг — повторить пр�
 - memory/thermal policy основана на доступных Android signals и имеет
   platform-safe fallback;
 - повторные low-end gates не показывают накопительного роста ресурсов.
+
+### Stage 32 — memory-pressure resilience и точность host diagnostics
+
+Статус: запланировано.
+
+Цель: отличать нормальный прогрев Android/WebView от утечки и безопасно
+переживать системное давление памяти без произвольных лимитов модели.
+
+Работы:
+
+1. Проверить семантику `ProcessInfo.maxRss` на разных Android-производителях:
+   A03s вернул значение ниже ранее измеренного current RSS, поэтому этот сигнал
+   нельзя считать межплатформенным peak без дополнительной нормализации.
+2. Добавить в soak отчёт sampled current-RSS peak и slope после warm-up,
+   отделив первый load от последующих циклов.
+3. Повторить Motorola gate несколько раз одной сборкой и проверить, что
+   pressure callbacks не сопровождаются context loss, OOM или растущим
+   post-unload plateau.
+4. Проверить recovery после Android memory pressure; оставить автоматическую
+   выгрузку модели только opt-in политикой, если измерения докажут её пользу.
 
 ## 7. Правила обновления roadmap
 

@@ -172,7 +172,14 @@ export class RuntimeGraphicsController {
     const frameInterval = 1000 / this.fpsCapValue;
     const elapsedSinceFrame = now - this.lastFrameTime;
     if (this.lastFrameTime > 0 && elapsedSinceFrame < frameInterval * 0.9) return false;
-    this.lastFrameTime = now - (elapsedSinceFrame % frameInterval);
+    // Accept a slightly early vsync to avoid dropping from 30 to 20 FPS on a
+    // jittery 60/90 Hz display. An early frame has not completed a full target
+    // interval, so carrying its remainder would preserve the old baseline and
+    // allow the very next vsync as a second frame. Anchor that case at `now`;
+    // only carry overshoot after at least one complete interval.
+    this.lastFrameTime = elapsedSinceFrame < frameInterval
+      ? now
+      : now - (elapsedSinceFrame % frameInterval);
     return true;
   }
 

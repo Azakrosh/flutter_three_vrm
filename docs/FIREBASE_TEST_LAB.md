@@ -103,6 +103,25 @@ Git.
   -RepeatCount 3
 ```
 
+Для сравнения нескольких устройств на строго одной сборке сначала подготовьте
+артефакты через `-BuildOnly`, затем повторно используйте их через `-SkipBuild`:
+
+```powershell
+.\tool\run_firebase_soak.ps1 -BuildOnly -SoakSeconds 300 -LoadCycles 10
+.\tool\run_firebase_soak.ps1 `
+  -SkipBuild `
+  -ProjectId <project-id> `
+  -DeviceModel <physical-model-id> `
+  -OsVersion <version-id> `
+  -SoakSeconds 300 `
+  -LoadCycles 10 `
+  -ResultsDirectory <result-label>
+```
+
+При `-SkipBuild` значения `-SoakSeconds` и `-LoadCycles` должны совпадать со
+значениями сборки: этот режим не может изменить уже встроенные Dart defines.
+Сверьте напечатанные SHA-256 перед каждым запуском.
+
 Собственный results bucket необязателен. Если он нужен:
 
 ```powershell
@@ -133,8 +152,10 @@ Git.
 - `frameTimeP50Ms <= frameTimeP95Ms`.
 
 FPS, frame-time percentiles и model load time сохраняются как профиль, но не
-сравниваются с универсальным абсолютным порогом. Для облачного железа важны три
-согласованных запуска и отсутствие накопительного ухудшения, а не единичный
+сравниваются с универсальным минимальным порогом. Средний steady-state FPS при
+этом не должен превышать настроенный cap более чем на 20%: это проверяет сам
+frame limiter, а не производительность устройства. Для облачного железа важны
+три согласованных запуска и отсутствие накопительного ухудшения, а не единичный
 минимум FPS.
 
 ## Результат low-end gate
@@ -165,3 +186,46 @@ System WebView 106.0.5249.126.
 Этим первичная low-end валидация Stage 28 выполнена. Три повторных запуска
 сохраняются как рекомендуемый pre-release regression gate, а не как условие
 достоверности уже полученного профиля.
+
+## Результат сопоставимого Stage 31 gate
+
+27 сентября 2026 года одна сборка была проверена на двух физических ARM64
+телефонах с Android 13/API 33 и экраном 720×1600:
+
+- Samsung Galaxy A03s (`a03su`), WebView 106.0.5249.126;
+- Motorola moto g 5G (2022) (`austin`), WebView 108.0.5359.128.
+
+Параметры сборки: 300 секунд steady-state, 10 load/unload циклов, timeout 15
+минут. App APK: SHA-256
+`CEDBDE4A07593C18DEF62DBB7DBA15CB31E826CC5E98D784ABF35EDD8A833A84`;
+instrumentation APK:
+`8CF7C828CEBA3D79DFE90D66E2BABCA53CE2453821892E20465BD8DC464E83BA`.
+
+Galaxy A03s, matrix `matrix-2pp9cf20xuynu`, `Passed`:
+
+- steady FPS 27.9–31.4, среднее 30.1 при cap 30;
+- frame p50/p95 не выше 37.3/71.5 ms;
+- 602 long frames из 3664, максимум 77.4 ms, source
+  `externalScheduling`; update/render p95 не выше 12.7/21.5 ms;
+- adaptive pixel ratio 0.85–1.0; textures стабильно 28/0;
+- sampled current RSS до 239.6 MiB, один memory-pressure callback,
+  `thermal=none`.
+
+Motorola, matrix `matrix-3j5zg3s0r91pw`, `Passed`:
+
+- steady FPS 29.8–30.5, среднее 30.1 при cap 30;
+- frame p50/p95 не выше 33.8/42.0 ms, long frames 0/3725;
+- adaptive pixel ratio 1.0; textures стабильно 28/0;
+- sampled current RSS до 664.5 MiB, post-unload samples стабилизировались около
+  482.6–532.7 MiB без монотонного роста, 6 memory-pressure callbacks,
+  `thermal=none`.
+
+Перед итоговым прогоном Motorola matrix `matrix-3g3ir8vtxt843` обнаружил дефект:
+среднее 37.1 FPS превышало допустимые 36 FPS при cap 30. Причина была в переносе
+временной базы limiter после раннего vsync на 90-Гц дисплее. После исправления
+регрессионный unit test и оба физических gate прошли. Infinix SMART 8 matrix
+`matrix-2p65h4d1xcvtw` завершился `Internal System Error 3` до запуска приложения
+и не использовался как результат пакета.
+
+Полные результаты: [Galaxy A03s](https://console.firebase.google.com/project/flutteria-ef3c7/testlab/histories/bh.8c1f5d4b709a96df/matrices/7175066308969411909),
+[Motorola moto g 5G (2022)](https://console.firebase.google.com/project/flutteria-ef3c7/testlab/histories/bh.8c1f5d4b709a96df/matrices/6982582576624081497).

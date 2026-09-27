@@ -53,6 +53,18 @@ describe("runtime graphics controller", () => {
     expect(graphics.shouldRender(1042)).toBe(true);
   });
 
+  it("does not burst on the vsync after an accepted early frame", () => {
+    const harness = createHarness();
+    const graphics = harness.controller;
+    graphics.setSettings({ fpsCap: 30 });
+
+    expect(graphics.shouldRender(1000)).toBe(true);
+    expect(graphics.shouldRender(1022)).toBe(false);
+    expect(graphics.shouldRender(1031)).toBe(true);
+    expect(graphics.shouldRender(1042)).toBe(false);
+    expect(graphics.shouldRender(1062)).toBe(true);
+  });
+
   it("applies preset and re-clamps ratio to the active adaptive policy", () => {
     const harness = createHarness();
     const graphics = harness.controller;

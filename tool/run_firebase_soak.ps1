@@ -10,6 +10,7 @@ param(
   [string]$ResultsBucket,
   [string]$ResultsDirectory,
   [switch]$BuildOnly,
+  [switch]$SkipBuild,
   [switch]$SkipDeviceValidation
 )
 
@@ -67,48 +68,57 @@ function Resolve-AndroidJavaHome {
   throw 'Unable to locate the JDK used by Flutter. Configure JAVA_HOME before running this script.'
 }
 
-Write-Host "Building Firebase Test Lab soak: ${SoakSeconds}s / $LoadCycles cycles"
-Push-Location -LiteralPath $exampleRoot
-try {
-  Invoke-CheckedCommand `
-    -Executable $flutter.Source `
-    -Arguments @(
-      'build', 'apk', '--debug',
-      '--target-platform=android-arm64'
-    ) `
-    -FailureMessage 'Flutter debug APK bootstrap failed.'
+if ($BuildOnly -and $SkipBuild) {
+  throw '-BuildOnly and -SkipBuild cannot be used together.'
+}
 
-  $javaHomeBeforeBuild = $env:JAVA_HOME
-  $env:JAVA_HOME = Resolve-AndroidJavaHome $flutter.Source
-  Push-Location -LiteralPath $androidRoot
+if (-not $SkipBuild) {
+  Write-Host "Building Firebase Test Lab soak: ${SoakSeconds}s / $LoadCycles cycles"
+  Push-Location -LiteralPath $exampleRoot
   try {
-    $gradle = Join-Path $androidRoot 'gradlew.bat'
     Invoke-CheckedCommand `
-      -Executable $gradle `
-      -Arguments @('app:assembleAndroidTest') `
-      -FailureMessage 'Android instrumentation APK build failed.'
-
-    $dartDefines = @(
-      ConvertTo-Base64DartDefine "VRM_SOAK_SECONDS=$SoakSeconds"
-      ConvertTo-Base64DartDefine "VRM_SOAK_LOAD_CYCLES=$LoadCycles"
-    ) -join ','
-    Invoke-CheckedCommand `
-      -Executable $gradle `
+      -Executable $flutter.Source `
       -Arguments @(
-        'app:assembleDebug',
-        "-Ptarget=$targetPath",
-        '-Ptarget-platform=android-arm64',
-        "-Pdart-defines=$dartDefines"
+        'build', 'apk', '--debug',
+        '--target-platform=android-arm64'
       ) `
-      -FailureMessage 'Targeted performance soak APK build failed.'
+      -FailureMessage 'Flutter debug APK bootstrap failed.'
+
+    $javaHomeBeforeBuild = $env:JAVA_HOME
+    $env:JAVA_HOME = Resolve-AndroidJavaHome $flutter.Source
+    Push-Location -LiteralPath $androidRoot
+    try {
+      $gradle = Join-Path $androidRoot 'gradlew.bat'
+      Invoke-CheckedCommand `
+        -Executable $gradle `
+        -Arguments @('app:assembleAndroidTest') `
+        -FailureMessage 'Android instrumentation APK build failed.'
+
+      $dartDefines = @(
+        ConvertTo-Base64DartDefine "VRM_SOAK_SECONDS=$SoakSeconds"
+        ConvertTo-Base64DartDefine "VRM_SOAK_LOAD_CYCLES=$LoadCycles"
+      ) -join ','
+      Invoke-CheckedCommand `
+        -Executable $gradle `
+        -Arguments @(
+          'app:assembleDebug',
+          "-Ptarget=$targetPath",
+          '-Ptarget-platform=android-arm64',
+          "-Pdart-defines=$dartDefines"
+        ) `
+        -FailureMessage 'Targeted performance soak APK build failed.'
+    }
+    finally {
+      Pop-Location
+      $env:JAVA_HOME = $javaHomeBeforeBuild
+    }
   }
   finally {
     Pop-Location
-    $env:JAVA_HOME = $javaHomeBeforeBuild
   }
 }
-finally {
-  Pop-Location
+else {
+  Write-Host "Reusing Firebase Test Lab soak artifacts: ${SoakSeconds}s / $LoadCycles cycles"
 }
 
 foreach ($artifact in @($appApk, $testApk)) {

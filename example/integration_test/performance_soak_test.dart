@@ -235,13 +235,7 @@ void main() {
     final fpsValues = measuredSteadySamples
         .map((sample) => sample.fps)
         .toList();
-    expect(
-      _average(fpsValues),
-      lessThanOrEqualTo(finalSnapshot.fpsCap * 1.2),
-      reason:
-          'The sustained FPS average must respect the configured cap '
-          'within the short telemetry-window tolerance.',
-    );
+    final averageFps = _average(fpsValues);
     final ratios = measuredSteadySamples
         .map((sample) => sample.pixelRatio)
         .toList();
@@ -291,7 +285,7 @@ void main() {
       'samples=${measuredSteadySamples.length}, '
       'fps=${fpsValues.reduce(_min).toStringAsFixed(1)}-'
       '${fpsValues.reduce(_max).toStringAsFixed(1)} '
-      '(avg=${_average(fpsValues).toStringAsFixed(1)}), '
+      '(avg=${averageFps.toStringAsFixed(1)}), '
       'frameP50Max=${p50Values.reduce(_max).toStringAsFixed(1)}ms, '
       'frameP95Max=${p95Values.reduce(_max).toStringAsFixed(1)}ms, '
       'longFrames=$longFrameCount/'
@@ -328,6 +322,13 @@ void main() {
       'maxRssMiB=${_mib(postUnloadHostResources.maxRssBytes)}, '
       'memoryPressure=${postUnloadHostResources.memoryPressureCount}, '
       'thermal=${postUnloadHostResources.thermalStatus.name}',
+    );
+    expect(
+      averageFps,
+      lessThanOrEqualTo(finalSnapshot.fpsCap * 1.2),
+      reason:
+          'The sustained FPS average must respect the configured cap '
+          'within the short telemetry-window tolerance.',
     );
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
