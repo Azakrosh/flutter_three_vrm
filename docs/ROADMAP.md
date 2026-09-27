@@ -585,8 +585,19 @@ v1 и блокирует reuse при несовпадающих duration/cycles
 SHA-256. Режим `-ValidateArtifactsOnly` проверяет комплект без cloud upload.
 Реальный recovery APK `30 s / 3 cycles` прошёл matching-проверку; запрос
 `300 s / 10 cycles` к тому же бинарнику ожидаемо отклонён до обращения к
-Firebase. Windows CI дополнительно парсит PowerShell-скрипт. Следующий срез —
-структурированный run record без зависимости от человекочитаемого вывода CLI.
+Firebase. Windows CI дополнительно парсит PowerShell-скрипты. Второй срез
+перевёл cloud launch на machine-readable `testMatrixId` и официальный Testing
+API polling. Для каждого repeat атомарно сохраняется schema-v1 run record с
+state/outcome, requested/actual device, GCS/Console references и точной копией
+APK manifest. Нормализация проверена на завершённом physical SUCCESS matrix
+`matrix-36hq9syottrov`; новый `matrix-3rw2r033adao9` был отклонён Firebase до
+execution из-за исчерпанной test quota и сохранён как
+`INVALID/TEST_QUOTA_EXCEEDED`. Failure-path не маскируется и остаётся nonzero.
+Offline regression test покрывает exact/fallback/ambiguous matrix IDs, terminal
+states, нормализацию execution/artifact metadata и атомарную JSON-запись; он
+выполняется в Windows CI вместе с parser-check.
+Следующий срез — автоматическое извлечение JUnit и `runtime_soak_*` из GCS в
+единый evidence report.
 
 ## 7. Правила обновления roadmap
 

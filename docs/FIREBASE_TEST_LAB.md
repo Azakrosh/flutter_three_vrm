@@ -156,6 +156,34 @@ steady-фазы и проверяет дальнейшие health, speech и mot
   -RepeatCount 3
 ```
 
+## Структурированные run records
+
+Каждый cloud run запускается асинхронно, но скрипт самостоятельно ждёт
+terminal state через официальный Firebase Testing API. Максимальное ожидание
+задаётся `-MatrixWaitMinutes` (по умолчанию 30 минут) и не меняет device-side
+`-TimeoutMinutes`.
+
+Для каждого repeat атомарно создаётся ignored JSON-файл:
+
+```text
+.dart_tool/firebase-soak-runs/<label>-<matrix-id>.json
+```
+
+Другой каталог можно задать через `-RunRecordsDirectory`. Record schema v1
+содержит:
+
+- matrix ID, state, outcome и invalid-matrix details;
+- requested и фактическое Android-устройство для каждого execution;
+- GCS path, Tool Results history/execution и Firebase Console URL;
+- label/repeat index;
+- полный APK manifest с soak defines, размерами и SHA-256.
+
+Нормальный успешный путь получает ID через
+`--async --format=value(testMatrixId)`. Если Firebase создаёт matrix, но
+отклоняет его во время validation, скрипт сохраняет authoritative API record и
+только затем завершается ошибкой. Так quota/incompatible-device ошибки не
+теряются как неструктурированный CLI output.
+
 Каждый repeat получает отдельный suffix `-runN`. Скрипт останавливается при
 первом failed matrix, поэтому успешное завершение означает, что все запрошенные
 прогоны прошли.
