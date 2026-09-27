@@ -1,8 +1,8 @@
 # План рефакторинга и развития flutter_three_vrm
 
 Статус: активный рабочий документ
-Дата аудита: 2026-09-26
-Проверенная база: `f254508 docs: record Firebase low-end performance gate`
+Дата аудита: 2026-09-27
+Проверенная база: `0c25de8 test: validate Android memory pressure recovery`
 Целевые платформы: Android и Windows; приоритет — Android
 
 ## 1. Откуда восстановлен первоначальный план
@@ -68,7 +68,9 @@
 | 28 | Android performance telemetry и физический low-end Firebase gate | Выполнено |
 | 29 | Изолированные integration gates и документация API semantics | Выполнено |
 | 30 | Подготовка публикации | Отложено |
-| 31 | Android performance observability и управление нагрузкой по фазам | В работе |
+| 31 | Android performance observability и управление нагрузкой по фазам | Выполнено |
+| 32 | Memory-pressure resilience и точность host diagnostics | Выполнено |
+| 33 | Воспроизводимые Firebase performance gates и evidence artifacts | В работе |
 
 ## 3. Состояние реализации
 
@@ -191,8 +193,8 @@ Web runtime уже разделён на специализированные co
 
 ## 5. Текущее направление
 
-Ближайшее направление: **устойчивость к Android memory pressure и точность
-host-memory профиля без произвольных ограничений модели**.
+Ближайшее направление: **воспроизводимые Firebase performance gates и
+машиночитаемые evidence artifacts без изменения runtime API**.
 
 Сейчас не следует:
 
@@ -202,10 +204,11 @@ host-memory профиля без произвольных ограничени�
 - менять protocol v3 только ради рефакторинга;
 - одновременно переделывать lifecycle, motion и speech semantics.
 
-Stage 31 уже отделил steady-state render pressure от загрузки и добавил thermal/
-memory signals. Следующий шаг — отличить warm-up plateau Android/WebView от
-утечки, проверить повторяемость pressure callbacks и только затем решать, нужна
-ли opt-in recovery policy.
+Stage 32 подтвердил bounded post-warm-up RSS и восстановление после
+memory-pressure signal без автоматической выгрузки модели. Следующий шаг —
+исключить человеческие ошибки между сборкой, повторным upload и анализом
+Firebase-артефактов: каждый профиль должен быть связан с проверяемыми defines и
+SHA APK, а результаты — собираться в сопоставимый отчёт.
 
 ## 6. Следующие этапы
 
@@ -557,6 +560,33 @@ health checks, 30 amplitude batches и 6 Pose/VRMA-переходов; моде�
 завершился `Passed`. Автоматическая выгрузка модели не добавлена: текущие
 измерения не доказывают её пользу и показывают корректное продолжение работы без
 разрушительного вмешательства. Все критерии Stage 32 закрыты.
+
+### Stage 33 — воспроизводимые Firebase gates и evidence artifacts
+
+Статус: в работе.
+
+Цель: исключить неверную маркировку APK и ручные ошибки при повторных физических
+performance-прогонах, не добавляя Firebase-зависимости в публичный пакет.
+
+Работы:
+
+1. Записывать рядом с Firebase APK атомарный build manifest: schema, встроенные
+   soak defines, test entrypoint/ABI, размеры и SHA-256 app/test APK.
+2. При `-SkipBuild` строго проверять manifest, requested profile и текущие APK до
+   авторизации или upload; предоставить локальный `-ValidateArtifactsOnly`.
+3. Сохранять структурированный run record с matrix ID, устройством, outcome и
+   GCS/Console references для каждого repeat.
+4. Автоматически извлекать JUnit и `runtime_soak_*` строки в единый JSON/Markdown
+   evidence report и сравнивать повторные прогоны по инвариантам.
+
+Текущий прогресс: первый срез выполнен. `run_firebase_soak.ps1` удаляет stale
+manifest перед сборкой, после успешной targeted build атомарно записывает schema
+v1 и блокирует reuse при несовпадающих duration/cycles/injection, размерах или
+SHA-256. Режим `-ValidateArtifactsOnly` проверяет комплект без cloud upload.
+Реальный recovery APK `30 s / 3 cycles` прошёл matching-проверку; запрос
+`300 s / 10 cycles` к тому же бинарнику ожидаемо отклонён до обращения к
+Firebase. Windows CI дополнительно парсит PowerShell-скрипт. Следующий срез —
+структурированный run record без зависимости от человекочитаемого вывода CLI.
 
 ## 7. Правила обновления roadmap
 

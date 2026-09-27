@@ -79,10 +79,24 @@ deprecated tag. RAM/SoC сверяйте по спецификации прои�
 Ожидаемые файлы:
 
 - `example/build/app/outputs/apk/debug/app-debug.apk`;
-- `example/build/app/outputs/apk/androidTest/debug/app-debug-androidTest.apk`.
+- `example/build/app/outputs/apk/androidTest/debug/app-debug-androidTest.apk`;
+- `example/build/app/outputs/apk/firebase-soak-manifest.json`.
 
 Оба каталога находятся внутри ignored `example/build` и не должны попадать в
 Git.
+
+Manifest фиксирует schema, timestamp, test entrypoint, target ABI, встроенные
+soak-параметры, размеры и SHA-256 обоих APK. Проверить уже собранный комплект без
+пересборки и без обращения к Firebase можно так:
+
+```powershell
+.\tool\run_firebase_soak.ps1 `
+  -ValidateArtifactsOnly `
+  -SoakSeconds 300 `
+  -LoadCycles 10
+```
+
+Для recovery APK также укажите `-InjectMemoryPressure`.
 
 25 сентября 2026 года этот instrumentation path дополнительно проверен локально
 через `connectedDebugAndroidTest` на moto g55: `FlutterTestRunner` выполнил
@@ -124,9 +138,11 @@ steady-фазы и проверяет дальнейшие health, speech и mot
   -ResultsDirectory <result-label>
 ```
 
-При `-SkipBuild` значения `-SoakSeconds` и `-LoadCycles` должны совпадать со
-значениями сборки: этот режим не может изменить уже встроенные Dart defines.
-Сверьте напечатанные SHA-256 перед каждым запуском.
+При `-SkipBuild` скрипт до upload проверяет manifest, `-SoakSeconds`,
+`-LoadCycles`, `-InjectMemoryPressure`, размеры и SHA-256 обоих APK. Отсутствующий
+или несовпадающий manifest блокирует запуск и требует новой сборки. Это не
+позволяет ошибочно подписать короткий или recovery-бинарник параметрами другого
+профиля.
 
 Собственный results bucket необязателен. Если он нужен:
 

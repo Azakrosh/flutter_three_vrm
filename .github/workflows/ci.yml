@@ -65,6 +65,20 @@ jobs:
           cache: true
       - name: Install dependencies
         run: flutter pub get
+      - name: Check Firebase Test Lab tooling syntax
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path 'tool/run_firebase_soak.ps1'),
+            [ref]$tokens,
+            [ref]$errors
+          ) | Out-Null
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Error $_.Message }
+            exit 1
+          }
       - name: Build Windows example
         working-directory: example
         run: flutter build windows --debug

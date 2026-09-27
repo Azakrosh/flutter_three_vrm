@@ -12,6 +12,7 @@ param(
   [string]$ResultsDirectory,
   [switch]$BuildOnly,
   [switch]$SkipBuild,
+  [switch]$ValidateArtifactsOnly,
   [switch]$SkipDeviceValidation
 )
 
@@ -23,6 +24,7 @@ $androidRoot = Join-Path $exampleRoot 'android'
 $targetPath = Join-Path $exampleRoot 'integration_test/performance_soak_test.dart'
 $appApk = Join-Path $exampleRoot 'build/app/outputs/apk/debug/app-debug.apk'
 $testApk = Join-Path $exampleRoot 'build/app/outputs/apk/androidTest/debug/app-debug-androidTest.apk'
+$artifactManifest = Join-Path $exampleRoot 'build/app/outputs/apk/firebase-soak-manifest.json'
 $flutter = Get-Command flutter -ErrorAction Stop
 
 function Invoke-CheckedCommand {
@@ -42,6 +44,20 @@ function ConvertTo-Base64DartDefine {
   param([Parameter(Mandatory = $true)][string]$Value)
 
   return [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($Value))
+}
+
+function Get-ApkMetadata {
+  param([Parameter(Mandatory = $true)][string]$Path)
+
+  if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+    throw "Expected Firebase Test Lab artifact was not produced: $Path"
+  }
+  $item = Get-Item -LiteralPath $Path
+  return [ordered]@{
+    fileName = $item.Name
+    length = $item.Length
+    sha256 = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash
+  }
 }
 
 function Resolve-AndroidJavaHome {
@@ -69,11 +85,17 @@ function Resolve-AndroidJavaHome {
   throw 'Unable to locate the JDK used by Flutter. Configure JAVA_HOME before running this script.'
 }
 
-if ($BuildOnly -and $SkipBuild) {
-  throw '-BuildOnly and -SkipBuild cannot be used together.'
+if ($BuildOnly -and ($SkipBuild -or $ValidateArtifactsOnly)) {
+  throw '-BuildOnly cannot be combined with -SkipBuild or -ValidateArtifactsOnly.'
+}
+if ($ValidateArtifactsOnly) {
+  $SkipBuild = $true
 }
 
 if (-not $SkipBuild) {
+  if (Test-Path -LiteralPath $artifactManifest -PathType Leaf) {
+    Remove-Item -LiteralPath $artifactManifest -Force
+  }
   Write-Host "Building Firebase Test Lab soak: ${SoakSeconds}s / $LoadCycles cycles"
   Push-Location -LiteralPath $exampleRoot
   try {
@@ -123,17 +145,65 @@ else {
   Write-Host "Reusing Firebase Test Lab soak artifacts: ${SoakSeconds}s / $LoadCycles cycles"
 }
 
-foreach ($artifact in @($appApk, $testApk)) {
-  if (-not (Test-Path -LiteralPath $artifact -PathType Leaf)) {
-    throw "Expected Firebase Test Lab artifact was not produced: $artifact"
+$appMetadata = Get-ApkMetadata -Path $appApk
+$testMetadata = Get-ApkMetadata -Path $testApk
+Write-Host "$appApk ($($appMetadata.length) bytes, SHA256 $($appMetadata.sha256))"
+Write-Host "$testApk ($($testMetadata.length) bytes, SHA256 $($testMetadata.sha256))"
+
+if ($SkipBuild) {
+  if (-not (Test-Path -LiteralPath $artifactManifest -PathType Leaf)) {
+    throw "Firebase soak artifact manifest is missing: $artifactManifest. Rebuild without -SkipBuild."
   }
-  $item = Get-Item -LiteralPath $artifact
-  $hash = (Get-FileHash -LiteralPath $artifact -Algorithm SHA256).Hash
-  Write-Host "$($item.FullName) ($($item.Length) bytes, SHA256 $hash)"
+  try {
+    $manifest = Get-Content -LiteralPath $artifactManifest -Raw -Encoding UTF8 | ConvertFrom-Json
+  }
+  catch {
+    throw "Firebase soak artifact manifest is invalid: $artifactManifest. Rebuild without -SkipBuild."
+  }
+  $expectedInjection = $InjectMemoryPressure.IsPresent
+  if ($manifest.schemaVersion -ne 1 -or
+      $manifest.soakSeconds -ne $SoakSeconds -or
+      $manifest.loadCycles -ne $LoadCycles -or
+      $manifest.injectMemoryPressure -ne $expectedInjection) {
+    throw "Requested soak configuration does not match $artifactManifest. Rebuild without -SkipBuild or use the manifest values."
+  }
+  if ($manifest.appApk.length -ne $appMetadata.length -or
+      $manifest.appApk.sha256 -ne $appMetadata.sha256 -or
+      $manifest.testApk.length -ne $testMetadata.length -or
+      $manifest.testApk.sha256 -ne $testMetadata.sha256) {
+    throw "Firebase soak APK hashes do not match $artifactManifest. Rebuild without -SkipBuild."
+  }
+  Write-Host "Validated Firebase soak artifact manifest: $artifactManifest"
+}
+else {
+  $manifest = [ordered]@{
+    schemaVersion = 1
+    createdAtUtc = [DateTime]::UtcNow.ToString('o')
+    soakSeconds = $SoakSeconds
+    loadCycles = $LoadCycles
+    injectMemoryPressure = $InjectMemoryPressure.IsPresent
+    target = 'integration_test/performance_soak_test.dart'
+    targetPlatform = 'android-arm64'
+    appApk = $appMetadata
+    testApk = $testMetadata
+  }
+  $manifestJson = $manifest | ConvertTo-Json -Depth 4
+  $temporaryManifest = "$artifactManifest.tmp"
+  [IO.File]::WriteAllText(
+    $temporaryManifest,
+    "$manifestJson`n",
+    [Text.UTF8Encoding]::new($false)
+  )
+  Move-Item -LiteralPath $temporaryManifest -Destination $artifactManifest -Force
+  Write-Host "Wrote Firebase soak artifact manifest: $artifactManifest"
 }
 
 if ($BuildOnly) {
   Write-Host 'Firebase Test Lab artifacts are ready; upload was skipped.'
+  exit 0
+}
+if ($ValidateArtifactsOnly) {
+  Write-Host 'Firebase Test Lab artifacts and manifest are valid; upload was skipped.'
   exit 0
 }
 
