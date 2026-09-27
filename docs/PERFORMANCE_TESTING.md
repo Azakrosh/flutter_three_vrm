@@ -166,3 +166,33 @@ Android 13. Matrix `matrix-1wa37sfxsm6wy` завершился `Passed`:
 он включает запуск Flutter/WebView и первую загрузку модели. Отрицательные slopes
 после warm-up показывают, что на этом коротком прогоне sampled plateau снижался.
 Leak-вывод требует нескольких полных прогонов одной сборки.
+
+Два последовательных полных gate той же модели на Motorola moto g 5G (2022),
+Android 13, выполнены одной сборкой `300 s / 10 load cycles`:
+
+| Метрика | Run 1 | Run 2 |
+|---|---:|---:|
+| Matrix | `matrix-3l6i0j1vllm6n` | `matrix-2xv8kftf8kx2u` |
+| Sampled RSS peak | 645.8 MiB | 632.8 MiB |
+| Normalized max RSS | 655.5 MiB | 644.2 MiB |
+| Loaded slope после warm-up | −5.62 MiB/cycle | −2.62 MiB/cycle |
+| Unloaded slope после warm-up | −4.11 MiB/cycle | −0.91 MiB/cycle |
+| Start/end RSS delta | +139.4 MiB | +198.3 MiB |
+| Memory-pressure callbacks | 2 | 1 |
+| Steady FPS average | 30.6 | 30.0 |
+
+Оба прогона завершились без OOM, context loss и runtime errors; texture baseline
+оставался 28/0 во всех десяти циклах. Положительный start/end delta отражает
+начальный прогрев, тогда как отрицательные post-warm-up slopes и немонотонные
+unloaded samples не показывают продолжающегося накопления RSS.
+
+Для детерминированной проверки реакции на callback скрипт поддерживает
+`-InjectMemoryPressure`. Флаг встраивает `VRM_SOAK_INJECT_MEMORY_PRESSURE=true` и
+вызывает Flutter memory-pressure dispatch в середине steady-фазы. Тест требует,
+чтобы после сигнала продолжились health polling, amplitude stream и
+Pose/VRMA-переходы, модель осталась загруженной, а context loss — нулевым.
+
+Physical recovery gate `matrix-36hq9syottrov` (`30 s / 3 cycles`) прошёл:
+после инъекции выполнены 15 health checks, 30 amplitude batches и 6 motion
+transitions; `modelLoadedAfterPressure=true`, `contextLossAfterPressure=0`.
+Автоматическая выгрузка модели не нужна по текущим измерениям и не выполняется.

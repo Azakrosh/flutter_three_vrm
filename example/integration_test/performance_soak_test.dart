@@ -9,6 +9,9 @@ const _loadCycles = int.fromEnvironment(
   'VRM_SOAK_LOAD_CYCLES',
   defaultValue: 3,
 );
+const _injectMemoryPressure = bool.fromEnvironment(
+  'VRM_SOAK_INJECT_MEMORY_PRESSURE',
+);
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -30,7 +33,12 @@ void main() {
     final steadyStateSamples = <VrmPerformanceSnapshot>[];
     final healthSamples = <VrmRuntimeHealth>[];
     final memoryPressureSamples = <VrmHostResourceSnapshot>[];
+    final postPressureHealthSamples = <VrmRuntimeHealth>[];
     var performancePhase = _PerformancePhase.load;
+    var injectedMemoryPressure = false;
+    var pressureSamplesBeforeInjection = 0;
+    var postPressureAmplitudeBatches = 0;
+    var postPressureMotionTransitions = 0;
     final errorSubscription = controller.onError.listen(
       (event) => errors.add(event.message),
     );
@@ -137,10 +145,22 @@ void main() {
     const batchDuration = Duration(milliseconds: 500);
     const frameDuration = Duration(milliseconds: 50);
     final totalDuration = Duration(seconds: _soakSeconds);
+    final pressureInjectionTime = Duration(
+      milliseconds: totalDuration.inMilliseconds ~/ 2,
+    );
     performancePhase = _PerformancePhase.steady;
     final stopwatch = Stopwatch()..start();
     var batchIndex = 0;
     while (stopwatch.elapsed < totalDuration) {
+      if (_injectMemoryPressure &&
+          !injectedMemoryPressure &&
+          stopwatch.elapsed >= pressureInjectionTime) {
+        pressureSamplesBeforeInjection = memoryPressureSamples.length;
+        WidgetsBinding.instance.handleMemoryPressure();
+        await tester.pump();
+        injectedMemoryPressure = true;
+      }
+
       final batchStart = batchDuration * batchIndex;
       final frames = <AmplitudeFrame>[
         for (var index = 0; index < 10; index += 1)
@@ -151,22 +171,35 @@ void main() {
           ),
       ];
       expect(await speech.appendAmplitudes(frames), isTrue);
+      if (injectedMemoryPressure) {
+        postPressureAmplitudeBatches += 1;
+      }
 
       if (batchIndex > 0 && batchIndex % 10 == 0) {
         await controller.setPose(
           (batchIndex ~/ 10).isEven ? presenterOpenPose : loungePose,
           fadeDuration: 0.3,
         );
+        if (injectedMemoryPressure) {
+          postPressureMotionTransitions += 1;
+        }
       } else if (batchIndex > 0 && batchIndex % 10 == 5) {
         await controller.playAnimation(
           'assets/vrma/',
           'sample.vrma',
           fadeDuration: 0.3,
         );
+        if (injectedMemoryPressure) {
+          postPressureMotionTransitions += 1;
+        }
       }
 
       if (batchIndex.isEven) {
-        healthSamples.add(await controller.getRuntimeHealth());
+        final health = await controller.getRuntimeHealth();
+        healthSamples.add(health);
+        if (injectedMemoryPressure) {
+          postPressureHealthSamples.add(health);
+        }
       }
       await tester.pump(const Duration(milliseconds: 50));
       final elapsedWithinBatch = Duration(
@@ -231,6 +264,22 @@ void main() {
     expect(finalHealth.contextLost, isFalse);
     expect(finalHealth.contextLossCount, 0);
     expect(errors, isEmpty);
+    if (_injectMemoryPressure) {
+      expect(injectedMemoryPressure, isTrue);
+      expect(
+        memoryPressureSamples.length,
+        greaterThan(pressureSamplesBeforeInjection),
+        reason: 'The injected Flutter memory-pressure signal must be observed.',
+      );
+      expect(postPressureAmplitudeBatches, greaterThan(0));
+      expect(postPressureMotionTransitions, greaterThan(0));
+      expect(postPressureHealthSamples, isNotEmpty);
+      for (final health in postPressureHealthSamples) {
+        expect(health.modelLoaded, isTrue);
+        expect(health.contextLost, isFalse);
+        expect(health.contextLossCount, 0);
+      }
+    }
 
     final fpsValues = measuredSteadySamples
         .map((sample) => sample.fps)
@@ -340,6 +389,15 @@ void main() {
       'maxRssMiB=${_mib(postUnloadHostResources.maxRssBytes)}, '
       'memoryPressure=${postUnloadHostResources.memoryPressureCount}, '
       'thermal=${postUnloadHostResources.thermalStatus.name}',
+    );
+    debugPrint(
+      'runtime_soak_pressure: injected=$_injectMemoryPressure, '
+      'observed=${memoryPressureSamples.length}, '
+      'postPressureHealth=${postPressureHealthSamples.length}, '
+      'postPressureAmplitudeBatches=$postPressureAmplitudeBatches, '
+      'postPressureMotionTransitions=$postPressureMotionTransitions, '
+      'modelLoadedAfterPressure=${_injectMemoryPressure ? finalHealth.modelLoaded : 'notChecked'}, '
+      'contextLossAfterPressure=${_injectMemoryPressure ? finalHealth.contextLossCount : 'notChecked'}',
     );
     expect(
       averageFps,

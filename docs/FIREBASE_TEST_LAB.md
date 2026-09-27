@@ -103,6 +103,12 @@ Git.
   -RepeatCount 3
 ```
 
+Для детерминированного recovery-сценария добавьте `-InjectMemoryPressure`. Флаг
+встраивается в APK, отправляет Flutter memory-pressure signal в середине
+steady-фазы и проверяет дальнейшие health, speech и motion операции. При
+`-SkipBuild` этот флаг, как и длительность/число циклов, должен совпадать с
+параметрами уже собранного APK.
+
 Для сравнения нескольких устройств на строго одной сборке сначала подготовьте
 артефакты через `-BuildOnly`, затем повторно используйте их через `-SkipBuild`:
 
@@ -236,3 +242,33 @@ Motorola, matrix `matrix-3j5zg3s0r91pw`, `Passed`:
 Отчёт показал sampled peak 665.1 MiB, normalized max 673.0 MiB и отрицательные
 post-warm-up slopes −50.37/−43.87 MiB за цикл для loaded/unloaded samples.
 [Результат в Firebase Console](https://console.firebase.google.com/project/flutteria-ef3c7/testlab/histories/bh.8c1f5d4b709a96df/matrices/8384152883712981631).
+
+Полная проверка Stage 32 выполнена на той же Motorola двумя последовательными
+запусками одной сборки `300 s / 10 cycles`. App APK SHA-256:
+`6E16BA354DBA41EA4D1ED453DD573978AF535E3EF2AAB4EB642CA4438BF7E9F6`;
+instrumentation APK:
+`8CF7C828CEBA3D79DFE90D66E2BABCA53CE2453821892E20465BD8DC464E83BA`.
+
+| Метрика | `matrix-3l6i0j1vllm6n` | `matrix-2xv8kftf8kx2u` |
+|---|---:|---:|
+| Firebase outcome | Passed | Passed |
+| Steady FPS min–max / avg | 30.4–31.0 / 30.6 | 27.9–30.6 / 30.0 |
+| Sampled RSS peak | 645.8 MiB | 632.8 MiB |
+| Normalized max RSS | 655.5 MiB | 644.2 MiB |
+| Loaded slope | −5.62 MiB/cycle | −2.62 MiB/cycle |
+| Unloaded slope | −4.11 MiB/cycle | −0.91 MiB/cycle |
+| Memory pressure | 2 | 1 |
+| Thermal | none | none |
+
+Renderer textures возвращались 28/0 во всех циклах; OOM, context loss и runtime
+errors отсутствуют. Post-unload RSS не рос монотонно. Результаты:
+[run 1](https://console.firebase.google.com/project/flutteria-ef3c7/testlab/histories/bh.8c1f5d4b709a96df/matrices/4795412730235737810),
+[run 2](https://console.firebase.google.com/project/flutteria-ef3c7/testlab/histories/bh.8c1f5d4b709a96df/matrices/8897995146148970596).
+
+Отдельный recovery gate `matrix-36hq9syottrov` собран с
+`-InjectMemoryPressure`: 30 секунд, 3 цикла, app APK SHA-256
+`12B2C140E0D621BD946F8693EDE013B9B7618BAFAF1A1CF857E9026288CCB31C`.
+После инъекции успешно выполнены 15 health checks, 30 amplitude batches и 6
+Pose/VRMA-переходов; модель осталась загруженной, context loss равен нулю. Всего
+зафиксировано 4 pressure-события, включая системные callbacks; результат
+`Passed`. [Результат в Firebase Console](https://console.firebase.google.com/project/flutteria-ef3c7/testlab/histories/bh.8c1f5d4b709a96df/matrices/5281851472536525167).

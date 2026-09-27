@@ -7,6 +7,7 @@ param(
   [ValidateRange(2, 100)][int]$LoadCycles = 10,
   [ValidateRange(1, 45)][int]$TimeoutMinutes = 15,
   [ValidateRange(1, 5)][int]$RepeatCount = 1,
+  [switch]$InjectMemoryPressure,
   [string]$ResultsBucket,
   [string]$ResultsDirectory,
   [switch]$BuildOnly,
@@ -97,6 +98,7 @@ if (-not $SkipBuild) {
       $dartDefines = @(
         ConvertTo-Base64DartDefine "VRM_SOAK_SECONDS=$SoakSeconds"
         ConvertTo-Base64DartDefine "VRM_SOAK_LOAD_CYCLES=$LoadCycles"
+        ConvertTo-Base64DartDefine "VRM_SOAK_INJECT_MEMORY_PRESSURE=$($InjectMemoryPressure.IsPresent.ToString().ToLowerInvariant())"
       ) -join ','
       Invoke-CheckedCommand `
         -Executable $gradle `

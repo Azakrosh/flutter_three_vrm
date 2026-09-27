@@ -511,7 +511,7 @@ protocol/build verification, Flutter analyze и 93 Flutter test проходят
 
 ### Stage 32 — memory-pressure resilience и точность host diagnostics
 
-Статус: в работе.
+Статус: выполнено.
 
 Цель: отличать нормальный прогрев Android/WebView от утечки и безопасно
 переживать системное давление памяти без произвольных лимитов модели.
@@ -539,8 +539,24 @@ limit или автоматическую выгрузку модели. Кон�
 Короткий gate на Motorola moto g 5G (2022) пройден: sampled peak 665.1 MiB,
 normalized max 673.0 MiB, loaded/unloaded slopes после warm-up
 −50.37/−43.87 MiB за цикл, 4 memory-pressure события, `thermal=none`, context
-loss и runtime errors отсутствуют. Matrix `matrix-1wa37sfxsm6wy`. Следующий срез
-— несколько полных прогонов одной сборки для оценки межзапусковой вариативности.
+loss и runtime errors отсутствуют. Matrix `matrix-1wa37sfxsm6wy`.
+
+Два полных последовательных gate одной сборки `300 s / 10 cycles` также прошли:
+`matrix-3l6i0j1vllm6n` и `matrix-2xv8kftf8kx2u`. Sampled peak составил
+645.8/632.8 MiB, normalized max — 655.5/644.2 MiB, loaded slopes —
+−5.62/−2.62 MiB за цикл, unloaded slopes — −4.11/−0.91 MiB за цикл. При 2/1
+memory-pressure callbacks не было OOM, context loss, runtime errors или
+растущего post-unload plateau; renderer textures возвращались 28/0 во всех
+циклах. Положительный start/end delta 139.4/198.3 MiB относится к начальному
+прогреву Flutter/WebView и не продолжился линейным ростом после первого цикла.
+
+Финальный recovery gate `matrix-36hq9syottrov` детерминированно отправил Flutter
+memory-pressure signal в середине steady-фазы. После него успешно выполнены 15
+health checks, 30 amplitude batches и 6 Pose/VRMA-переходов; модель осталась
+загруженной, context loss равен нулю. Всего тест наблюдал 4 pressure-события и
+завершился `Passed`. Автоматическая выгрузка модели не добавлена: текущие
+измерения не доказывают её пользу и показывают корректное продолжение работы без
+разрушительного вмешательства. Все критерии Stage 32 закрыты.
 
 ## 7. Правила обновления roadmap
 
