@@ -229,6 +229,15 @@ export class RuntimeCameraController {
 
   public updatePanFollowing(deltaSeconds: number): void {
     if (this.animating) return;
+    if (this.mode === "free") {
+      // OrbitControls owns free-mode rotation, pan, and damping. Pulling its
+      // target towards the constrained target here fights right-button pan.
+      // Mirror the settled state instead so getTransform and later framing use
+      // the final position, including damping after pointerup.
+      this.target.copy(this.controls.target);
+      this.targetPosition.copy(this.camera.position);
+      return;
+    }
     this.panDelta.copy(this.target).sub(this.controls.target);
     if (this.panDelta.lengthSq() <= 0.000001) return;
     this.panDelta.multiplyScalar(1 - Math.exp(-25 * deltaSeconds));

@@ -91,7 +91,7 @@ describe("runtime camera controller", () => {
     ).toThrow("finite numbers");
   });
 
-  it("smoothly follows constrained pan and captures free control changes", () => {
+  it("smoothly follows constrained pan", () => {
     const camera = createCamera();
     const controls = createControls(camera);
     const controller = new RuntimeCameraController(camera, controls);
@@ -109,14 +109,39 @@ describe("runtime camera controller", () => {
     controller.updatePanFollowing(1 / 60);
     expect(controls.target.equals(initialTarget)).toBe(false);
     expect(camera.position.x).toBeCloseTo(controls.target.x);
+  });
+
+  it("does not oppose free pan and tracks post-pointer damping", () => {
+    const camera = createCamera();
+    const controls = createControls(camera);
+    const controller = new RuntimeCameraController(camera, controls);
 
     controller.setMode("free");
     controls.target.set(0.3, 1.2, -0.1);
     camera.position.set(0.3, 1.2, 2);
-    controller.captureControlsTransform();
+    const firstTarget = controls.target.clone();
+    const firstPosition = camera.position.clone();
+
+    controller.updatePanFollowing(1 / 60);
+
+    expect(controls.target.equals(firstTarget)).toBe(true);
+    expect(camera.position.equals(firstPosition)).toBe(true);
     expect(controller.getTransform()).toMatchObject({
       x: -0.3,
       y: -0.25,
+    });
+
+    // OrbitControls damping can continue after its pointerup/end event. The
+    // next frame must capture that residual movement without pulling it back.
+    controls.target.set(0.42, 1.1, -0.1);
+    camera.position.set(0.42, 1.1, 2.2);
+    controller.updatePanFollowing(1 / 60);
+
+    expect(controls.target.toArray()).toEqual([0.42, 1.1, -0.1]);
+    expect(camera.position.toArray()).toEqual([0.42, 1.1, 2.2]);
+    expect(controller.getTransform()).toMatchObject({
+      x: -0.42,
+      y: expect.closeTo(-0.15),
     });
   });
 });
