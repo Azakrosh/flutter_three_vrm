@@ -120,8 +120,11 @@ export class RuntimeCameraController {
   public applyMode(): void {
     this.controls.enabled = true;
     this.controls.enableZoom = true;
-    this.controls.enableDamping = true;
-    this.controls.dampingFactor = 0.08;
+    // Pointer-controlled camera movement must stop when the gesture ends.
+    // OrbitControls damping otherwise keeps applying pan/rotation after
+    // pointerup, which feels like the camera is sliding on ice.
+    this.controls.enableDamping = false;
+    this.controls.dampingFactor = 0;
     if (this.mode === "constrained") {
       this.controls.enablePan = false;
       this.controls.enableRotate = false;
@@ -230,10 +233,10 @@ export class RuntimeCameraController {
   public updatePanFollowing(deltaSeconds: number): void {
     if (this.animating) return;
     if (this.mode === "free") {
-      // OrbitControls owns free-mode rotation, pan, and damping. Pulling its
-      // target towards the constrained target here fights right-button pan.
-      // Mirror the settled state instead so getTransform and later framing use
-      // the final position, including damping after pointerup.
+      // OrbitControls owns free-mode rotation and pan. Pulling its target
+      // towards the constrained target here fights right-button pan.
+      // Mirror its current state so getTransform and later framing use the
+      // final position without modifying the active gesture.
       this.target.copy(this.controls.target);
       this.targetPosition.copy(this.camera.position);
       return;

@@ -18,6 +18,8 @@ describe("runtime camera controller", () => {
       enablePan: false,
       enableRotate: false,
       enableZoom: true,
+      enableDamping: false,
+      dampingFactor: 0,
       minDistance: 0.5,
       maxDistance: 6.6,
     });
@@ -25,11 +27,15 @@ describe("runtime camera controller", () => {
     controller.setMode("free");
     expect(controls.enablePan).toBe(true);
     expect(controls.enableRotate).toBe(true);
+    expect(controls.enableDamping).toBe(false);
+    expect(controls.dampingFactor).toBe(0);
 
     const replacement = createControls(camera);
     controller.replaceControls(replacement);
     expect(replacement.enablePan).toBe(true);
     expect(replacement.enableRotate).toBe(true);
+    expect(replacement.enableDamping).toBe(false);
+    expect(replacement.dampingFactor).toBe(0);
     expect(replacement.update).toHaveBeenCalledOnce();
     expect(() => controller.setMode("orbit")).toThrow("Unknown camera mode");
   });
@@ -111,7 +117,7 @@ describe("runtime camera controller", () => {
     expect(camera.position.x).toBeCloseTo(controls.target.x);
   });
 
-  it("does not oppose free pan and tracks post-pointer damping", () => {
+  it("does not oppose free pan and tracks subsequent control changes", () => {
     const camera = createCamera();
     const controls = createControls(camera);
     const controller = new RuntimeCameraController(camera, controls);
@@ -131,8 +137,7 @@ describe("runtime camera controller", () => {
       y: -0.25,
     });
 
-    // OrbitControls damping can continue after its pointerup/end event. The
-    // next frame must capture that residual movement without pulling it back.
+    // A later OrbitControls change must be captured without pulling it back.
     controls.target.set(0.42, 1.1, -0.1);
     camera.position.set(0.42, 1.1, 2.2);
     controller.updatePanFollowing(1 / 60);
