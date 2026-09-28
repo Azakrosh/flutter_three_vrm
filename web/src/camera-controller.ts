@@ -1,6 +1,7 @@
-import type { VRM } from "@pixiv/three-vrm";
+import type { VRM, VRMHumanBoneName } from "@pixiv/three-vrm";
 import {
   MathUtils,
+  Vector2,
   Vector3,
   type PerspectiveCamera,
 } from "three";
@@ -58,29 +59,48 @@ export interface ConstrainedPanInput {
   readonly deltaY: number;
   readonly viewportWidth: number;
   readonly viewportHeight: number;
-  readonly startTarget: Vector3;
+  readonly startPan: Vector2;
   readonly modelHeight: number;
 }
 
+const VIEW_OFFSET_HEIGHT = 1000;
+const EPSILON_SQUARED = 1e-12;
+
+/**
+ * Owns the avatar camera rig.
+ *
+ * OrbitControls.target is reserved for the humanoid torso pivot. User pan is
+ * represented by an off-axis projection, so panning changes composition but
+ * never moves the point around which free-mode rotation orbits.
+ */
 export class RuntimeCameraController {
   private controls: RuntimeCameraControls;
+  private readonly orbitPivot = new Vector3();
   private readonly targetPosition = new Vector3();
-  private readonly target = new Vector3();
   private readonly startPosition = new Vector3();
-  private readonly startTarget = new Vector3();
-  private readonly panDelta = new Vector3();
+  private readonly startPivot = new Vector3();
+  private readonly nativePanDelta = new Vector3();
+  private readonly cameraRight = new Vector3();
+  private readonly cameraUp = new Vector3();
+  private readonly panOffset = new Vector2();
+  private readonly displayedPanOffset = new Vector2();
+  private readonly startPanOffset = new Vector2();
   private animationDuration = 0.5;
   private animationStartTime = 0;
   private animating = false;
   private customTransform = false;
+  private lastProjectionX = Number.NaN;
+  private lastProjectionY = Number.NaN;
+  private lastProjectionDistance = Number.NaN;
+  private lastProjectionAspect = Number.NaN;
 
   public constructor(
     private readonly camera: PerspectiveCamera,
     controls: RuntimeCameraControls,
   ) {
     this.controls = controls;
+    this.orbitPivot.copy(controls.target);
     this.targetPosition.copy(camera.position);
-    this.target.copy(controls.target);
     this.applyMode();
   }
 
@@ -90,8 +110,13 @@ export class RuntimeCameraController {
     return this.customTransform;
   }
 
+  public getPanOffset(): Vector2 {
+    return this.panOffset.clone();
+  }
+
   public replaceControls(controls: RuntimeCameraControls): void {
     this.controls = controls;
+    this.controls.target.copy(this.orbitPivot);
     this.applyMode();
   }
 
@@ -101,18 +126,24 @@ export class RuntimeCameraController {
 
   public captureControlsTransform(): void {
     this.customTransform = true;
-    this.target.copy(this.controls.target);
+    this.captureNativePan();
     this.targetPosition.copy(this.camera.position);
+    this.applyPanProjection();
   }
 
   public clearCustomTransform(): void {
     this.customTransform = false;
+    this.panOffset.set(0, 0);
+    this.displayedPanOffset.set(0, 0);
+    this.invalidateProjection();
+    this.applyPanProjection();
   }
 
   public setMode(mode: string): void {
     if (mode !== "constrained" && mode !== "free") {
       throw new TypeError(`Unknown camera mode: ${mode}`);
     }
+    this.captureNativePan();
     this.mode = mode;
     this.applyMode();
   }
@@ -121,8 +152,6 @@ export class RuntimeCameraController {
     this.controls.enabled = true;
     this.controls.enableZoom = true;
     // Pointer-controlled camera movement must stop when the gesture ends.
-    // OrbitControls damping otherwise keeps applying pan/rotation after
-    // pointerup, which feels like the camera is sliding on ice.
     this.controls.enableDamping = false;
     this.controls.dampingFactor = 0;
     if (this.mode === "constrained") {
@@ -135,6 +164,8 @@ export class RuntimeCameraController {
       this.controls.minDistance = 0.5;
       this.controls.maxDistance = 6.6;
     } else {
+      // Native OrbitControls pan remains enabled for mouse and touch. Its
+      // target translation is captured into projection pan before rendering.
       this.controls.enablePan = true;
       this.controls.enableRotate = true;
       this.controls.minPolarAngle = 0.01;
@@ -142,7 +173,9 @@ export class RuntimeCameraController {
       this.controls.minAzimuthAngle = -Infinity;
       this.controls.maxAzimuthAngle = Infinity;
     }
+    this.controls.target.copy(this.orbitPivot);
     this.controls.update();
+    this.applyPanProjection();
   }
 
   public frameAvatar(
@@ -159,17 +192,13 @@ export class RuntimeCameraController {
     vrm.scene.updateMatrixWorld(true);
     this.controls.enabled = false;
 
-    const headNode =
-      vrm.humanoid.getNormalizedBoneNode("head") ??
-      vrm.humanoid.getRawBoneNode("head");
+    const headPosition = readBoneWorldPosition(vrm, ["head"]);
     let modelHeight = 1.45;
-    if (headNode !== null) {
-      const headPosition = new Vector3();
-      headNode.getWorldPosition(headPosition);
+    if (headPosition !== null) {
       modelHeight = headPosition.y - vrm.scene.position.y + 0.15;
     }
+    const nextPivot = calculateAvatarOrbitPivot(vrm, modelHeight);
 
-    const centerY = modelHeight / 2;
     const verticalFov = MathUtils.degToRad(this.camera.fov);
     const targetFrustumHeight = modelHeight / 0.8;
     let distance = targetFrustumHeight / 2 / Math.tan(verticalFov / 2);
@@ -183,16 +212,29 @@ export class RuntimeCameraController {
     }
 
     this.startPosition.copy(this.camera.position);
-    this.startTarget.copy(this.controls.target);
+    this.startPivot.copy(this.controls.target);
+    this.startPanOffset.copy(this.displayedPanOffset);
+    const pivotDelta = nextPivot.clone().sub(this.orbitPivot);
+    this.orbitPivot.copy(nextPivot);
     if (!this.customTransform) {
-      this.target.set(0, centerY, 0);
-      this.targetPosition.set(0, centerY, distance);
+      this.panOffset.set(0, 0);
+      this.targetPosition.set(
+        this.orbitPivot.x,
+        this.orbitPivot.y,
+        this.orbitPivot.z + distance,
+      );
+    } else {
+      // A transform may be restored before the replacement model is framed.
+      // Move the camera with the new humanoid pivot to preserve its angle and
+      // distance instead of orbiting the new avatar around the old model.
+      this.targetPosition.copy(this.camera.position).add(pivotDelta);
     }
 
     if (durationMs <= 0) {
       this.animating = false;
       this.camera.position.copy(this.targetPosition);
-      this.controls.target.copy(this.target);
+      this.controls.target.copy(this.orbitPivot);
+      this.displayedPanOffset.copy(this.panOffset);
       this.applyMode();
     } else {
       this.animating = true;
@@ -221,31 +263,23 @@ export class RuntimeCameraController {
     const worldDeltaX = input.deltaX / input.viewportWidth * widthAtDepth;
     const worldDeltaY = -input.deltaY / input.viewportHeight * heightAtDepth;
     const clampX = widthAtDepth / 2 + 0.2;
-    const minimumY = -0.7 - heightAtDepth / 2;
-    const maximumY = input.modelHeight + 0.2 + heightAtDepth / 2;
-    this.target.set(
-      MathUtils.clamp(input.startTarget.x - worldDeltaX, -clampX, clampX),
-      MathUtils.clamp(input.startTarget.y - worldDeltaY, minimumY, maximumY),
-      input.startTarget.z,
+    const clampY = input.modelHeight / 2 + heightAtDepth / 2 + 0.2;
+    this.panOffset.set(
+      MathUtils.clamp(input.startPan.x + worldDeltaX, -clampX, clampX),
+      MathUtils.clamp(input.startPan.y + worldDeltaY, -clampY, clampY),
     );
   }
 
   public updatePanFollowing(deltaSeconds: number): void {
     if (this.animating) return;
     if (this.mode === "free") {
-      // OrbitControls owns free-mode rotation and pan. Pulling its target
-      // towards the constrained target here fights right-button pan.
-      // Mirror its current state so getTransform and later framing use the
-      // final position without modifying the active gesture.
-      this.target.copy(this.controls.target);
-      this.targetPosition.copy(this.camera.position);
-      return;
+      this.captureNativePan();
+      this.displayedPanOffset.copy(this.panOffset);
+    } else {
+      const factor = 1 - Math.exp(-25 * deltaSeconds);
+      this.displayedPanOffset.lerp(this.panOffset, factor);
     }
-    this.panDelta.copy(this.target).sub(this.controls.target);
-    if (this.panDelta.lengthSq() <= 0.000001) return;
-    this.panDelta.multiplyScalar(1 - Math.exp(-25 * deltaSeconds));
-    this.camera.position.add(this.panDelta);
-    this.controls.target.add(this.panDelta);
+    this.applyPanProjection();
   }
 
   public updateAnimation(elapsedTime: number): void {
@@ -260,20 +294,27 @@ export class RuntimeCameraController {
       this.targetPosition,
       eased,
     );
-    this.controls.target.lerpVectors(this.startTarget, this.target, eased);
+    this.controls.target.lerpVectors(this.startPivot, this.orbitPivot, eased);
+    this.displayedPanOffset.lerpVectors(
+      this.startPanOffset,
+      this.panOffset,
+      eased,
+    );
     this.camera.lookAt(this.controls.target);
+    this.applyPanProjection();
     if (progress >= 1) {
       this.animating = false;
       this.camera.position.copy(this.targetPosition);
-      this.controls.target.copy(this.target);
+      this.controls.target.copy(this.orbitPivot);
+      this.displayedPanOffset.copy(this.panOffset);
       this.applyMode();
     }
   }
 
   public getTransform(): RuntimeCameraTransform {
     return {
-      x: -this.target.x,
-      y: 0.95 - this.target.y,
+      x: this.panOffset.x,
+      y: this.panOffset.y,
       zoom: this.controls.getDistance(),
     };
   }
@@ -283,17 +324,139 @@ export class RuntimeCameraController {
 
     this.animating = false;
     this.customTransform = true;
-    const targetX = -x;
-    const targetY = 0.95 - y;
-    this.target.set(targetX, targetY, 0);
-    this.controls.target.copy(this.target);
+    this.captureNativePan();
+    this.panOffset.set(x, y);
+    this.displayedPanOffset.copy(this.panOffset);
+    this.controls.target.copy(this.orbitPivot);
+
     const distance = MathUtils.clamp(
       zoom,
       this.controls.minDistance,
       this.controls.maxDistance,
     );
-    this.camera.position.set(targetX, targetY, distance);
-    this.targetPosition.copy(this.camera.position);
+    this.targetPosition.copy(this.camera.position).sub(this.orbitPivot);
+    if (this.targetPosition.lengthSq() <= EPSILON_SQUARED) {
+      this.targetPosition.set(0, 0, 1);
+    }
+    this.targetPosition
+      .normalize()
+      .multiplyScalar(distance)
+      .add(this.orbitPivot);
+    this.camera.position.copy(this.targetPosition);
     this.controls.update();
+    this.invalidateProjection();
+    this.applyPanProjection();
   }
+
+  /** Converts OrbitControls' native target translation into screen framing. */
+  private captureNativePan(): void {
+    this.nativePanDelta.copy(this.controls.target).sub(this.orbitPivot);
+    if (this.nativePanDelta.lengthSq() <= EPSILON_SQUARED) {
+      this.controls.target.copy(this.orbitPivot);
+      return;
+    }
+
+    this.cameraRight.set(1, 0, 0).applyQuaternion(this.camera.quaternion);
+    this.cameraUp.set(0, 1, 0).applyQuaternion(this.camera.quaternion);
+    this.panOffset.x -= this.nativePanDelta.dot(this.cameraRight);
+    this.panOffset.y -= this.nativePanDelta.dot(this.cameraUp);
+    this.displayedPanOffset.copy(this.panOffset);
+
+    // Undo the world-space translation performed by OrbitControls. Only the
+    // projection offset remains, while the camera continues to orbit the torso.
+    this.camera.position.sub(this.nativePanDelta);
+    this.controls.target.copy(this.orbitPivot);
+    this.targetPosition.copy(this.camera.position);
+    this.invalidateProjection();
+  }
+
+  private applyPanProjection(): void {
+    const distance = Math.max(this.controls.getDistance(), 1e-6);
+    const aspect = Math.max(this.camera.aspect, 1e-6);
+    if (
+      this.displayedPanOffset.x === this.lastProjectionX &&
+      this.displayedPanOffset.y === this.lastProjectionY &&
+      distance === this.lastProjectionDistance &&
+      aspect === this.lastProjectionAspect
+    ) {
+      return;
+    }
+    this.lastProjectionX = this.displayedPanOffset.x;
+    this.lastProjectionY = this.displayedPanOffset.y;
+    this.lastProjectionDistance = distance;
+    this.lastProjectionAspect = aspect;
+
+    if (this.displayedPanOffset.lengthSq() <= EPSILON_SQUARED) {
+      if (this.camera.view?.enabled) this.camera.clearViewOffset();
+      return;
+    }
+
+    const verticalFov = MathUtils.degToRad(this.camera.fov);
+    const frustumHeight = 2 * Math.tan(verticalFov / 2) * distance;
+    const frustumWidth = frustumHeight * aspect;
+    const fullHeight = VIEW_OFFSET_HEIGHT;
+    const fullWidth = fullHeight * aspect;
+    const offsetX = -this.displayedPanOffset.x / frustumWidth * fullWidth;
+    const offsetY = this.displayedPanOffset.y / frustumHeight * fullHeight;
+    this.camera.setViewOffset(
+      fullWidth,
+      fullHeight,
+      offsetX,
+      offsetY,
+      fullWidth,
+      fullHeight,
+    );
+  }
+
+  private invalidateProjection(): void {
+    this.lastProjectionX = Number.NaN;
+    this.lastProjectionY = Number.NaN;
+    this.lastProjectionDistance = Number.NaN;
+    this.lastProjectionAspect = Number.NaN;
+  }
+}
+
+function calculateAvatarOrbitPivot(vrm: VRM, modelHeight: number): Vector3 {
+  const hips = readBoneWorldPosition(vrm, ["hips"]);
+  const upperTorso = readBoneWorldPosition(vrm, [
+    "upperChest",
+    "chest",
+    "spine",
+  ]);
+  if (hips !== null && upperTorso !== null) {
+    return new Vector3().lerpVectors(hips, upperTorso, 0.5);
+  }
+  if (upperTorso !== null) return upperTorso;
+
+  const head = readBoneWorldPosition(vrm, ["head"]);
+  if (hips !== null && head !== null) {
+    return new Vector3().lerpVectors(hips, head, 0.35);
+  }
+  if (hips !== null) return hips;
+  if (head !== null) {
+    head.y -= modelHeight * 0.3;
+    return head;
+  }
+
+  const fallback = new Vector3();
+  vrm.scene.getWorldPosition(fallback);
+  fallback.y += modelHeight * 0.55;
+  return fallback;
+}
+
+function readBoneWorldPosition(
+  vrm: VRM,
+  names: readonly VRMHumanBoneName[],
+): Vector3 | null {
+  for (const name of names) {
+    const node = vrm.humanoid.getNormalizedBoneNode(name) ??
+      vrm.humanoid.getRawBoneNode(name);
+    if (node === null) continue;
+    const position = new Vector3();
+    node.getWorldPosition(position);
+    if ([position.x, position.y, position.z].every(Number.isFinite)) {
+      return position;
+    }
+  }
+  return null;
 }

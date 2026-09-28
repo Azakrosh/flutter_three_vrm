@@ -139,6 +139,11 @@ await controller.setTransform(saved);
 await controller.resetCamera();
 ```
 
+В режиме `free` orbit pivot вычисляется по humanoid-костям туловища
+(`hips` и `upperChest/chest`). Pan хранится отдельно как смещение кадра,
+поэтому после перемещения камеры вращение продолжает выполняться вокруг
+туловища, а не вокруг руки или предыдущей точки pan.
+
 Клик/касание публикует `onTap`, но не поворачивает голову, корпус или глаза.
 Pan/zoom жесты управляют камерой. Явный `setLookAtTarget()` относится только к
 направлению глаз и использует latest-value backpressure.

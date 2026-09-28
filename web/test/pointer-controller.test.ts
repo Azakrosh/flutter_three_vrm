@@ -1,4 +1,4 @@
-import { Vector3 } from "three";
+import { Vector2 } from "three";
 import { describe, expect, it, vi } from "vitest";
 
 import { RuntimePointerController } from "../src/pointer-controller";
@@ -31,7 +31,7 @@ function createHarness() {
   let loaded = true;
   const controller = new RuntimePointerController({
     camera,
-    getControlsTarget: () => new Vector3(1, 2, 3),
+    getPanOffset: () => new Vector2(0.2, -0.1),
     getModelHeight: () => 1.7,
     hasModel: () => loaded,
     getViewport: () => ({ width: 800, height: 600 }),
@@ -75,7 +75,7 @@ describe("runtime pointer controller", () => {
       deltaY: -20,
       viewportWidth: 800,
       viewportHeight: 600,
-      startTarget: new Vector3(1, 2, 3),
+      startPan: new Vector2(0.2, -0.1),
       modelHeight: 1.7,
     });
     pointer(harness.canvas, "pointerup", 130, 80);

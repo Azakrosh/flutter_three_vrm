@@ -4,8 +4,13 @@ import 'dart:convert';
 final class VrmTransform {
   const VrmTransform({required this.x, required this.y, required this.zoom});
 
+  /// Horizontal framing offset relative to the avatar torso pivot.
   final double x;
+
+  /// Vertical framing offset relative to the avatar torso pivot.
   final double y;
+
+  /// Camera distance from the avatar torso pivot.
   final double zoom;
 
   /// Verifies values in both debug and release builds.

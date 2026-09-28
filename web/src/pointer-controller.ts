@@ -1,4 +1,4 @@
-import { Vector2, Vector3 } from "three";
+import { Vector2 } from "three";
 
 import type { RuntimeCameraController } from "./camera-controller";
 
@@ -7,7 +7,7 @@ export interface RuntimePointerDependencies {
     RuntimeCameraController,
     "mode" | "setConstrainedPanTarget"
   >;
-  readonly getControlsTarget: () => Vector3;
+  readonly getPanOffset: () => Vector2;
   readonly getModelHeight: () => number;
   readonly hasModel: () => boolean;
   readonly getViewport: () => { width: number; height: number };
@@ -20,7 +20,7 @@ export class RuntimePointerController {
   private canvas: HTMLElement | null = null;
   private activePointerId: number | null = null;
   private readonly startPoint = new Vector2();
-  private readonly startTarget = new Vector3();
+  private readonly startPan = new Vector2();
   private readonly onDown = (event: PointerEvent): void => this.handleDown(event);
   private readonly onMove = (event: PointerEvent): void => this.handleMove(event);
   private readonly onUp = (event: PointerEvent): void => this.handleEnd(event);
@@ -52,7 +52,7 @@ export class RuntimePointerController {
     if (!event.isPrimary || this.activePointerId !== null) return;
     this.activePointerId = event.pointerId;
     this.startPoint.set(event.clientX, event.clientY);
-    this.startTarget.copy(this.dependencies.getControlsTarget());
+    this.startPan.copy(this.dependencies.getPanOffset());
   }
 
   private handleMove(event: PointerEvent): void {
@@ -63,7 +63,7 @@ export class RuntimePointerController {
       deltaY: event.clientY - this.startPoint.y,
       viewportWidth: viewport.width,
       viewportHeight: viewport.height,
-      startTarget: this.startTarget,
+      startPan: this.startPan,
       modelHeight: this.dependencies.getModelHeight(),
     });
   }

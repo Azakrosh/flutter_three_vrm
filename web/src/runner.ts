@@ -134,12 +134,12 @@ class VrmRunner implements RuntimeCommandHost {
     };
     this._onControlsEnd = () => {
       this.cameraController.captureControlsTransform();
-      if (this.cameraController.mode === 'constrained') this.notifyCameraChanged(true);
+      this.notifyCameraChanged(true);
     };
     this.initScene();
     this.pointerController = new RuntimePointerController({
       camera: this.cameraController,
-      getControlsTarget: () => this.controls.target,
+      getPanOffset: () => this.cameraController.getPanOffset(),
       getModelHeight: () => this.modelBoundingHeight || 1.6,
       hasModel: () => Boolean(this.currentVrm),
       getViewport: () => ({ width: window.innerWidth, height: window.innerHeight }),

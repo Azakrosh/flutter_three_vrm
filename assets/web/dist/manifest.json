@@ -3,8 +3,8 @@
   "runtimeVersion": "0.2.0-dev.1",
   "protocolVersion": 3,
   "entrypoint": "vrm-runtime.js",
-  "bytes": 882718,
-  "sha256": "8a90289972f9dea99f930a032544573ce8a06f4b448db299cec9f33424f2592e",
+  "bytes": 885753,
+  "sha256": "7b86925e215df08055363eb2a0a3e94e476f2420d6a2dd2be72abaa1762a4874",
   "dependencies": {
     "@pixiv/three-vrm": "3.5.5",
     "@pixiv/three-vrm-animation": "3.5.5",

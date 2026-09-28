@@ -1,5 +1,5 @@
 import type { VRM, VRMSpringBoneManager } from "@pixiv/three-vrm";
-import { Group, Object3D, PerspectiveCamera, Vector3 } from "three";
+import { Group, Object3D, PerspectiveCamera, Vector2, Vector3 } from "three";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -51,13 +51,17 @@ describe("runtime camera controller", () => {
 
     expect(vrm.scene.position.toArray()).toEqual([0, 0, 0]);
     expect(resetSpringBones).toHaveBeenCalledOnce();
-    expect(controls.target.x).toBeCloseTo(0);
-    expect(controls.target.y).toBeCloseTo(0.825);
-    expect(camera.position.x).toBeCloseTo(0);
-    expect(camera.position.y).toBeCloseTo(0.825);
+    // The orbit pivot comes from the torso, not from asymmetric extremities.
+    expect(controls.target.toArray()).toEqual([
+      expect.closeTo(0.03),
+      expect.closeTo(1.05),
+      expect.closeTo(0.01),
+    ]);
+    expect(camera.position.x).toBeCloseTo(0.03);
+    expect(camera.position.y).toBeCloseTo(1.05);
     expect(controller.getTransform()).toMatchObject({
-      x: -0,
-      y: expect.closeTo(0.125),
+      x: 0,
+      y: 0,
     });
     expect(controller.getTransform().zoom).toBeGreaterThan(1);
     expect(controls.enabled).toBe(true);
@@ -80,11 +84,12 @@ describe("runtime camera controller", () => {
     expect(controller.hasCustomTransform).toBe(false);
     expect(controls.enabled).toBe(false);
     controller.updateAnimation(5.5);
-    expect(camera.position.y).toBeGreaterThan(0.85);
-    expect(camera.position.y).toBeLessThan(0.95);
+    expect(camera.position.y).toBeGreaterThan(0.95);
+    expect(camera.position.y).toBeLessThan(1.05);
     controller.updateAnimation(6);
     expect(controls.enabled).toBe(true);
-    expect(controls.target.y).toBeCloseTo(0.825);
+    expect(controls.target.y).toBeCloseTo(1.05);
+    expect(controller.getTransform()).toMatchObject({ x: 0, y: 0 });
 
     expect(() => controller.setTransform({ x: 0, y: 0, zoom: 0 })).toThrow(
       "must be positive",
@@ -107,46 +112,71 @@ describe("runtime camera controller", () => {
       deltaY: -50,
       viewportWidth: 1000,
       viewportHeight: 500,
-      startTarget: controls.target.clone(),
+      startPan: new Vector2(),
       modelHeight: 1.6,
     });
     expect(controller.hasCustomTransform).toBe(true);
     const initialTarget = controls.target.clone();
+    const initialPosition = camera.position.clone();
     controller.updatePanFollowing(1 / 60);
-    expect(controls.target.equals(initialTarget)).toBe(false);
-    expect(camera.position.x).toBeCloseTo(controls.target.x);
+    expect(controls.target.equals(initialTarget)).toBe(true);
+    expect(camera.position.equals(initialPosition)).toBe(true);
+    expect(camera.view?.enabled).toBe(true);
+    expect(controller.getTransform().x).toBeGreaterThan(0);
+    expect(controller.getTransform().y).toBeGreaterThan(0);
   });
 
-  it("does not oppose free pan and tracks subsequent control changes", () => {
+  it("keeps the torso pivot stable after free pan and rotation", () => {
     const camera = createCamera();
     const controls = createControls(camera);
     const controller = new RuntimeCameraController(camera, controls);
+    const { vrm } = createVrm();
 
+    controller.frameAvatar(vrm, 0, 0, true);
     controller.setMode("free");
-    controls.target.set(0.3, 1.2, -0.1);
-    camera.position.set(0.3, 1.2, 2);
-    const firstTarget = controls.target.clone();
-    const firstPosition = camera.position.clone();
+    const pivot = controls.target.clone();
+    const prePanPosition = camera.position.clone();
+    const nativePan = new Vector3(0.3, 0.25, 0);
+    controls.target.add(nativePan);
+    camera.position.add(nativePan);
 
     controller.updatePanFollowing(1 / 60);
 
-    expect(controls.target.equals(firstTarget)).toBe(true);
-    expect(camera.position.equals(firstPosition)).toBe(true);
-    expect(controller.getTransform()).toMatchObject({
-      x: -0.3,
-      y: -0.25,
-    });
+    expect(controls.target.toArray()).toEqual(pivot.toArray());
+    expect(camera.position.x).toBeCloseTo(prePanPosition.x);
+    expect(camera.position.y).toBeCloseTo(prePanPosition.y);
+    expect(camera.position.z).toBeCloseTo(prePanPosition.z);
+    expect(controller.getTransform().x).toBeCloseTo(-0.3);
+    expect(controller.getTransform().y).toBeCloseTo(-0.25);
+    expect(camera.view?.enabled).toBe(true);
 
-    // A later OrbitControls change must be captured without pulling it back.
-    controls.target.set(0.42, 1.1, -0.1);
-    camera.position.set(0.42, 1.1, 2.2);
+    // A later orbit changes only the camera position. The torso remains the
+    // target and the independent screen-space pan is retained.
+    camera.position.set(pivot.x + 1.4, pivot.y + 0.2, pivot.z);
     controller.updatePanFollowing(1 / 60);
 
-    expect(controls.target.toArray()).toEqual([0.42, 1.1, -0.1]);
-    expect(camera.position.toArray()).toEqual([0.42, 1.1, 2.2]);
+    expect(controls.target.toArray()).toEqual(pivot.toArray());
+    expect(controller.getTransform().x).toBeCloseTo(-0.3);
+    expect(controller.getTransform().y).toBeCloseTo(-0.25);
+  });
+
+  it("reanchors a transform restored before model framing", () => {
+    const camera = createCamera();
+    const controls = createControls(camera);
+    const controller = new RuntimeCameraController(camera, controls);
+    const { vrm } = createVrm();
+
+    controller.setTransform({ x: 0.2, y: -0.1, zoom: 1.4 });
+    controller.frameAvatar(vrm, 0, 0, true);
+
+    expect(controls.target.x).toBeCloseTo(0.03);
+    expect(controls.target.y).toBeCloseTo(1.05);
+    expect(controls.target.z).toBeCloseTo(0.01);
+    expect(camera.position.distanceTo(controls.target)).toBeCloseTo(1.4);
     expect(controller.getTransform()).toMatchObject({
-      x: -0.42,
-      y: expect.closeTo(-0.15),
+      x: 0.2,
+      y: -0.1,
+      zoom: expect.closeTo(1.4),
     });
   });
 });
@@ -183,9 +213,18 @@ function createVrm(): {
   resetSpringBones: ReturnType<typeof vi.fn>;
 } {
   const scene = new Group();
+  const hips = new Object3D();
+  hips.position.set(0.08, 0.9, 0.03);
+  scene.add(hips);
+  const upperChest = new Object3D();
+  upperChest.position.set(-0.02, 1.2, -0.01);
+  scene.add(upperChest);
   const head = new Object3D();
   head.position.y = 1.5;
   scene.add(head);
+  const leftHand = new Object3D();
+  leftHand.position.set(-1.4, 1.3, 0);
+  scene.add(leftHand);
   const resetSpringBones = vi.fn();
   const springBoneManager = {
     reset: resetSpringBones,
@@ -193,7 +232,12 @@ function createVrm(): {
   const vrm = {
     scene,
     humanoid: {
-      getNormalizedBoneNode: (name: string) => name === "head" ? head : null,
+      getNormalizedBoneNode: (name: string) => ({
+        hips,
+        upperChest,
+        head,
+        leftHand,
+      })[name] ?? null,
       getRawBoneNode: () => null,
     },
     springBoneManager,
