@@ -188,6 +188,36 @@ terminal state через официальный Firebase Testing API. Макс�
 первом failed matrix, поэтому успешное завершение означает, что все запрошенные
 прогоны прошли.
 
+## Evidence artifacts
+
+После успешного matrix скрипт автоматически находит в GCS ровно один `logcat`
+и один `test_result_*.xml`, скачивает их и создаёт рядом с run record:
+
+```text
+.dart_tool/firebase-soak-runs/<label>-<matrix-id>/
+  evidence.json
+  evidence.md
+  junit.xml
+  logcat.txt
+```
+
+`evidence.json` содержит JUnit summary и типизированные значения всех четырёх
+фаз `runtime_soak_load`, `runtime_soak_steady`, `runtime_soak_host` и
+`runtime_soak_pressure`. Экспорт считается успешным, только если:
+
+- matrix и JUnit завершились успешно;
+- duration и число load cycles совпадают с APK manifest;
+- loaded/unloaded texture samples имеют ожидаемую длину и стабильный baseline;
+- recovery-профиль после инъекции продолжил health, speech и motion, сохранил
+  модель и не получил context loss.
+
+RSS peak и slopes включаются в профиль, но намеренно не являются одиночным
+pass/fail порогом: Android RSS зависит от устройства и системной reclamation.
+Они предназначены для сравнения повторов одной сборки. Если telemetry schema
+неполна или изменилась, строгий parser завершает запуск ошибкой вместо создания
+частичного отчёта. Абсолютные пути evidence также атомарно добавляются в run
+record.
+
 ## Критерии приёмки
 
 В рекомендуемом тройном pre-release gate каждый прогон должен удовлетворять

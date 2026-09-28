@@ -595,9 +595,16 @@ execution из-за исчерпанной test quota и сохранён как
 `INVALID/TEST_QUOTA_EXCEEDED`. Failure-path не маскируется и остаётся nonzero.
 Offline regression test покрывает exact/fallback/ambiguous matrix IDs, terminal
 states, нормализацию execution/artifact metadata и атомарную JSON-запись; он
-выполняется в Windows CI вместе с parser-check.
-Следующий срез — автоматическое извлечение JUnit и `runtime_soak_*` из GCS в
-единый evidence report.
+выполняется в Windows CI вместе с parser-check. Третий срез автоматически
+скачивает JUnit/logcat успешной matrix, строго разбирает четыре
+`runtime_soak_*` фазы и создаёт schema-v1 `evidence.json` и читаемый
+`evidence.md`. Gate проверяет matrix/JUnit, duration/cycles, texture baseline и
+post-pressure recovery; RSS peak/slopes сохраняются как сравнительный профиль,
+но не превращены в универсальный порог. Offline-тесты покрывают валидный отчёт,
+texture drift и отсутствие обязательной фазы. End-to-end экспорт проверен на
+реальных GCS artifacts `matrix-36hq9syottrov`: все пять evidence checks прошли.
+Следующий срез — агрегировать repeat evidence и сравнивать запуски одной сборки
+по межпрогонным инвариантам без ложных device-independent FPS/RSS thresholds.
 
 ## 7. Правила обновления roadmap
 

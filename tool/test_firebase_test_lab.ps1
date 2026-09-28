@@ -1,6 +1,7 @@
 $ErrorActionPreference = 'Stop'
 
 . (Join-Path $PSScriptRoot 'firebase_test_lab.ps1')
+. (Join-Path $PSScriptRoot 'firebase_soak_evidence.ps1')
 
 function Assert-Equal {
   param(
@@ -131,6 +132,61 @@ try {
   Assert-Equal -Actual $saved.matrixId -Expected 'matrix-sample123' -Message 'Saved matrix mismatch.'
   if (Test-Path -LiteralPath "$recordPath.tmp") {
     throw 'Atomic writer left a temporary file behind.'
+  }
+
+  $logcatPath = Join-Path $temporaryRoot 'logcat.txt'
+  $junitPath = Join-Path $temporaryRoot 'junit.xml'
+  $logcat = @'
+09-27 18:35:00.000 I flutter : runtime_soak_load: loads=3, samples=3, frameP50Max=3925.5ms, frameP95Max=3925.5ms
+09-27 18:35:01.000 I flutter : runtime_soak_steady: duration=30s, loads=3, samples=13, fps=28.8-31.5 (avg=30.8), frameP50Max=33.0ms, frameP95Max=53.6ms, longFrames=6/399, longestFrameMax=71.1ms, longFrameSources=none,externalScheduling, updateP95Max=16.5ms, renderP95Max=22.3ms, adaptiveDecisions=collectingFast,stable,atMaximum, pixelRatio=1.00-1.00, textures=28,28,28/0,0,0, modelTextureBytes=96818517, modelTextureMiB=92.3, loadMs=1043.4,1015.0,643.6/953.4
+09-27 18:35:02.000 I flutter : runtime_soak_host: rssStartEndMiB=298.5-417.4, rssDeltaMiB=118.9, rssLoadedMiB=663.4,647.3,633.9,510.6, rssUnloadedMiB=522.9,511.5,527.8,417.4, rssSampledPeakMiB=663.4, rssLoadedSlopeMiBPerCycle=-68.34, rssUnloadedSlopeMiBPerCycle=-47.03, maxRssMiB=668.1, memoryPressure=4, thermal=none
+09-27 18:35:03.000 I flutter : runtime_soak_pressure: injected=true, observed=4, postPressureHealth=15, postPressureAmplitudeBatches=30, postPressureMotionTransitions=6, modelLoadedAfterPressure=true, contextLossAfterPressure=0
+'@
+  $junit = @'
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites tests="1" failures="0" errors="0" skipped="0" time="30.223">
+  <testsuite name="instrumentation" tests="1" failures="0" errors="0" skipped="0" time="30.223">
+    <testcase name="profiles Android rendering and keeps resources bounded" classname="MainActivityTest" time="30.223" />
+  </testsuite>
+</testsuites>
+'@
+  [IO.File]::WriteAllText($logcatPath, $logcat, [Text.UTF8Encoding]::new($false))
+  [IO.File]::WriteAllText($junitPath, $junit, [Text.UTF8Encoding]::new($false))
+
+  $evidence = New-FirebaseSoakEvidence `
+    -RunRecord $record `
+    -LogcatPath $logcatPath `
+    -JunitPath $junitPath
+  Assert-Equal -Actual $evidence.allPassed -Expected $true -Message 'Valid evidence failed.'
+  Assert-Equal -Actual $evidence.telemetry.steady.fpsAverage -Expected 30.8 -Message 'FPS parsing mismatch.'
+  Assert-Equal -Actual $evidence.telemetry.host.rssLoadedSlopeMiBPerCycle -Expected (-68.34) -Message 'RSS slope parsing mismatch.'
+  Assert-Equal -Actual $evidence.checks.pressureRecoveryPassed -Expected $true -Message 'Pressure recovery mismatch.'
+  $markdown = ConvertTo-FirebaseSoakMarkdown -Evidence $evidence
+  if ($markdown -notmatch 'matrix-sample123' -or $markdown -notmatch 'textureBaselineStable') {
+    throw 'Evidence Markdown omitted required identity or checks.'
+  }
+
+  $unstableLogcatPath = Join-Path $temporaryRoot 'unstable-logcat.txt'
+  [IO.File]::WriteAllText(
+    $unstableLogcatPath,
+    $logcat.Replace('textures=28,28,28/0,0,0', 'textures=28,31,35/0,0,0'),
+    [Text.UTF8Encoding]::new($false)
+  )
+  $unstableEvidence = New-FirebaseSoakEvidence `
+    -RunRecord $record `
+    -LogcatPath $unstableLogcatPath `
+    -JunitPath $junitPath
+  Assert-Equal -Actual $unstableEvidence.allPassed -Expected $false -Message 'Unstable textures were accepted.'
+  Assert-Equal -Actual $unstableEvidence.checks.textureBaselineStable -Expected $false -Message 'Texture regression was not identified.'
+
+  try {
+    ConvertFrom-SoakTelemetryLines -Lines @($logcat -split "`r?`n" | Where-Object { $_ -notmatch 'runtime_soak_pressure:' }) | Out-Null
+    throw 'Incomplete telemetry was accepted.'
+  }
+  catch {
+    if ($_.Exception.Message -notmatch 'runtime_soak_pressure') {
+      throw
+    }
   }
 }
 finally {

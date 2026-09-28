@@ -21,6 +21,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 . (Join-Path $PSScriptRoot 'firebase_test_lab.ps1')
+. (Join-Path $PSScriptRoot 'firebase_soak_evidence.ps1')
 
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $exampleRoot = Join-Path $repositoryRoot 'example'
@@ -339,5 +340,13 @@ for ($run = 1; $run -le $RepeatCount; $run += 1) {
   if ($matrix.state -ne 'FINISHED' -or $matrix.outcomeSummary -ne 'SUCCESS') {
     throw "Firebase Test Lab matrix $matrixId finished with state $($matrix.state) and outcome $($matrix.outcomeSummary)."
   }
+  $evidenceDirectory = Join-Path $RunRecordsDirectory "$safeRecordLabel-$matrixId"
+  $evidenceReference = Export-FirebaseSoakEvidence `
+    -GcloudExecutable $gcloud.Source `
+    -RunRecord $record `
+    -OutputDirectory $evidenceDirectory
+  $record['evidence'] = $evidenceReference
+  Write-AtomicJson -Path $runRecordPath -Value $record
+  Write-Host "Wrote Firebase soak evidence: $($evidenceReference.markdown)"
   Write-Host "Firebase Test Lab matrix $matrixId passed."
 }
