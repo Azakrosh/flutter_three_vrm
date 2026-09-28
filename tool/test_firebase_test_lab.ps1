@@ -179,6 +179,43 @@ try {
   Assert-Equal -Actual $unstableEvidence.allPassed -Expected $false -Message 'Unstable textures were accepted.'
   Assert-Equal -Actual $unstableEvidence.checks.textureBaselineStable -Expected $false -Message 'Texture regression was not identified.'
 
+  $secondRecord = ($record | ConvertTo-Json -Depth 10 | ConvertFrom-Json)
+  $secondRecord.runIndex = 2
+  $secondRecord.matrixId = 'matrix-sample456'
+  $secondEvidence = New-FirebaseSoakEvidence `
+    -RunRecord $secondRecord `
+    -LogcatPath $logcatPath `
+    -JunitPath $junitPath
+  $comparison = New-FirebaseSoakComparison -Evidence @($evidence, $secondEvidence)
+  Assert-Equal -Actual $comparison.allPassed -Expected $true -Message 'Valid repeat comparison failed.'
+  Assert-Equal -Actual $comparison.checks.repeatSetComplete -Expected $true -Message 'Complete repeat set was rejected.'
+  Assert-Equal -Actual $comparison.metrics.fpsAverage.values.Count -Expected 2 -Message 'Repeat metrics were not retained.'
+
+  $evidencePath1 = Join-Path $temporaryRoot 'evidence-1.json'
+  $evidencePath2 = Join-Path $temporaryRoot 'evidence-2.json'
+  $comparisonJsonPath = Join-Path $temporaryRoot 'comparison.json'
+  $comparisonMarkdownPath = Join-Path $temporaryRoot 'comparison.md'
+  Write-AtomicJson -Path $evidencePath1 -Value $evidence
+  Write-AtomicJson -Path $evidencePath2 -Value $secondEvidence
+  Export-FirebaseSoakComparison `
+    -EvidencePaths @($evidencePath1, $evidencePath2) `
+    -JsonPath $comparisonJsonPath `
+    -MarkdownPath $comparisonMarkdownPath | Out-Null
+  if (-not (Test-Path -LiteralPath $comparisonJsonPath -PathType Leaf) -or
+      -not (Test-Path -LiteralPath $comparisonMarkdownPath -PathType Leaf)) {
+    throw 'Repeat comparison artifacts were not written.'
+  }
+
+  $mismatchedRecord = ($secondRecord | ConvertTo-Json -Depth 10 | ConvertFrom-Json)
+  $mismatchedRecord.artifacts.appApk.sha256 = 'DIFFERENT_APP_HASH'
+  $mismatchedEvidence = New-FirebaseSoakEvidence `
+    -RunRecord $mismatchedRecord `
+    -LogcatPath $logcatPath `
+    -JunitPath $junitPath
+  $mismatchedComparison = New-FirebaseSoakComparison -Evidence @($evidence, $mismatchedEvidence)
+  Assert-Equal -Actual $mismatchedComparison.allPassed -Expected $false -Message 'Mismatched APKs were accepted.'
+  Assert-Equal -Actual $mismatchedComparison.checks.artifactIdentityMatches -Expected $false -Message 'APK mismatch was not identified.'
+
   try {
     ConvertFrom-SoakTelemetryLines -Lines @($logcat -split "`r?`n" | Where-Object { $_ -notmatch 'runtime_soak_pressure:' }) | Out-Null
     throw 'Incomplete telemetry was accepted.'

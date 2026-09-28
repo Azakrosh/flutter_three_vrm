@@ -15,7 +15,7 @@
 | TypeScript | `corepack pnpm typecheck` | Строгий runtime contract |
 | Protocol | `corepack pnpm verify:contract` | Совпадение команд и событий protocol v3 |
 | Embedded bundle | `corepack pnpm build && corepack pnpm verify:build` | Воспроизводимый bundle и checksum manifest |
-| Firebase tooling | `tool/test_firebase_test_lab.ps1` + `run_firebase_soak.ps1 -ValidateArtifactsOnly ...` | Matrix ID/state normalization, atomic run records, APK manifest и строгий JUnit/`runtime_soak_*` evidence parser с negative cases |
+| Firebase tooling | `tool/test_firebase_test_lab.ps1` + `run_firebase_soak.ps1 -ValidateArtifactsOnly ...` | Matrix state/records, APK manifest, строгий JUnit/`runtime_soak_*` evidence parser и repeat comparison с negative cases |
 
 Команды `pnpm` выполняются из каталога `web`.
 

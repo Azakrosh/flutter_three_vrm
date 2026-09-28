@@ -218,6 +218,22 @@ pass/fail порогом: Android RSS зависит от устройства �
 частичного отчёта. Абсолютные пути evidence также атомарно добавляются в run
 record.
 
+При `-RepeatCount 2` или больше после индивидуальных отчётов дополнительно
+создаются:
+
+```text
+.dart_tool/firebase-soak-runs/<label>-comparison.json
+.dart_tool/firebase-soak-runs/<label>-comparison.md
+```
+
+Comparison требует полный и уникальный набор `runIndex`, успешный individual
+evidence для каждого запуска, одинаковые app/test APK hashes, профиль,
+устройство, model texture footprint и texture baseline. Таблица сохраняет FPS,
+frame p95, RSS peak/max и loaded/unloaded slopes каждого запуска вместе с
+min/max/average/spread. Эти числовые различия наблюдаемы, но сами по себе не
+блокируют gate: pass/fail основан на идентичности эксперимента и ресурсных
+инвариантах, а не на переносе случайного порога между устройствами.
+
 ## Критерии приёмки
 
 В рекомендуемом тройном pre-release gate каждый прогон должен удовлетворять

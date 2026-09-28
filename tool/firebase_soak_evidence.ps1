@@ -307,6 +307,170 @@ function Write-AtomicUtf8Text {
   Move-Item -LiteralPath $temporaryPath -Destination $Path -Force
 }
 
+function New-SoakMetricSummary {
+  param([Parameter(Mandatory = $true)][double[]]$Values)
+
+  $measure = $Values | Measure-Object -Minimum -Maximum -Average
+  return [ordered]@{
+    minimum = [double]$measure.Minimum
+    maximum = [double]$measure.Maximum
+    average = [double]$measure.Average
+    spread = [double]$measure.Maximum - [double]$measure.Minimum
+    values = @($Values)
+  }
+}
+
+function New-FirebaseSoakComparison {
+  [CmdletBinding()]
+  param([Parameter(Mandatory = $true)][object[]]$Evidence)
+
+  if ($Evidence.Count -lt 2) {
+    throw 'At least two evidence reports are required for repeat comparison.'
+  }
+  $orderedEvidence = @($Evidence | Sort-Object { [int]$_.run.runIndex })
+  $expectedCounts = @($orderedEvidence | ForEach-Object { [int]$_.run.runCount } | Select-Object -Unique)
+  $expectedCount = if ($expectedCounts.Count -eq 1) { $expectedCounts[0] } else { -1 }
+  $expectedIndexes = if ($expectedCount -gt 0) { @(1..$expectedCount) } else { @() }
+  $actualIndexes = @($orderedEvidence | ForEach-Object { [int]$_.run.runIndex })
+  $matrixIds = @($orderedEvidence | ForEach-Object { $_.run.matrixId })
+  $artifactSignatures = @(
+    $orderedEvidence | ForEach-Object {
+      '{0}|{1}|{2}|{3}|{4}|{5}' -f
+        $_.run.artifacts.appApk.sha256,
+        $_.run.artifacts.testApk.sha256,
+        $_.run.artifacts.soakSeconds,
+        $_.run.artifacts.loadCycles,
+        $_.run.artifacts.injectMemoryPressure,
+        $_.run.artifacts.targetPlatform
+    } | Select-Object -Unique
+  )
+  $environmentSignatures = @(
+    $orderedEvidence | ForEach-Object {
+      '{0}|{1}|{2}|{3}' -f
+        $_.run.requestedDevice.model,
+        $_.run.requestedDevice.osVersion,
+        $_.run.requestedDevice.locale,
+        $_.run.requestedDevice.orientation
+    } | Select-Object -Unique
+  )
+  $textureSignatures = @(
+    $orderedEvidence | ForEach-Object {
+      '{0}/{1}' -f
+        ($_.telemetry.steady.loadedTextureCounts -join ','),
+        ($_.telemetry.steady.unloadedTextureCounts -join ',')
+    } | Select-Object -Unique
+  )
+  $modelTextureBytes = @(
+    $orderedEvidence | ForEach-Object { [long]$_.telemetry.steady.modelTextureBytes } | Select-Object -Unique
+  )
+  $checks = [ordered]@{
+    allEvidencePassed = -not (@($orderedEvidence | Where-Object { -not $_.allPassed }).Count -gt 0)
+    repeatSetComplete = $expectedCount -eq $orderedEvidence.Count -and
+      ($actualIndexes -join ',') -eq ($expectedIndexes -join ',') -and
+      (@($matrixIds | Select-Object -Unique).Count -eq $orderedEvidence.Count)
+    artifactIdentityMatches = $artifactSignatures.Count -eq 1
+    environmentMatches = $environmentSignatures.Count -eq 1
+    modelFootprintMatches = $modelTextureBytes.Count -eq 1
+    textureBaselineMatches = $textureSignatures.Count -eq 1
+  }
+  return [ordered]@{
+    schemaVersion = 1
+    generatedAtUtc = [DateTime]::UtcNow.ToString('o')
+    runCount = $orderedEvidence.Count
+    checks = $checks
+    allPassed = -not (@($checks.Values) -contains $false)
+    identity = [ordered]@{
+      appApkSha256 = $orderedEvidence[0].run.artifacts.appApk.sha256
+      testApkSha256 = $orderedEvidence[0].run.artifacts.testApk.sha256
+      deviceModel = $orderedEvidence[0].run.requestedDevice.model
+      osVersion = $orderedEvidence[0].run.requestedDevice.osVersion
+      soakSeconds = [int]$orderedEvidence[0].run.artifacts.soakSeconds
+      loadCycles = [int]$orderedEvidence[0].run.artifacts.loadCycles
+      injectMemoryPressure = [bool]$orderedEvidence[0].run.artifacts.injectMemoryPressure
+    }
+    metrics = [ordered]@{
+      fpsAverage = New-SoakMetricSummary @($orderedEvidence | ForEach-Object { [double]$_.telemetry.steady.fpsAverage })
+      frameP95MaxMs = New-SoakMetricSummary @($orderedEvidence | ForEach-Object { [double]$_.telemetry.steady.frameP95MaxMs })
+      rssSampledPeakMiB = New-SoakMetricSummary @($orderedEvidence | ForEach-Object { [double]$_.telemetry.host.rssSampledPeakMiB })
+      maxRssMiB = New-SoakMetricSummary @($orderedEvidence | ForEach-Object { [double]$_.telemetry.host.maxRssMiB })
+      rssLoadedSlopeMiBPerCycle = New-SoakMetricSummary @($orderedEvidence | ForEach-Object { [double]$_.telemetry.host.rssLoadedSlopeMiBPerCycle })
+      rssUnloadedSlopeMiBPerCycle = New-SoakMetricSummary @($orderedEvidence | ForEach-Object { [double]$_.telemetry.host.rssUnloadedSlopeMiBPerCycle })
+    }
+    runs = @(
+      $orderedEvidence | ForEach-Object {
+        [ordered]@{
+          runIndex = [int]$_.run.runIndex
+          matrixId = $_.run.matrixId
+          fpsAverage = [double]$_.telemetry.steady.fpsAverage
+          frameP95MaxMs = [double]$_.telemetry.steady.frameP95MaxMs
+          rssSampledPeakMiB = [double]$_.telemetry.host.rssSampledPeakMiB
+          maxRssMiB = [double]$_.telemetry.host.maxRssMiB
+          rssLoadedSlopeMiBPerCycle = [double]$_.telemetry.host.rssLoadedSlopeMiBPerCycle
+          rssUnloadedSlopeMiBPerCycle = [double]$_.telemetry.host.rssUnloadedSlopeMiBPerCycle
+        }
+      }
+    )
+  }
+}
+
+function ConvertTo-FirebaseSoakComparisonMarkdown {
+  [CmdletBinding()]
+  param([Parameter(Mandatory = $true)]$Comparison)
+
+  $lines = @(
+    '# Firebase soak repeat comparison',
+    '',
+    "- Runs: $($Comparison.runCount)",
+    "- Device: $($Comparison.identity.deviceModel) / Android $($Comparison.identity.osVersion)",
+    "- Profile: $($Comparison.identity.soakSeconds)s / $($Comparison.identity.loadCycles) cycles",
+    "- App APK SHA-256: $($Comparison.identity.appApkSha256)",
+    '',
+    '## Checks',
+    '',
+    '| Check | Result |',
+    '|---|---|'
+  )
+  foreach ($entry in $Comparison.checks.GetEnumerator()) {
+    $lines += "| $($entry.Key) | $($entry.Value) |"
+  }
+  $lines += @(
+    '',
+    '## Runs',
+    '',
+    '| Run | Matrix | FPS avg | Frame p95 max (ms) | RSS peak / max (MiB) | RSS slopes loaded / unloaded |',
+    '|---:|---|---:|---:|---:|---:|'
+  )
+  foreach ($run in $Comparison.runs) {
+    $lines += "| $($run.runIndex) | $($run.matrixId) | $($run.fpsAverage) | $($run.frameP95MaxMs) | $($run.rssSampledPeakMiB) / $($run.maxRssMiB) | $($run.rssLoadedSlopeMiBPerCycle) / $($run.rssUnloadedSlopeMiBPerCycle) |"
+  }
+  $lines += @('', "Overall: **$($Comparison.allPassed)**")
+  return $lines -join "`n"
+}
+
+function Export-FirebaseSoakComparison {
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory = $true)][string[]]$EvidencePaths,
+    [Parameter(Mandatory = $true)][string]$JsonPath,
+    [Parameter(Mandatory = $true)][string]$MarkdownPath
+  )
+
+  $reports = @(
+    foreach ($path in $EvidencePaths) {
+      Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
+    }
+  )
+  $comparison = New-FirebaseSoakComparison -Evidence $reports
+  Write-AtomicJson -Path $JsonPath -Value $comparison
+  Write-AtomicUtf8Text `
+    -Path $MarkdownPath `
+    -Value (ConvertTo-FirebaseSoakComparisonMarkdown -Comparison $comparison)
+  if (-not $comparison.allPassed) {
+    throw "Firebase soak repeat comparison failed: $JsonPath"
+  }
+  return $comparison
+}
+
 function Export-FirebaseSoakEvidence {
   [CmdletBinding()]
   param(

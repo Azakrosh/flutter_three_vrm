@@ -252,6 +252,7 @@ if ([string]::IsNullOrWhiteSpace($ResultsDirectory)) {
 if ([string]::IsNullOrWhiteSpace($RunRecordsDirectory)) {
   $RunRecordsDirectory = Join-Path $repositoryRoot '.dart_tool/firebase-soak-runs'
 }
+$evidencePaths = @()
 
 for ($run = 1; $run -le $RepeatCount; $run += 1) {
   $runResultsDirectory = if ($RepeatCount -eq 1) {
@@ -347,6 +348,18 @@ for ($run = 1; $run -le $RepeatCount; $run += 1) {
     -OutputDirectory $evidenceDirectory
   $record['evidence'] = $evidenceReference
   Write-AtomicJson -Path $runRecordPath -Value $record
+  $evidencePaths += $evidenceReference.json
   Write-Host "Wrote Firebase soak evidence: $($evidenceReference.markdown)"
   Write-Host "Firebase Test Lab matrix $matrixId passed."
+}
+
+if ($evidencePaths.Count -gt 1) {
+  $safeComparisonLabel = $ResultsDirectory -replace '[^a-zA-Z0-9._-]', '_'
+  $comparisonJsonPath = Join-Path $RunRecordsDirectory "$safeComparisonLabel-comparison.json"
+  $comparisonMarkdownPath = Join-Path $RunRecordsDirectory "$safeComparisonLabel-comparison.md"
+  Export-FirebaseSoakComparison `
+    -EvidencePaths $evidencePaths `
+    -JsonPath $comparisonJsonPath `
+    -MarkdownPath $comparisonMarkdownPath | Out-Null
+  Write-Host "Wrote Firebase soak repeat comparison: $comparisonMarkdownPath"
 }

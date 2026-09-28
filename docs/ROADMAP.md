@@ -70,7 +70,7 @@
 | 30 | Подготовка публикации | Отложено |
 | 31 | Android performance observability и управление нагрузкой по фазам | Выполнено |
 | 32 | Memory-pressure resilience и точность host diagnostics | Выполнено |
-| 33 | Воспроизводимые Firebase performance gates и evidence artifacts | В работе |
+| 33 | Воспроизводимые Firebase performance gates и evidence artifacts | Выполнено |
 
 ## 3. Состояние реализации
 
@@ -563,7 +563,7 @@ health checks, 30 amplitude batches и 6 Pose/VRMA-переходов; моде�
 
 ### Stage 33 — воспроизводимые Firebase gates и evidence artifacts
 
-Статус: в работе.
+Статус: выполнено.
 
 Цель: исключить неверную маркировку APK и ручные ошибки при повторных физических
 performance-прогонах, не добавляя Firebase-зависимости в публичный пакет.
@@ -603,8 +603,14 @@ post-pressure recovery; RSS peak/slopes сохраняются как сравн
 но не превращены в универсальный порог. Offline-тесты покрывают валидный отчёт,
 texture drift и отсутствие обязательной фазы. End-to-end экспорт проверен на
 реальных GCS artifacts `matrix-36hq9syottrov`: все пять evidence checks прошли.
-Следующий срез — агрегировать repeat evidence и сравнивать запуски одной сборки
-по межпрогонным инвариантам без ложных device-independent FPS/RSS thresholds.
+Финальный срез создаёт JSON/Markdown comparison для `RepeatCount > 1` и требует
+полный набор уникальных repeat indices, одинаковые APK/profile/device, model
+texture footprint и texture baseline. FPS, frame p95 и RSS metrics сохраняются
+с min/max/average/spread, но не используются как device-independent threshold.
+Offline coverage проверяет успешное сравнение, запись artifacts и отклонение
+подменённого APK hash. Все четыре пункта Stage 33 реализованы; новый тройной
+physical run остаётся операционным pre-release gate и будет выполнен после
+восстановления Firebase-квоты, а не незакрытой задачей архитектуры.
 
 ## 7. Правила обновления roadmap
 
