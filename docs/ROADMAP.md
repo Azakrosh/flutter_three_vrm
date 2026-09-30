@@ -74,6 +74,7 @@
 | 34 | Изоляция runtime-сессии от Flutter-представления | Выполнено |
 | 35 | Внутренняя декомпозиция `VrmController` | Выполнено |
 | 36 | Terminal semantics и диагностика transport bridge | Выполнено |
+| 37 | Детерминированный async teardown runtime-сессии | Выполнено |
 
 ## 3. Состояние реализации
 
@@ -139,11 +140,11 @@ WebView runtime
 
 ### Текущий размер и покрытие
 
-- Flutter library: 48 файлов, примерно 6970 строк;
+- Flutter library: 48 файлов, примерно 7010 строк;
 - web source: 35 файлов, примерно 6860 строк;
 - `runner.ts`: примерно 675 строк;
 - `VrmController`: примерно 910 строк;
-- Flutter unit tests: 130;
+- Flutter unit tests: 131;
 - web unit tests: 167;
 - integration matrix разделена на runtime/scene, motion/speech,
   lifecycle/recovery, model-race, resource-loading и performance soak gates.
@@ -212,18 +213,17 @@ malformed input публикуется в `onError`, а не теряется т
 
 ## 5. Текущее направление
 
-Stage 36 завершён: `VrmBridge` стал самостоятельным внутренним компонентом со
-строгой terminal-семантикой correlated responses, bounded late-response
-suppression и observable malformed-input errors. Публичный API и protocol v3
-не изменены; проходят 130 Flutter-тестов, `flutter analyze`, Windows
-runtime/recovery и runtime smoke gates.
+Stage 37 завершён: teardown runtime-сессии стал асинхронным, идемпотентным и
+упорядоченным. Recovery backoff отменяется немедленно; binding дожидается
+subscriptions и content host, после чего `VrmView` освобождает native WebView.
+Проходят 131 Flutter-тест, `flutter analyze`, Windows runtime/recovery и
+resource-loading gates.
 
-Stage 35 завершён и зафиксирован коммитом `ef57a75`: controller domains имеют
-явных внутренних владельцев при сохранении единого публичного facade.
+Stage 36 завершён и зафиксирован коммитом `4ff4bb7`: bridge обеспечивает
+terminal outcome для каждой correlated protocol-команды.
 
 Следующее направление выбирается после нового стабилизационного аудита.
 Публикация и обновление Three.js/three-vrm по-прежнему отложены.
-
 Сейчас не следует:
 
 - обновлять Three.js/three-vrm без отдельной причины;
@@ -794,6 +794,45 @@ gates повторно прошли 2026-09-30. Публичный API и protoc
 - malformed input без известной команды наблюдаем через `onError`;
 - timeout остаётся bounded и тестируется без двухминутного ожидания;
 - unit/analyze и Windows runtime gates проходят.
+
+### Stage 37 — детерминированный async teardown runtime-сессии
+
+Статус: выполнено.
+
+Цель: исключить гонку между закрытием controller binding/content host и
+уничтожением native WebView, а также не оставлять recovery backoff активным
+после dispose.
+
+Работы:
+
+1. Сделать `VrmRuntimeSessionCoordinator.dispose()` асинхронным и идемпотентным,
+   синхронно блокируя новые callbacks и возвращая единый cleanup Future.
+2. Сделать recovery delay отменяемой при dispose, успешной activation и
+   отключении recovery policy.
+3. Дождаться отмены controller/WebView subscriptions и закрытия content host до
+   окончательного `VrmWebViewAdapter.dispose()`.
+4. Гарантировать освобождение WebView даже при ошибке session/content-host
+   teardown, не создавая необработанный async exception после widget dispose.
+5. Покрыть delayed recovery и delayed content-host close regression-тестами и
+   повторить Windows recovery/resource-loading gates.
+
+Этап завершён. Coordinator немедленно отменяет даже минутный recovery delay и
+возвращает один Future для повторных dispose-вызовов. Binding test подтверждает,
+что cleanup Future не завершается до асинхронного `contentHost.close()`, а
+`VrmView` освобождает native WebView после session cleanup. Всего проходят 131
+Flutter-тест и `flutter analyze`; Windows runtime/recovery и resource-loading
+gates повторно прошли 2026-09-30. Публичный API и protocol v3 не изменены.
+Реализация зафиксирована коммитом `9453052`.
+
+Критерии готовности:
+
+- dispose немедленно запрещает новые session callbacks;
+- повторные dispose-вызовы разделяют один cleanup Future;
+- recovery delay не переживает teardown и не задерживает его до backoff timeout;
+- content host и subscriptions закрываются до окончательного WebView disposal;
+- ошибка одного teardown-шага не оставляет native WebView неосвобождённым;
+- unit/analyze и Windows recovery/resource-loading gates проходят.
+
 ## 7. Правила обновления roadmap
 
 - После этапа обновлять его статус и добавлять commit hash.

@@ -2,7 +2,8 @@
 
 Этот документ фиксирует контракт восстановления между Flutter-приложением,
 пакетом и WebView runtime. Он создан в Stage 27 и актуализирован после изоляции
-runtime-сессии в Stage 34 и декомпозиции controller responsibilities в Stage 35.
+runtime-сессии в Stage 34, декомпозиции controller responsibilities в Stage 35
+и детерминированного teardown в Stage 37.
 
 ## Владельцы состояния
 
@@ -53,6 +54,12 @@ session и передаёт runtime следующую монотонную inpu
 Ошибка шага останавливает оставшийся replay и публикуется через error stream.
 Dispose и reload инвалидируют generation, pending bridge-команды и transient
 model/speech state.
+
+Dispose runtime-сессии синхронно запрещает новые callbacks и возвращает
+идемпотентный cleanup Future. Recovery delay отменяется без ожидания backoff;
+затем binding дожидается отмены subscriptions и `contentHost.close()`. Native
+WebView освобождается после session cleanup и освобождается даже при ошибке
+одного из предыдущих teardown-шагов.
 
 ## Lifecycle pause
 
@@ -105,7 +112,7 @@ runtime уже загружена.
 - `vrm_avatar_control_dispatcher_test.dart` — pose serialization, mouth
   ownership/revisions, face validation и latest-value gaze transport;
 - `vrm_animation_queue_snapshot_test.dart` — transition race и resume после model;
-- `vrm_runtime_session_coordinator_test.dart` — generation, ordered replay, bounded recovery и camera snapshot;
+- `vrm_runtime_session_coordinator_test.dart` — generation, ordered replay, bounded recovery, cancelable teardown и camera snapshot;
 - `vrm_runtime_controller_binding_test.dart` — rebind, transport/content-host ownership и teardown;
 - `vrm_render_lifecycle_coordinator_test.dart` — Android/Windows pause policy;
 - `vrm_controller_dispose_test.dart` — все публичные controller mutations.
