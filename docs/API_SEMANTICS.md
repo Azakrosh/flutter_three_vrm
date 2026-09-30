@@ -12,8 +12,9 @@ replay и полный список владельцев состояния на
 - `onCreated` вызывается при каждой новой runtime-сессии, в том числе после
   recovery/reload. Здесь приложение повторно загружает авторизованную модель и
   принадлежащее ему model-dependent состояние.
-- `VrmView` владеет WebView и loopback content host. Приложение владеет
-  controller, subscriptions, animation queue и speech handles.
+- `VrmView` владеет WebView surface. Внутренний runtime-session owner владеет
+  transport, controller/WebView subscriptions и loopback content host. Приложение
+  владеет controller, своими subscriptions, animation queue и speech handles.
 - После `VrmController.dispose()` новые mutating-команды завершаются
   `StateError`. Каждый `VrmAnimationQueue` тоже необходимо `dispose()`.
 

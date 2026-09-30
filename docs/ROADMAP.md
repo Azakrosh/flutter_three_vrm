@@ -1,8 +1,8 @@
 # План рефакторинга и развития flutter_three_vrm
 
 Статус: активный рабочий документ
-Дата аудита: 2026-09-27
-Проверенная база: `0c25de8 test: validate Android memory pressure recovery`
+Дата аудита: 2026-09-29
+Проверенная база: `aba8702 refactor: separate camera pan from avatar orbit pivot`
 Целевые платформы: Android и Windows; приоритет — Android
 
 ## 1. Откуда восстановлен первоначальный план
@@ -71,6 +71,8 @@
 | 31 | Android performance observability и управление нагрузкой по фазам | Выполнено |
 | 32 | Memory-pressure resilience и точность host diagnostics | Выполнено |
 | 33 | Воспроизводимые Firebase performance gates и evidence artifacts | Выполнено |
+| 34 | Изоляция runtime-сессии от Flutter-представления | Выполнено |
+| 35 | Внутренняя декомпозиция `VrmController` | Выполнено |
 
 ## 3. Состояние реализации
 
@@ -78,14 +80,22 @@
 
 ```text
 Flutter application
-  └─ VrmView                 lifecycle, WebView, recovery, desired configuration
-      └─ VrmController       публичный высокоуровневый API
-          ├─ _VrmBridge      protocol v3, correlation IDs, timeout, events
-          ├─ recovery state  replay generation, model/speech session ownership
-          ├─ content host    session loopback, opaque resources
-          └─ platform adapter
-               ├─ Android WebView
-               └─ Windows WebView2
+  └─ VrmView                         Flutter widget и привязка WebView
+      ├─ VrmRuntimeSessionCoordinator lifecycle, replay, recovery, camera snapshot
+      │   └─ VrmRuntimeControllerBinding subscriptions, transport, content-host lifetime
+      │       └─ content host        session loopback, opaque resources
+      ├─ VrmController               публичный высокоуровневый facade
+      │   ├─ _VrmBridge              protocol v3, correlation IDs, timeout, events
+      │   ├─ hosted resources        expose, dispatch, guaranteed release
+      │   ├─ animation dispatcher    validation, playback identity, commands
+      │   ├─ model dispatcher        transfer generation, cancel, unload
+      │   ├─ speech dispatcher       session identity, revisions, timelines
+      │   ├─ scene dispatcher        lighting, physics, wind, backgrounds
+      │   ├─ graphics dispatcher     renderer settings, performance query
+      │   └─ avatar dispatcher       pose, expressions, gaze, speech handoff
+      └─ platform adapter
+           ├─ Android WebView
+           └─ Windows WebView2
 
 WebView runtime
   └─ main.ts / protocol.ts
@@ -128,11 +138,11 @@ WebView runtime
 
 ### Текущий размер и покрытие
 
-- Flutter library: 36 файлов, примерно 6340 строк;
-- web source: 35 файлов, примерно 7090 строк;
+- Flutter library: 48 файлов, примерно 6940 строк;
+- web source: 35 файлов, примерно 6860 строк;
 - `runner.ts`: примерно 675 строк;
-- `VrmController`: примерно 1430 строк;
-- Flutter unit tests: 86;
+- `VrmController`: примерно 910 строк;
+- Flutter unit tests: 125;
 - web unit tests: 167;
 - integration matrix разделена на runtime/scene, motion/speech,
   lifecycle/recovery, model-race, resource-loading и performance soak gates.
@@ -178,12 +188,12 @@ steady-state профиль отдельно. Физический gate на mot
 FPS limiter на 90-Гц cadence. Тройные повторения остаются pre-release gate, но
 второй производитель и одинаковая сборка теперь проверены.
 
-### P2 — крупный публичный controller
+### Закрыто в Stage 35 — крупный публичный controller
 
-Web runtime уже разделён на специализированные controllers, но
-`VrmController` остаётся крупным публичным facade. Разделять его следует только
-внутренне и только при изменении затронутой области, без расширения API ради
-самого рефакторинга.
+`VrmController` сохранён единым публичным facade, но resource/model/animation,
+speech, scene/graphics и avatar-control обязанности вынесены во внутренние
+компоненты с явными границами владения. В controller осталась междоменная
+координация, публичные события, runtime lifetime и camera recovery.
 
 ### P2 — публикационная готовность отложена
 
@@ -193,22 +203,29 @@ Web runtime уже разделён на специализированные co
 
 ## 5. Текущее направление
 
-Ближайшее направление: **воспроизводимые Firebase performance gates и
-машиночитаемые evidence artifacts без изменения runtime API**.
+Stage 35 завершён: hosted-resource, animation, model, speech, scene/graphics и
+avatar-control pipelines вынесены из `VrmController` в отдельные внутренние
+компоненты. Публичный API и protocol v3 не изменены; 125 Flutter-тестов,
+`flutter analyze`, Windows motion/speech и runtime smoke gates проходят.
 
+Stage 34 завершён: runtime-сессия отделена от `VrmView` без изменения
+публичного API и protocol v3.
+
+Stage 33 завершён: Firebase manifest, run records, evidence и repeat comparison
+реализованы. Новый физический прогон остаётся pre-release gate, но не блокирует
+архитектурную работу.
+
+Следующее направление выбирается по измеримой проблеме после стабилизационного
+аудита новых границ. Дополнительное дробление controller без нового владельца
+состояния не планируется; публикация и обновление Three.js/three-vrm
+по-прежнему отложены.
 Сейчас не следует:
 
 - обновлять Three.js/three-vrm без отдельной причины;
 - добавлять новые эффекты или ещё один способ управления моделью;
 - начинать публикацию;
 - менять protocol v3 только ради рефакторинга;
-- одновременно переделывать lifecycle, motion и speech semantics.
-
-Stage 32 подтвердил bounded post-warm-up RSS и восстановление после
-memory-pressure signal без автоматической выгрузки модели. Следующий шаг —
-исключить человеческие ошибки между сборкой, повторным upload и анализом
-Firebase-артефактов: каждый профиль должен быть связан с проверяемыми defines и
-SHA APK, а результаты — собираться в сопоставимый отчёт.
+- одновременно менять motion или speech semantics.
 
 ## 6. Следующие этапы
 
@@ -612,6 +629,128 @@ Offline coverage проверяет успешное сравнение, зап�
 physical run остаётся операционным pre-release gate и будет выполнен после
 восстановления Firebase-квоты, а не незакрытой задачей архитектуры.
 Реализация Stage 33 зафиксирована коммитами `f187ef8` и `3e222b2`.
+
+### Stage 34 — изоляция runtime-сессии от Flutter-представления
+
+Статус: выполнено.
+
+Цель: убрать из `VrmView` владение состоянием runtime-документа, сохранив
+публичный `VrmController`, protocol v3 и наблюдаемое поведение Android/Windows.
+
+Работы:
+
+1. Вынести поколения runtime, ordered replay, lifecycle-синхронизацию, bounded
+   recovery и camera snapshot в `VrmRuntimeSessionCoordinator`.
+2. Оставить `VrmView` владельцем Flutter lifecycle observer, WebView surface и
+   визуального состояния; вынести controller subscriptions, transport binding и
+   content-host lifetime в единый runtime-session owner.
+3. Покрыть coordinator unit-тестами порядка replay, superseded generation,
+   bounded retry и однократного восстановления камеры.
+4. После завершения переноса повторить Flutter suite и ручной runtime smoke на
+   Windows; Android lifecycle/recovery оставить обязательным release gate.
+
+Текущий прогресс: этап завершён. Coordinator не зависит от `State` или
+`BuildContext`, объединяет lifecycle/replay/recovery state и владеет
+`VrmRuntimeControllerBinding`. Binding инкапсулирует controller/WebView
+subscriptions, transport, content-host lifetime и безопасный rebind; endpoint wiring
+скрыт внутри `VrmController`. В `VrmView` не осталось собственного
+generation/retry/replay state, resource binding или доступа к bridge/model/host
+internals. Публичный API, protocol v3 и platform policy не изменены. Все 102
+Flutter-теста, `flutter analyze` и Windows debug build проходят. Полная Windows
+integration matrix из пяти gates и финальный lifecycle/recovery rerun успешно
+выполнены 2026-09-29. Android lifecycle/recovery сохраняется обязательным
+physical release gate.
+
+Критерии готовности:
+
+- в `VrmView` нет собственного состояния generation/retry/replay;
+- смена controller, reload и disposal имеют одного владельца runtime-сессии;
+- устаревший replay не применяет состояние к новому документу;
+- recovery остаётся bounded и не создаёт параллельных reload;
+- поведение камеры и Windows/Android lifecycle не изменилось;
+- полный Flutter test suite и platform smoke проходят.
+
+### Stage 35 — внутренняя декомпозиция VrmController
+
+Статус: выполнено.
+
+Цель: сохранить единый публичный `VrmController`, но вынести его внутренние
+resource/model/motion/speech/scene responsibilities в небольшие тестируемые
+компоненты без изменения публичного API и protocol v3.
+
+Работы:
+
+1. Вынести общий pipeline временной публикации, отправки и освобождения
+   hosted resources.
+2. Разделять model/resource transfer, motion, speech и scene/graphics только
+   там, где граница владения и race/disposal-семантика остаются явными.
+3. Сохранить `VrmController` публичным facade и единым источником событий и
+   lifetime-семантики.
+4. После каждого среза повторять unit/analyze и релевантные Windows integration
+   gates; Android physical release gates не ослаблять.
+
+Текущий прогресс: первый срез завершён. `VrmHostedResourceDispatcher` владеет
+attach/detach content host, проверкой активного host, выдачей временного URL,
+отправкой команды и гарантированным release в `finally`. Загрузка модели,
+анимации и фона делегирует этот pipeline без изменения команд protocol v3.
+
+Второй срез завершён. `VrmAnimationDispatcher` владеет validation, генерацией
+playback identity, формированием hosted/public URL payload и командами
+pause/resume/cancel/stop/speed. Публичные методы `VrmController` остались
+facade, а его размер уменьшился примерно с 1430 до 1300 строк. Три новых
+unit-теста фиксируют identity, options, release и отсутствие payload у
+pause/cancel; всего проходят 109 Flutter-тестов и `flutter analyze`. Полная
+Windows integration matrix прошла после первого среза, затронутый
+motion/speech gate повторно прошёл после второго среза 2026-09-29.
+
+Третий срез завершён. `VrmModelDispatcher` стал единственным владельцем
+`VrmModelSessionState`, generation-safe completion, hosted/public URL transfer,
+cancel и unload-команд. `VrmController` сохранил только междоменный сброс speech
+и camera state. Четыре новых unit-теста фиксируют hosted release, stale
+replacement после runtime loss, cancel ordering и unload completion. Всего
+проходят 113 Flutter-тестов, `flutter analyze` и полная Windows integration
+matrix из пяти gates; controller уменьшился примерно до 1260 строк. Проверено
+2026-09-30.
+
+Четвёртый срез завершён. `VrmSpeechDispatcher` стал единственным владельцем
+`VrmSpeechSessionState`, input revision, direct latest-value каналов, timeline
+validation и begin/append/finish/cancel команд. Публичный `VrmSpeechSession`
+сохранил API, но теперь удерживает только dispatcher, а не весь controller.
+Четыре новых unit-теста фиксируют monotonic revision, stale handles, finishing,
+frame ordering и replacement при ошибке старой команды. Всего проходят 117
+Flutter-тестов и `flutter analyze`; Windows motion/speech и runtime/recovery
+gates повторно прошли 2026-09-30. Controller уменьшился примерно до 1030 строк.
+
+Пятый срез завершён. `VrmSceneDispatcher` отделяет fire-and-forget lighting,
+physics и wind от подтверждаемых background operations и владеет hosted/public
+background payload. `VrmGraphicsDispatcher` владеет renderer validation,
+preset/adaptive/settings commands и strict performance query decoding. Четыре
+новых unit-теста фиксируют scene payload, background release, graphics settings
+и query boundary. Всего проходят 121 Flutter-тест и `flutter analyze`; Windows
+runtime/scene и resource-loading gates повторно прошли 2026-09-30. Controller
+уменьшился примерно до 960 строк.
+
+Шестой срез завершён. `VrmAvatarControlDispatcher` инкапсулирует Pose API,
+expression layers, custom blendshapes, auto-blink/saccades и latest-value gaze.
+Передача mouth-layer согласована с `VrmSpeechDispatcher` через монотонную
+speech revision, поэтому ручное выражение не может оставить активной устаревшую
+speech-сессию. `VrmController` сохраняет mood как высокоуровневую композицию
+avatar и scene команд. Четыре новых unit-теста фиксируют pose serialization,
+mouth ownership, validation и gaze transport. Всего проходят 125 Flutter-тестов
+и `flutter analyze`; Windows motion/speech и runtime smoke gates повторно
+прошли 2026-09-30. Controller уменьшился примерно до 910 строк.
+
+Stage 35 завершён: внутренние владельцы отделены там, где существуют явные
+state/race/resource границы; дальнейшее дробление facade без измеримой причины
+не требуется. Публичный API и protocol v3 не изменены.
+
+Критерии готовности:
+
+- hosted resources освобождаются одним общим pipeline;
+- model и speech transient state имеют единственных владельцев;
+- animation identity, scene/graphics и avatar commands тестируются отдельно;
+- `VrmController` остаётся единым публичным facade и источником событий;
+- unit/analyze и затронутые Windows integration gates проходят.
 
 ## 7. Правила обновления roadmap
 

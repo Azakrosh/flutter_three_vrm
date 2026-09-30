@@ -5,17 +5,49 @@ class VrmController {
   final _VrmBridge _bridge = _VrmBridge();
   late final VrmHostResourceMonitor _hostResourceMonitor;
   late final VrmPlatformThermalMonitor _platformThermalMonitor;
-  final VrmModelSessionState _modelState = VrmModelSessionState();
-  final VrmSpeechSessionState _speechState = VrmSpeechSessionState();
+  late final VrmHostedResourceDispatcher _hostedResources;
+  late final VrmAnimationDispatcher _animations;
+  late final VrmModelDispatcher _models;
+  late final VrmSpeechDispatcher _speech;
+  late final VrmSceneDispatcher _scene;
+  late final VrmGraphicsDispatcher _graphics;
+  late final VrmAvatarControlDispatcher _avatar;
   late final StreamSubscription<VrmEvent> _stateSubscription;
   bool _isDisposed = false;
-  int _animationPlaybackSequence = 0;
   VrmTransform? _lastKnownCameraTransform;
   int _cameraTransformRevision = 0;
-  VrmContentHost? _contentHost;
   int _hostResourceMonitoringClients = 0;
 
   VrmController() {
+    _hostedResources = VrmHostedResourceDispatcher(
+      _ensureNotDisposed,
+      _bridge.sendCommand,
+    );
+    _animations = VrmAnimationDispatcher(_hostedResources, _bridge.sendCommand);
+    _models = VrmModelDispatcher(_hostedResources, _bridge.sendCommand);
+    _speech = VrmSpeechDispatcher(
+      _ensureNotDisposed,
+      _bridge.sendCommand,
+      _bridge.sendLatestCommand,
+      _bridge.clearLatestCommand,
+    );
+    _scene = VrmSceneDispatcher(
+      _hostedResources,
+      _bridge.sendCommand,
+      _sendCommand,
+    );
+    _graphics = VrmGraphicsDispatcher(
+      _bridge.sendCommand,
+      _bridge.requestCommand,
+    );
+    _avatar = VrmAvatarControlDispatcher(
+      _ensureNotDisposed,
+      _bridge.sendCommand,
+      _bridge.requestCommand,
+      _sendCommand,
+      _bridge.sendLatestCommand,
+      _speech,
+    );
     _platformThermalMonitor = VrmPlatformThermalMonitor(
       onStatusChanged: _publishThermalStatus,
     );
@@ -25,9 +57,9 @@ class VrmController {
     _stateSubscription = _bridge.eventStream.listen((event) {
       switch (event) {
         case VrmModelLoadedEvent():
-          _modelState.setLoaded(true);
+          _models.restoreLoaded(true);
         case VrmModelUnloadedEvent():
-          _modelState.setLoaded(false);
+          _models.restoreLoaded(false);
         case VrmCameraChangedEvent(
           :final x,
           :final y,
@@ -39,7 +71,7 @@ class VrmController {
             _cameraTransformRevision += 1;
           }
         case VrmSpeechFinishedEvent(:final sessionId):
-          _abandonSpeechSession(sessionId);
+          _speech.handleFinished(sessionId);
         default:
           break;
       }
@@ -47,19 +79,19 @@ class VrmController {
   }
 
   /// True while a model is being transferred and parsed by the runtime.
-  bool get isLoadingModel => _modelState.isLoading;
+  bool get isLoadingModel => _models.isLoading;
 
   /// Whether the currently attached runtime contains an avatar.
-  bool get isModelLoaded => _modelState.isLoaded;
+  bool get isModelLoaded => _models.isLoaded;
 
   /// Whether the JavaScript runtime completed protocol initialization.
   bool get isRuntimeReady => _bridge.isRuntimeReady;
 
   /// Whether a speech timeline is active or waiting for its declared end.
-  bool get isSpeechActive => _speechState.hasActiveSession;
+  bool get isSpeechActive => _speech.hasActiveSession;
 
   /// Input type accepted by the current speech timeline.
-  VrmSpeechMode? get speechMode => _speechState.activeMode;
+  VrmSpeechMode? get speechMode => _speech.activeMode;
 
   /// Captures current resource diagnostics for the Flutter host process.
   ///
@@ -106,26 +138,48 @@ class VrmController {
   }
 
   void _attachContentHost(VrmContentHost contentHost) {
-    _contentHost = contentHost;
+    _hostedResources.attach(contentHost);
   }
 
   void _detachContentHost(VrmContentHost contentHost) {
-    if (identical(_contentHost, contentHost)) {
-      _contentHost = null;
-      _modelState.invalidateRuntime();
+    if (_hostedResources.detach(contentHost)) {
+      _models.invalidateRuntime();
     }
   }
 
-  VrmContentHost get _requiredContentHost {
-    _ensureNotDisposed();
-    final contentHost = _contentHost;
-    if (contentHost == null || !contentHost.isStarted) {
-      throw StateError(
-        'VrmView is not ready. Wait for VrmView.onCreated before loading '
-        'assets or local files.',
-      );
-    }
-    return contentHost;
+  VrmRuntimeControllerEndpoint _createRuntimeEndpoint() {
+    return VrmRuntimeControllerEndpoint(
+      identity: this,
+      states: onStateChanged,
+      errors: onError,
+      modelLoadedEvents: onModelLoaded,
+      modelReports: onModelReport,
+      modelUnloadedEvents: onModelUnloaded,
+      readModelLoaded: () => isModelLoaded,
+      restoreModelLoaded: _models.restoreLoaded,
+      handleRuntimeMessage: _bridge.handleJsMessage,
+      attachTransport:
+          ({
+            required owner,
+            required runJavaScript,
+            required reloadRuntime,
+            required runtimeReady,
+          }) {
+            _bridge.attachTransport(
+              owner: owner,
+              runJavaScript: runJavaScript,
+              reloadRuntime: reloadRuntime,
+              runtimeReady: runtimeReady,
+            );
+          },
+      detachTransport: _bridge.detachTransport,
+      attachContentHost: _attachContentHost,
+      detachContentHost: _detachContentHost,
+      attachHostResourceMonitoring: _attachHostResourceMonitoring,
+      detachHostResourceMonitoring: _detachHostResourceMonitoring,
+      recordHostMemoryPressure: _recordHostMemoryPressure,
+      reportAsyncError: _bridge.reportAsyncError,
+    );
   }
 
   void _sendCommand(
@@ -143,104 +197,45 @@ class VrmController {
     );
   }
 
-  Future<void> _sendHostedResourceCommand({
-    required Uri Function(VrmContentHost host) expose,
-    required VrmProtocolCommand action,
-    required String fileName,
-    String urlField = 'url',
-    Map<String, dynamic>? payload,
-  }) async {
-    _ensureNotDisposed();
-    final host = _requiredContentHost;
-    final uri = expose(host);
-    try {
-      await _bridge.sendCommand(action, <String, dynamic>{
-        ...?payload,
-        urlField: uri.toString(),
-        'fileName': fileName,
-      });
-    } finally {
-      host.release(uri);
-    }
-  }
-
   // --- Model lifecycle ---
 
   /// Loads a VRM model from Flutter assets.
-  Future<void> loadModel(String folderPath, String fileName) async {
-    final loadGeneration = _modelState.beginLoad();
-    try {
-      await _sendHostedResourceCommand(
-        expose: (host) => host.exposeAsset('$folderPath$fileName'),
-        action: VrmProtocolCommand.loadModelFromUrl,
-        fileName: fileName,
-      );
-      _modelState.completeLoad(loadGeneration);
-    } finally {
-      _modelState.finishLoad(loadGeneration);
-    }
+  Future<void> loadModel(String folderPath, String fileName) {
+    return _models.loadHosted(
+      expose: (host) => host.exposeAsset('$folderPath$fileName'),
+      fileName: fileName,
+    );
   }
 
   /// Loads a VRM model from a local file.
-  Future<void> loadModelFromFile(io.File file) async {
-    final loadGeneration = _modelState.beginLoad();
-    try {
-      await _sendHostedResourceCommand(
-        expose: (host) => host.exposeFile(file),
-        action: VrmProtocolCommand.loadModelFromUrl,
-        fileName: p.basename(file.path),
-      );
-      _modelState.completeLoad(loadGeneration);
-    } finally {
-      _modelState.finishLoad(loadGeneration);
-    }
+  Future<void> loadModelFromFile(io.File file) {
+    return _models.loadHosted(
+      expose: (host) => host.exposeFile(file),
+      fileName: p.basename(file.path),
+    );
   }
 
   /// Loads VRM bytes obtained by an authenticated Flutter API client.
   ///
   /// For very large models prefer [loadModelFromFile] to avoid retaining the
   /// complete file in Dart memory.
-  Future<void> loadModelFromBytes(
-    Uint8List bytes, {
-    required String fileName,
-  }) async {
-    final loadGeneration = _modelState.beginLoad();
-    try {
-      await _sendHostedResourceCommand(
-        expose: (host) => host.exposeBytes(bytes, fileName: fileName),
-        action: VrmProtocolCommand.loadModelFromUrl,
-        fileName: fileName,
-      );
-      _modelState.completeLoad(loadGeneration);
-    } finally {
-      _modelState.finishLoad(loadGeneration);
-    }
+  Future<void> loadModelFromBytes(Uint8List bytes, {required String fileName}) {
+    return _models.loadHosted(
+      expose: (host) => host.exposeBytes(bytes, fileName: fileName),
+      fileName: fileName,
+    );
   }
 
   /// Loads a public URL directly in WebView.
   ///
   /// Prefer [loadModelFromFile] or [loadModelFromBytes] for authenticated URLs.
-  Future<void> loadModelFromUrl(String url) async {
-    final loadGeneration = _modelState.beginLoad();
-    try {
-      await _bridge.sendCommand(VrmProtocolCommand.loadModelFromUrl, {
-        'url': url,
-        'fileName': Uri.parse(url).pathSegments.lastOrNull ?? 'avatar.vrm',
-      });
-      _modelState.completeLoad(loadGeneration);
-    } finally {
-      _modelState.finishLoad(loadGeneration);
-    }
-  }
+  Future<void> loadModelFromUrl(String url) => _models.loadUrl(url);
 
   /// Cancels the active model transfer or parse operation.
   ///
   /// The previously displayed avatar remains active. The canceled load Future
   /// completes with `VrmRuntimeException(code: 'canceled')`.
-  Future<void> cancelModelLoad() async {
-    _modelState.cancelLoad();
-    await _bridge.sendCommand(VrmProtocolCommand.cancelModelLoad);
-  }
+  Future<void> cancelModelLoad() => _models.cancelLoad();
 
   /// Returns the diagnostic report for the current avatar.
   Future<VrmModelReport> getModelReport() async {
@@ -266,7 +261,7 @@ class VrmController {
       VrmProtocolCommand.getRuntimeHealth,
     );
     final health = VrmRuntimeHealth.fromJson(result);
-    _modelState.setLoaded(health.modelLoaded);
+    _models.restoreLoaded(health.modelLoaded);
     return health;
   }
 
@@ -284,9 +279,8 @@ class VrmController {
   }
 
   void _invalidateTransientRuntimeState() {
-    _modelState.invalidateRuntime();
-    _speechState.invalidateRuntime();
-    _clearDirectSpeechInputs();
+    _models.invalidateRuntime();
+    _speech.invalidateRuntime();
   }
 
   void _publishModelAssessment(VrmModelAssessment assessment) {
@@ -295,13 +289,7 @@ class VrmController {
 
   /// Unloads the model and releases its GPU resources.
   Future<void> unloadModel() async {
-    _modelState.cancelLoad();
-    _abandonSpeechSession();
-    _clearDirectSpeechInputs();
-    await _bridge.sendCommand(VrmProtocolCommand.unloadModel, {
-      'speechRevision': _nextSpeechRevision(),
-    });
-    _modelState.setLoaded(false);
+    await _models.unload(speechRevision: _speech.takeMouthControl());
     _lastKnownCameraTransform = null;
     _cameraTransformRevision += 1;
   }
@@ -445,35 +433,15 @@ class VrmController {
     required VrmRootMotion rootMotion,
     required String? clipName,
   }) {
-    _validateAnimationPlayback(
+    return _animations.playHosted(
+      expose: expose,
       fileName: fileName,
-      speed: speed,
-      fadeDuration: fadeDuration,
-      clipName: clipName,
-    );
-    final options = VrmAnimationOptions(
       loop: loop,
       speed: speed,
       fadeDuration: fadeDuration,
       rootMotion: rootMotion,
       clipName: clipName,
     );
-    final playback = _createAnimationPlayback();
-    return _sendHostedResourceCommand(
-      expose: expose,
-      action: VrmProtocolCommand.playAnimationFromUrl,
-      fileName: fileName,
-      payload: {
-        'options': {...options.toJson(), 'playbackId': playback.id},
-      },
-    ).then((_) => playback);
-  }
-
-  VrmAnimationPlayback _createAnimationPlayback() {
-    final id =
-        'animation-${DateTime.now().microsecondsSinceEpoch}-'
-        '${_animationPlaybackSequence++}';
-    return VrmAnimationPlayback(id: id);
   }
 
   /// Plays a VRMA or glTF animation from a public URL.
@@ -485,63 +453,35 @@ class VrmController {
     VrmRootMotion rootMotion = VrmRootMotion.inPlace,
     String? clipName,
   }) {
-    _requireNonEmpty(url, 'url');
-    _validateAnimationPlayback(
-      fileName: Uri.parse(url).pathSegments.lastOrNull ?? 'animation.vrma',
-      speed: speed,
-      fadeDuration: fadeDuration,
-      clipName: clipName,
-    );
-    final options = VrmAnimationOptions(
+    return _animations.playUrl(
+      url,
       loop: loop,
       speed: speed,
       fadeDuration: fadeDuration,
       rootMotion: rootMotion,
       clipName: clipName,
     );
-    final playback = _createAnimationPlayback();
-    return _bridge
-        .sendCommand(VrmProtocolCommand.playAnimationFromUrl, {
-          'url': url,
-          'fileName':
-              Uri.parse(url).pathSegments.lastOrNull ?? 'animation.vrma',
-          'options': {...options.toJson(), 'playbackId': playback.id},
-        })
-        .then((_) => playback);
   }
 
   /// Pauses animation clip playback.
-  Future<void> pauseAnimation() async {
-    await _bridge.sendCommand(VrmProtocolCommand.pauseAnimation);
-  }
+  Future<void> pauseAnimation() => _animations.pause();
 
   /// Resumes animation clip playback.
   Future<void> resumeAnimation({double speed = 1.0}) {
-    _requirePositiveFinite(speed, 'speed');
-    return _bridge.sendCommand(VrmProtocolCommand.resumeAnimation, {
-      'speed': speed,
-    });
+    return _animations.resume(speed: speed);
   }
 
   /// Cancels an animation transfer without stopping the current action.
-  Future<void> cancelAnimationLoad() {
-    return _bridge.sendCommand(VrmProtocolCommand.cancelAnimationLoad);
-  }
+  Future<void> cancelAnimationLoad() => _animations.cancelLoad();
 
   /// Stops the current action and cancels an in-flight animation load.
   Future<void> stopAnimation({double fadeDuration = 0.5}) {
-    _requireNonNegativeFinite(fadeDuration, 'fadeDuration');
-    return _bridge.sendCommand(VrmProtocolCommand.stopAnimation, {
-      'fadeDuration': fadeDuration,
-    });
+    return _animations.stop(fadeDuration: fadeDuration);
   }
 
   /// Sets playback speed multiplier for current animation.
   Future<void> setAnimationSpeed(double speed) {
-    _requirePositiveFinite(speed, 'speed');
-    return _bridge.sendCommand(VrmProtocolCommand.setAnimationSpeed, {
-      'speed': speed,
-    });
+    return _animations.setSpeed(speed);
   }
 
   // --- Humanoid pose ---
@@ -551,31 +491,20 @@ class VrmController {
   /// Bone transforms are relative to the normalized rest pose defined by
   /// `@pixiv/three-vrm`, so the result can be stored and applied to another
   /// compatible VRM avatar.
-  Future<VrmPose> getPose() async {
-    final result = await _bridge.requestCommand(VrmProtocolCommand.getPose);
-    return VrmPose.fromJson(result);
-  }
+  Future<VrmPose> getPose() => _avatar.getPose();
 
   /// Applies a normalized humanoid [pose].
   ///
   /// Pose and clip playback share one mixer, so switching from either source
   /// crossfades without snapping through the rest pose.
   Future<void> setPose(VrmPose pose, {double fadeDuration = 0.5}) {
-    _requireNonNegativeFinite(fadeDuration, 'fadeDuration');
-    return _bridge.sendCommand(VrmProtocolCommand.setPose, {
-      'pose': pose.toJson(),
-      'fadeDuration': fadeDuration,
-    });
+    return _avatar.setPose(pose, fadeDuration: fadeDuration);
   }
 
   /// Smoothly restores all normalized humanoid bones to their rest transforms.
   Future<void> resetPose({double fadeDuration = 0.5}) {
-    _requireNonNegativeFinite(fadeDuration, 'fadeDuration');
-    return _bridge.sendCommand(VrmProtocolCommand.resetPose, {
-      'fadeDuration': fadeDuration,
-    });
+    return _avatar.resetPose(fadeDuration: fadeDuration);
   }
-
   // --- Mood Presets ---
 
   /// Applies a mood preset that combines expression, wind, physics,
@@ -655,147 +584,49 @@ class VrmController {
     Duration duration = const Duration(milliseconds: 250),
     bool disableAutoBlink = false,
   }) {
-    _requireUnitInterval(weight, 'weight');
-    _requireNonNegativeDuration(duration, 'duration');
-    final resolvedLayer = layer ?? expression.defaultLayer;
-    int? speechRevision;
-    if (resolvedLayer == ExpressionLayer.mouth) {
-      _abandonSpeechSession();
-      _clearDirectSpeechInputs();
-      speechRevision = _nextSpeechRevision();
-    }
-    _sendCommand(VrmProtocolCommand.setExpression, {
-      'expression': expression.name,
-      'layer': resolvedLayer.name,
-      'weight': weight,
-      'duration': duration.inMilliseconds / 1000.0,
-      'disableAutoBlink': disableAutoBlink,
-      'speechRevision': ?speechRevision,
-    });
+    _avatar.setExpression(
+      expression,
+      layer: layer,
+      weight: weight,
+      duration: duration,
+      disableAutoBlink: disableAutoBlink,
+    );
   }
 
   /// Clears active expression from a layer.
   void clearExpressionLayer(ExpressionLayer layer) {
-    int? speechRevision;
-    if (layer == ExpressionLayer.mouth) {
-      _abandonSpeechSession();
-      _clearDirectSpeechInputs();
-      speechRevision = _nextSpeechRevision();
-    }
-    _sendCommand(VrmProtocolCommand.clearExpressionLayer, {
-      'layer': layer.name,
-      'speechRevision': ?speechRevision,
-    });
+    _avatar.clearExpressionLayer(layer);
   }
 
   /// Clears all active facial expressions, blendshapes, and visemes.
   void clearAllExpressions() {
-    _abandonSpeechSession();
-    _clearDirectSpeechInputs();
-    _sendCommand(VrmProtocolCommand.clearAllExpressions, {
-      'speechRevision': _nextSpeechRevision(),
-    });
+    _avatar.clearAllExpressions();
   }
 
   /// Sets a custom blendshape key by name and weight (0.0 to 1.0).
   void setCustomBlendShape(String name, double weight) {
-    _requireNonEmpty(name, 'name');
-    _requireUnitInterval(weight, 'weight');
-    _sendCommand(VrmProtocolCommand.setCustomBlendShape, {
-      'name': name,
-      'weight': weight,
-    });
+    _avatar.setCustomBlendShape(name, weight);
   }
-
   // --- Lip Sync (ElevenLabs & Amplitude) ---
 
   /// Sets real-time audio volume amplitude (0.0 to 1.0) for smooth speech mouth opening.
   void setLipSyncAmplitude(double amplitude) {
-    _ensureNotDisposed();
-    if (!amplitude.isFinite) {
-      throw ArgumentError.value(amplitude, 'amplitude', 'Must be finite.');
-    }
-    _abandonSpeechSession();
-    final speechRevision = _nextSpeechRevision();
-    _bridge
-      ..clearLatestCommand('directViseme')
-      ..sendLatestCommand(
-        channel: 'lipSyncAmplitude',
-        action: VrmProtocolCommand.setLipSyncAmplitude,
-        payload: {
-          'amplitude': amplitude.clamp(0.0, 1.0),
-          'speechRevision': speechRevision,
-        },
-      );
+    _speech.setAmplitude(amplitude);
   }
 
   /// Sets the latest direct viseme state without queueing stale bridge updates.
   void setViseme(VrmViseme viseme, {double weight = 1.0}) {
-    _ensureNotDisposed();
-    if (!weight.isFinite) {
-      throw ArgumentError.value(weight, 'weight', 'Must be finite.');
-    }
-    _abandonSpeechSession();
-    final speechRevision = _nextSpeechRevision();
-    _bridge
-      ..clearLatestCommand('lipSyncAmplitude')
-      ..sendLatestCommand(
-        channel: 'directViseme',
-        action: VrmProtocolCommand.setViseme,
-        payload: {
-          'viseme': viseme.name,
-          'weight': weight.clamp(0.0, 1.0),
-          'speechRevision': speechRevision,
-        },
-      );
+    _speech.setViseme(viseme, weight: weight);
   }
 
   /// Enqueues a list of timed speech viseme frames for TTS playback.
-  Future<void> enqueueSpeechVisemes(List<VisemeFrame> frames) async {
-    if (frames.isEmpty) return;
-    _validateVisemeFrames(frames);
-    final sortedFrames = List<VisemeFrame>.from(frames)..sort();
-    _clearDirectSpeechInputs();
-    final sessionId = _activateSpeechSession(VrmSpeechMode.viseme);
-    final speechRevision = _nextSpeechRevision();
-    _speechState.markFinishing(sessionId);
-    final timelineOriginEpochMs = DateTime.now().millisecondsSinceEpoch;
-    try {
-      await _bridge.sendCommand(VrmProtocolCommand.enqueueSpeechVisemes, {
-        'sessionId': sessionId,
-        'mode': VrmSpeechMode.viseme.name,
-        'timelineOriginEpochMs': timelineOriginEpochMs,
-        'speechRevision': speechRevision,
-        'frames': sortedFrames.map((frame) => frame.toJson()).toList(),
-      });
-    } on Object {
-      _abandonSpeechSession(sessionId);
-      rethrow;
-    }
+  Future<void> enqueueSpeechVisemes(List<VisemeFrame> frames) {
+    return _speech.enqueueVisemes(frames);
   }
 
   /// Enqueues a complete timestamped amplitude timeline in one command.
-  Future<void> enqueueSpeechAmplitudes(List<AmplitudeFrame> frames) async {
-    if (frames.isEmpty) return;
-    _validateAmplitudeFrames(frames);
-    final sortedFrames = List<AmplitudeFrame>.from(frames)..sort();
-    _clearDirectSpeechInputs();
-    final sessionId = _activateSpeechSession(VrmSpeechMode.amplitude);
-    final speechRevision = _nextSpeechRevision();
-    _speechState.markFinishing(sessionId);
-    final timelineOriginEpochMs = DateTime.now().millisecondsSinceEpoch;
-    try {
-      await _bridge.sendCommand(VrmProtocolCommand.enqueueSpeechAmplitudes, {
-        'sessionId': sessionId,
-        'mode': VrmSpeechMode.amplitude.name,
-        'timelineOriginEpochMs': timelineOriginEpochMs,
-        'speechRevision': speechRevision,
-        'frames': sortedFrames.map((frame) => frame.toJson()).toList(),
-      });
-    } on Object {
-      _abandonSpeechSession(sessionId);
-      rethrow;
-    }
+  Future<void> enqueueSpeechAmplitudes(List<AmplitudeFrame> frames) {
+    return _speech.enqueueAmplitudes(frames);
   }
 
   /// Starts a real-time speech timeline without pause or seek semantics.
@@ -808,222 +639,34 @@ class VrmController {
     VrmSpeechMode mode = VrmSpeechMode.viseme,
     Duration startDelay = Duration.zero,
   }) async {
-    if (startDelay.isNegative) {
-      throw ArgumentError.value(
-        startDelay,
-        'startDelay',
-        'Must not be negative.',
-      );
-    }
-    _clearDirectSpeechInputs();
-    final sessionId = _activateSpeechSession(mode);
-    final speechRevision = _nextSpeechRevision();
-    final timelineOriginEpochMs = DateTime.now()
-        .add(startDelay)
-        .millisecondsSinceEpoch;
-    try {
-      await _bridge.sendCommand(VrmProtocolCommand.beginSpeech, {
-        'sessionId': sessionId,
-        'mode': mode.name,
-        'timelineOriginEpochMs': timelineOriginEpochMs,
-        'speechRevision': speechRevision,
-      });
-      return VrmSpeechSession._(this, sessionId, mode);
-    } on Object {
-      _abandonSpeechSession(sessionId);
-      rethrow;
-    }
-  }
-
-  Future<bool> _appendSpeechVisemes(
-    String sessionId,
-    List<VisemeFrame> frames,
-  ) async {
-    if (!_canUseSpeechSession(sessionId)) return false;
-    _validateVisemeFrames(frames);
-    if (frames.isEmpty) return true;
-    final sortedFrames = List<VisemeFrame>.from(frames)..sort();
-    await _bridge.sendCommand(VrmProtocolCommand.appendSpeechVisemes, {
-      'sessionId': sessionId,
-      'frames': sortedFrames.map((f) => f.toJson()).toList(),
-    });
-    return true;
-  }
-
-  Future<bool> _appendSpeechAmplitudes(
-    String sessionId,
-    List<AmplitudeFrame> frames,
-  ) async {
-    if (!_canUseSpeechSession(sessionId)) return false;
-    _validateAmplitudeFrames(frames);
-    if (frames.isEmpty) return true;
-    final sortedFrames = List<AmplitudeFrame>.from(frames)..sort();
-    await _bridge.sendCommand(VrmProtocolCommand.appendSpeechAmplitudes, {
-      'sessionId': sessionId,
-      'frames': sortedFrames.map((frame) => frame.toJson()).toList(),
-    });
-    return true;
-  }
-
-  Future<bool> _finishSpeech(String sessionId, Duration audioDuration) async {
-    if (!_canUseSpeechSession(sessionId)) return false;
-    if (audioDuration.isNegative) {
-      throw ArgumentError.value(
-        audioDuration,
-        'audioDuration',
-        'Must not be negative.',
-      );
-    }
-    _speechState.markFinishing(sessionId);
-    try {
-      await _bridge.sendCommand(VrmProtocolCommand.finishSpeech, {
-        'sessionId': sessionId,
-        'audioDurationMs': audioDuration.inMilliseconds,
-      });
-    } on Object {
-      _speechState.clearFinishing(sessionId);
-      rethrow;
-    }
-    return true;
+    final token = await _speech.begin(mode: mode, startDelay: startDelay);
+    return VrmSpeechSession._(_speech, token.id, token.mode);
   }
 
   /// Fully stops the active speech timeline and closes the mouth layer.
-  Future<void> cancelSpeech() {
-    _clearDirectSpeechInputs();
-    final sessionId = _speechState.activeSessionId;
-    _abandonSpeechSession();
-    return _bridge.sendCommand(VrmProtocolCommand.cancelSpeech, {
-      'sessionId': ?sessionId,
-      'speechRevision': _nextSpeechRevision(),
-    });
-  }
-
-  Future<bool> _cancelSpeechSession(String sessionId) async {
-    if (!_speechState.isActive(sessionId)) return false;
-    _clearDirectSpeechInputs();
-    _abandonSpeechSession(sessionId);
-    await _bridge.sendCommand(VrmProtocolCommand.cancelSpeech, {
-      'sessionId': sessionId,
-      'speechRevision': _nextSpeechRevision(),
-    });
-    return true;
-  }
-
-  String _activateSpeechSession(VrmSpeechMode mode) {
-    return _speechState.activate(mode);
-  }
-
-  int _nextSpeechRevision() => _speechState.nextInputRevision();
-
-  bool _canUseSpeechSession(String sessionId) =>
-      _speechState.canAppend(sessionId);
-
-  void _abandonSpeechSession([String? expectedSessionId]) {
-    _speechState.abandon(expectedSessionId);
-  }
-
-  void _clearDirectSpeechInputs() {
-    _bridge
-      ..clearLatestCommand('lipSyncAmplitude')
-      ..clearLatestCommand('directViseme');
-  }
-
-  void _validateVisemeFrames(List<VisemeFrame> frames) {
-    for (var index = 0; index < frames.length; index += 1) {
-      final frame = frames[index];
-      if (!frame.weight.isFinite || frame.weight < 0 || frame.weight > 1) {
-        throw ArgumentError.value(
-          frame.weight,
-          'frames[$index].weight',
-          'Must be a finite value from 0 to 1.',
-        );
-      }
-      if (frame.timestamp.isNegative) {
-        throw ArgumentError.value(
-          frame.timestamp,
-          'frames[$index].timestamp',
-          'Must not be negative.',
-        );
-      }
-      if (frame.duration.isNegative) {
-        throw ArgumentError.value(
-          frame.duration,
-          'frames[$index].duration',
-          'Must not be negative.',
-        );
-      }
-    }
-  }
-
-  void _validateAmplitudeFrames(List<AmplitudeFrame> frames) {
-    for (var index = 0; index < frames.length; index += 1) {
-      final frame = frames[index];
-      if (!frame.amplitude.isFinite ||
-          frame.amplitude < 0 ||
-          frame.amplitude > 1) {
-        throw ArgumentError.value(
-          frame.amplitude,
-          'frames[$index].amplitude',
-          'Must be a finite value from 0 to 1.',
-        );
-      }
-      if (frame.timestamp.isNegative) {
-        throw ArgumentError.value(
-          frame.timestamp,
-          'frames[$index].timestamp',
-          'Must not be negative.',
-        );
-      }
-      if (frame.duration.isNegative) {
-        throw ArgumentError.value(
-          frame.duration,
-          'frames[$index].duration',
-          'Must not be negative.',
-        );
-      }
-    }
-  }
+  Future<void> cancelSpeech() => _speech.cancel();
 
   // --- Programmatic gaze & Auto-Blink ---
 
-  /// Toggles random auto-blinking generator.
-  /// Включает или отключает случайные движения зрачков (саккады).
+  /// Toggles random eye saccades.
   void setAutoSaccades({bool enabled = true}) {
-    _sendCommand(VrmProtocolCommand.setAutoSaccades, {'enabled': enabled});
+    _avatar.setAutoSaccades(enabled: enabled);
   }
 
+  /// Toggles automatic blinking.
   void setAutoBlink(bool enabled) {
-    _sendCommand(VrmProtocolCommand.setAutoBlink, {'enabled': enabled});
+    _avatar.setAutoBlink(enabled);
   }
 
   /// Directs the avatar's eyes to an explicit target; taps do not change gaze.
   void setLookAtTarget(Offset screenPosition) {
-    _ensureNotDisposed();
-    if (!screenPosition.dx.isFinite || !screenPosition.dy.isFinite) {
-      throw ArgumentError.value(
-        screenPosition,
-        'screenPosition',
-        'Coordinates must be finite.',
-      );
-    }
-    _bridge.sendLatestCommand(
-      channel: 'lookAtTarget',
-      action: VrmProtocolCommand.setLookAtTarget,
-      payload: {'x': screenPosition.dx, 'y': screenPosition.dy},
-    );
+    _avatar.setLookAtTarget(screenPosition);
   }
 
   /// Configures how long an explicit gaze target is held (default 1 second).
   void setLookAtConfig({Duration? holdDuration}) {
-    if (holdDuration != null) {
-      _requireNonNegativeDuration(holdDuration, 'holdDuration');
-    }
-    _sendCommand(VrmProtocolCommand.setLookAtConfig, {
-      if (holdDuration != null)
-        'holdDurationSec': holdDuration.inMilliseconds / 1000.0,
-    });
+    _avatar.setLookAtConfig(holdDuration: holdDuration);
   }
-
   // --- Camera & Scene ---
 
   /// Selects constrained avatar controls or unrestricted orbit controls.
@@ -1072,11 +715,6 @@ class VrmController {
     _cameraTransformRevision += 1;
   }
 
-  String _colorToHex(Color color) {
-    final hex = color.toARGB32().toRadixString(16).padLeft(8, '0');
-    return '#${hex.substring(2)}';
-  }
-
   /// Configures scene lighting intensity and colors.
   void setLighting({
     Color? ambientColor,
@@ -1084,36 +722,25 @@ class VrmController {
     Color? directionalColor,
     double? directionalIntensity,
   }) {
-    if (ambientIntensity != null) {
-      _requireNonNegativeFinite(ambientIntensity, 'ambientIntensity');
-    }
-    if (directionalIntensity != null) {
-      _requireNonNegativeFinite(directionalIntensity, 'directionalIntensity');
-    }
-    _sendCommand(VrmProtocolCommand.setLighting, {
-      if (ambientColor != null) 'ambientColor': _colorToHex(ambientColor),
-      'ambientIntensity': ?ambientIntensity,
-      if (directionalColor != null)
-        'directionalColor': _colorToHex(directionalColor),
-      'directionalIntensity': ?directionalIntensity,
-    });
+    _scene.setLighting(
+      ambientColor: ambientColor,
+      ambientIntensity: ambientIntensity,
+      directionalColor: directionalColor,
+      directionalIntensity: directionalIntensity,
+    );
   }
 
   /// Intelligently tints the model's rim and ambient lighting to match the environment/background color.
   /// [color] is the dominant color of the background.
   /// [intensity] (0.0 to 1.0) controls how strongly the ambient light mixes with the background color (default 0.5).
   void setEnvironmentColor(Color color, {double intensity = 0.5}) {
-    _requireUnitInterval(intensity, 'intensity');
-    _sendCommand(VrmProtocolCommand.setEnvironmentColor, {
-      'color': _colorToHex(color),
-      'intensity': intensity,
-    });
+    _scene.setEnvironmentColor(color, intensity: intensity);
   }
 
   /// Enables or disables real-time shadow mapping in WebGL.
   /// Shadows improve visual quality significantly but increase GPU usage.
   void setShadows(bool enabled) {
-    _sendCommand(VrmProtocolCommand.setShadows, {'enabled': enabled});
+    _scene.setShadows(enabled);
   }
 
   /// Adjusts the physics of the model's soft bodies (Spring Bones) like hair and clothes.
@@ -1125,12 +752,7 @@ class VrmController {
     double gravity = 1.0,
     double drag = 1.0,
   }) {
-    _validatePhysics(stiffness: stiffness, gravity: gravity, drag: drag);
-    _sendCommand(VrmProtocolCommand.setPhysics, {
-      'stiffness': stiffness,
-      'gravity': gravity,
-      'drag': drag,
-    });
+    _scene.setPhysics(stiffness: stiffness, gravity: gravity, drag: drag);
   }
 
   /// Enables and configures wind simulation affecting the model's physics.
@@ -1138,15 +760,12 @@ class VrmController {
     VrmWindType type = VrmWindType.none,
     VrmWindDirection direction = VrmWindDirection.right,
   }) {
-    _sendCommand(VrmProtocolCommand.setWind, {
-      'type': type.name,
-      'direction': direction.name,
-    });
+    _scene.setWind(type: type, direction: direction);
   }
 
   /// Smoothly fades out the wind effect over a few seconds.
   void stopWind() {
-    _sendCommand(VrmProtocolCommand.stopWind);
+    _scene.stopWind();
   }
 
   /// Configures the scene background with a color or an optional image.
@@ -1159,33 +778,13 @@ class VrmController {
     bool transparent = false,
     String? imageAssetPath,
     String? imageUrl,
-  }) async {
-    if (imageAssetPath != null && imageUrl != null) {
-      throw ArgumentError(
-        'Provide either imageAssetPath or imageUrl, not both.',
-      );
-    }
-
-    final payload = <String, dynamic>{
-      'color': _colorToHex(color),
-      'transparent': transparent,
-    };
-    if (imageAssetPath != null) {
-      await _sendHostedResourceCommand(
-        expose: (host) => host.exposeAsset(imageAssetPath),
-        action: VrmProtocolCommand.setBackground,
-        fileName: p.basename(imageAssetPath),
-        urlField: 'imageUrl',
-        payload: {...payload, 'hostedImage': true},
-      );
-      return;
-    }
-
-    await _bridge.sendCommand(VrmProtocolCommand.setBackground, {
-      ...payload,
-      'imageUrl': ?imageUrl,
-      'hostedImage': false,
-    });
+  }) {
+    return _scene.setBackground(
+      color: color,
+      transparent: transparent,
+      imageAssetPath: imageAssetPath,
+      imageUrl: imageUrl,
+    );
   }
 
   /// Configures the scene background from a local image file.
@@ -1194,16 +793,10 @@ class VrmController {
     required Color color,
     bool transparent = false,
   }) {
-    return _sendHostedResourceCommand(
-      expose: (host) => host.exposeFile(file),
-      action: VrmProtocolCommand.setBackground,
-      fileName: p.basename(file.path),
-      urlField: 'imageUrl',
-      payload: {
-        'color': _colorToHex(color),
-        'transparent': transparent,
-        'hostedImage': true,
-      },
+    return _scene.setBackgroundFromFile(
+      file,
+      color: color,
+      transparent: transparent,
     );
   }
 
@@ -1214,48 +807,33 @@ class VrmController {
     required Color color,
     bool transparent = false,
   }) {
-    if (fileName.trim().isEmpty) {
-      throw ArgumentError.value(fileName, 'fileName', 'Must not be empty.');
-    }
-    return _sendHostedResourceCommand(
-      expose: (host) => host.exposeBytes(bytes, fileName: fileName),
-      action: VrmProtocolCommand.setBackground,
+    return _scene.setBackgroundFromBytes(
+      bytes,
       fileName: fileName,
-      urlField: 'imageUrl',
-      payload: {
-        'color': _colorToHex(color),
-        'transparent': transparent,
-        'hostedImage': true,
-      },
+      color: color,
+      transparent: transparent,
     );
   }
 
   /// Sets the pixel ratio for WebGL rendering.
   @Deprecated('Use setGraphicsSettings(pixelRatio: value) instead')
   Future<void> setRenderQuality(double pixelRatio) {
-    return setGraphicsSettings(pixelRatio: pixelRatio);
+    return _graphics.setSettings(pixelRatio: pixelRatio);
   }
 
   /// Applies a curated renderer profile.
   Future<void> setGraphicsPreset(VrmGraphicsPreset preset) {
-    return _bridge.sendCommand(VrmProtocolCommand.setGraphicsPreset, {
-      'preset': preset.name,
-    });
+    return _graphics.setPreset(preset);
   }
 
   /// Enables or configures automatic render-resolution adaptation.
   Future<void> setAdaptiveQuality(VrmAdaptiveQualitySettings settings) {
-    return _bridge.sendCommand(VrmProtocolCommand.setAdaptiveQuality, {
-      'settings': settings.toJson(),
-    });
+    return _graphics.setAdaptiveQuality(settings);
   }
 
   /// Returns the latest renderer workload measurement.
-  Future<VrmPerformanceSnapshot> getPerformanceSnapshot() async {
-    final result = await _bridge.requestCommand(
-      VrmProtocolCommand.getPerformanceSnapshot,
-    );
-    return VrmPerformanceSnapshot.fromJson(result);
+  Future<VrmPerformanceSnapshot> getPerformanceSnapshot() {
+    return _graphics.getPerformanceSnapshot();
   }
 
   /// Sets individual graphics and performance controls.
@@ -1268,25 +846,12 @@ class VrmController {
     bool? enablePhysics,
     int? fpsCap,
   }) {
-    if (pixelRatio != null) {
-      _requirePositiveFinite(pixelRatio, 'pixelRatio');
-    }
-    if (fpsCap != null && (fpsCap < 0 || fpsCap > 120)) {
-      throw ArgumentError.value(
-        fpsCap,
-        'fpsCap',
-        'Must be zero or between 1 and 120.',
-      );
-    }
-    final settings = <String, dynamic>{};
-    if (pixelRatio != null) settings['pixelRatio'] = pixelRatio;
-    if (antialias != null) settings['antialias'] = antialias;
-    if (enablePhysics != null) settings['enablePhysics'] = enablePhysics;
-    if (fpsCap != null) settings['fpsCap'] = fpsCap;
-
-    return _bridge.sendCommand(VrmProtocolCommand.setGraphicsSettings, {
-      'settings': settings,
-    });
+    return _graphics.setSettings(
+      pixelRatio: pixelRatio,
+      antialias: antialias,
+      enablePhysics: enablePhysics,
+      fpsCap: fpsCap,
+    );
   }
   // --- Event Stream Getters ---
 
@@ -1380,20 +945,6 @@ class VrmController {
   }
 }
 
-void _validateAnimationPlayback({
-  required String fileName,
-  required double speed,
-  required double fadeDuration,
-  required String? clipName,
-}) {
-  _requireNonEmpty(fileName, 'fileName');
-  _requirePositiveFinite(speed, 'speed');
-  _requireNonNegativeFinite(fadeDuration, 'fadeDuration');
-  if (clipName != null) {
-    _requireNonEmpty(clipName, 'clipName');
-  }
-}
-
 void _validateMood(VrmMood mood) {
   if (mood.expression != null) {
     _requireUnitInterval(mood.expressionWeight, 'mood.expressionWeight');
@@ -1421,18 +972,6 @@ void _validatePhysics({
   _requireNonNegativeFinite(drag, 'drag');
 }
 
-void _requireNonEmpty(String value, String name) {
-  if (value.trim().isEmpty) {
-    throw ArgumentError.value(value, name, 'Must not be empty.');
-  }
-}
-
-void _requirePositiveFinite(double value, String name) {
-  if (!value.isFinite || value <= 0) {
-    throw ArgumentError.value(value, name, 'Must be positive and finite.');
-  }
-}
-
 void _requireNonNegativeFinite(double value, String name) {
   if (!value.isFinite || value < 0) {
     throw ArgumentError.value(value, name, 'Must be non-negative and finite.');
@@ -1449,34 +988,28 @@ void _requireUnitInterval(double value, String name) {
   }
 }
 
-void _requireNonNegativeDuration(Duration value, String name) {
-  if (value.isNegative) {
-    throw ArgumentError.value(value, name, 'Must not be negative.');
-  }
-}
-
 /// A high-level handle bound to one real-time audio message.
 ///
 /// Late callbacks can safely keep their original handle: once another session
 /// starts, append, finish, and cancel return `false` without touching it.
 final class VrmSpeechSession {
-  const VrmSpeechSession._(this._controller, this.id, this.mode);
+  const VrmSpeechSession._(this._dispatcher, this.id, this.mode);
 
-  final VrmController _controller;
+  final VrmSpeechDispatcher _dispatcher;
 
   /// Opaque identifier also reported by [VrmSpeechFinishedEvent].
   final String id;
 
   final VrmSpeechMode mode;
 
-  bool get isActive => _controller._speechState.isActive(id);
+  bool get isActive => _dispatcher.isActive(id);
 
   /// Appends visemes when this is the active viseme session.
   Future<bool> appendVisemes(List<VisemeFrame> frames) {
     if (mode != VrmSpeechMode.viseme) {
       throw StateError('This speech session accepts amplitude frames.');
     }
-    return _controller._appendSpeechVisemes(id, frames);
+    return _dispatcher.appendVisemes(id, frames);
   }
 
   /// Appends amplitudes when this is the active amplitude session.
@@ -1484,14 +1017,14 @@ final class VrmSpeechSession {
     if (mode != VrmSpeechMode.amplitude) {
       throw StateError('This speech session accepts viseme frames.');
     }
-    return _controller._appendSpeechAmplitudes(id, frames);
+    return _dispatcher.appendAmplitudes(id, frames);
   }
 
   /// Declares the final audio duration and schedules neutral mouth state.
   Future<bool> finish(Duration audioDuration) {
-    return _controller._finishSpeech(id, audioDuration);
+    return _dispatcher.finish(id, audioDuration);
   }
 
   /// Cancels this session only if it is still active.
-  Future<bool> cancel() => _controller._cancelSpeechSession(id);
+  Future<bool> cancel() => _dispatcher.cancelSession(id);
 }

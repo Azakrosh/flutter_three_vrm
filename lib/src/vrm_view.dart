@@ -49,20 +49,9 @@ class VrmView extends StatefulWidget {
 
 class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
   late final VrmWebViewAdapter _webView;
-  late final VrmRenderLifecycleCoordinator _lifecycleCoordinator;
-  late final VrmRuntimeReplayCoordinator _replayCoordinator;
-  final List<StreamSubscription<dynamic>> _subscriptions = [];
-  final List<StreamSubscription<dynamic>> _controllerSubscriptions = [];
-
-  LocalAssetsServer? _contentHost;
-  bool _transportAttached = false;
-  bool _isRuntimeReady = false;
+  late final VrmRuntimeSessionCoordinator _session;
   bool _isDisposed = false;
-  String? _errorMessage;
   VrmModelAssessment? _modelAssessment;
-  int _recoveryAttempts = 0;
-  bool _recoveryInProgress = false;
-  bool _recoveryRequested = false;
 
   Color get _effectiveBackground =>
       widget.transparent ? Colors.transparent : widget.backgroundColor;
@@ -71,24 +60,58 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     _validateConfiguration();
+    _webView = createVrmWebViewAdapter(backgroundColor: _effectiveBackground);
     WidgetsBinding.instance.addObserver(this);
-    _replayCoordinator = VrmRuntimeReplayCoordinator();
-    _lifecycleCoordinator = VrmRenderLifecycleCoordinator(
+    _session = VrmRuntimeSessionCoordinator(
       platform: defaultTargetPlatform,
       initialLifecycleState: WidgetsBinding.instance.lifecycleState,
       renderingEnabled: widget.renderingEnabled,
-      policy: widget.lifecyclePolicy,
-      dispatch: (paused) => widget.controller._setRenderingPaused(paused),
-      onError: (error, stackTrace) {
-        if (_isRuntimeReady && !_isDisposed) {
-          widget.controller._bridge.reportAsyncError(error, stackTrace);
-        }
+      lifecyclePolicy: widget.lifecyclePolicy,
+      recoveryPolicy: widget.recoveryPolicy,
+      dispatchRenderingPaused: (paused) =>
+          widget.controller._setRenderingPaused(paused),
+      reloadRuntimeDocument: _reloadRuntimeDocument,
+      markRuntimeUnavailable: (reason) {
+        _modelAssessment = null;
+        widget.controller._markRuntimeUnavailable(reason);
       },
+      reportAsyncError: (error, stackTrace) =>
+          widget.controller._bridge.reportAsyncError(error, stackTrace),
+      onChanged: () {
+        if (mounted && !_isDisposed) setState(() {});
+      },
+      readCameraTransform: () => widget.controller._lastKnownCameraTransform,
+      readCameraRevision: () => widget.controller._cameraTransformRevision,
+      isModelLoaded: () => widget.controller.isModelLoaded,
+      applyCameraTransform: (transform) =>
+          widget.controller.setTransform(transform),
     );
-    _webView = createVrmWebViewAdapter(backgroundColor: _effectiveBackground);
-    _subscriptions.add(_webView.errors.listen(_handleRuntimeResourceError));
-    _bindController(widget.controller);
-    widget.controller._attachHostResourceMonitoring();
+    final controllerBinding = VrmRuntimeControllerBinding(
+      endpoint: widget.controller._createRuntimeEndpoint(),
+      webView: _webView,
+      reloadRuntime: _session.reloadRuntime,
+      isRuntimeReady: () => _session.isRuntimeReady,
+      onRuntimeInitialized: _onRuntimeInitialized,
+      onControllerError: (message) {
+        if (!_session.isRuntimeReady) _session.showError(message);
+      },
+      onModelLoaded: _session.restoreCameraAfterModelLoad,
+      onModelReport: (report) async {
+        _assessModel(report);
+        await _applyAdaptiveQuality();
+      },
+      onModelUnloaded: () async {
+        if (_modelAssessment == null) return;
+        _modelAssessment = null;
+        await _applyAdaptiveQuality();
+      },
+      onBridgeMessageError: (error, stackTrace) {
+        _session.showError('WebView bridge error: $error');
+        debugPrintStack(stackTrace: stackTrace);
+      },
+      onRuntimeResourceError: _session.handleRuntimeResourceError,
+    );
+    _session.attachControllerBinding(controllerBinding);
     unawaited(_initialize());
   }
 
@@ -96,39 +119,15 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
   void didUpdateWidget(covariant VrmView oldWidget) {
     super.didUpdateWidget(oldWidget);
     _validateConfiguration();
-    if (oldWidget.renderingEnabled != widget.renderingEnabled ||
-        oldWidget.lifecyclePolicy != widget.lifecyclePolicy) {
-      _lifecycleCoordinator.updateConfiguration(
-        renderingEnabled: widget.renderingEnabled,
-        policy: widget.lifecyclePolicy,
-      );
-    }
+    _session.updateConfiguration(
+      renderingEnabled: widget.renderingEnabled,
+      lifecyclePolicy: widget.lifecyclePolicy,
+      recoveryPolicy: widget.recoveryPolicy,
+    );
     if (!identical(oldWidget.controller, widget.controller)) {
-      oldWidget.controller._detachHostResourceMonitoring();
-      widget.controller._attachHostResourceMonitoring();
-      _lifecycleCoordinator.detachRuntime();
-      _replayCoordinator.clearCamera();
-      final hadModel = oldWidget.controller.isModelLoaded;
-      oldWidget.controller._bridge.detachTransport(_webView);
-      final contentHost = _contentHost;
-      if (contentHost != null) {
-        oldWidget.controller._detachContentHost(contentHost);
-        widget.controller._attachContentHost(contentHost);
-      }
-      for (final subscription in _controllerSubscriptions) {
-        unawaited(subscription.cancel());
-      }
-      _controllerSubscriptions.clear();
-      widget.controller._modelState.setLoaded(hadModel);
-      _bindController(widget.controller);
-      if (_transportAttached) {
-        _attachTransport(widget.controller);
-      }
-      if (_isRuntimeReady) {
-        unawaited(_lifecycleCoordinator.attachRuntime());
-      }
+      _session.rebindController(widget.controller._createRuntimeEndpoint());
     }
-    if (_isRuntimeReady &&
+    if (_session.isRuntimeReady &&
         (oldWidget.graphicsPreset != widget.graphicsPreset ||
             oldWidget.adaptiveQuality != widget.adaptiveQuality ||
             oldWidget.modelPerformancePolicy !=
@@ -139,7 +138,7 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
       }
       unawaited(_applyGraphicsConfiguration());
     }
-    if (_isRuntimeReady &&
+    if (_session.isRuntimeReady &&
         (oldWidget.backgroundColor != widget.backgroundColor ||
             oldWidget.transparent != widget.transparent)) {
       unawaited(_applyBackgroundSafely());
@@ -152,67 +151,6 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
     widget.recoveryPolicy.validate();
   }
 
-  void _bindController(VrmController controller) {
-    _controllerSubscriptions
-      ..add(
-        controller.onStateChanged.listen((event) {
-          if (event.state == 'initialized') {
-            unawaited(_onRuntimeInitialized());
-          }
-        }),
-      )
-      ..add(
-        controller.onError.listen((event) {
-          if (!_isRuntimeReady) {
-            _showError(event.message);
-          }
-        }),
-      )
-      ..add(
-        controller.onModelLoaded.listen((_) {
-          unawaited(
-            _restoreCameraAfterRecovery().catchError((
-              Object error,
-              StackTrace stackTrace,
-            ) {
-              controller._bridge.reportAsyncError(error, stackTrace);
-            }),
-          );
-        }),
-      )
-      ..add(
-        controller.onModelReport.listen((event) {
-          _assessModel(event.report);
-          unawaited(_applyAdaptiveQuality());
-        }),
-      )
-      ..add(
-        controller.onModelUnloaded.listen((_) {
-          if (_modelAssessment == null) return;
-          _modelAssessment = null;
-          unawaited(_applyAdaptiveQuality());
-        }),
-      )
-      ..add(
-        _webView.messages.listen(
-          controller._bridge.handleJsMessage,
-          onError: (Object error, StackTrace stackTrace) {
-            _showError('WebView bridge error: $error');
-            debugPrintStack(stackTrace: stackTrace);
-          },
-        ),
-      );
-  }
-
-  void _attachTransport(VrmController controller) {
-    controller._bridge.attachTransport(
-      owner: _webView,
-      runJavaScript: _webView.runJavaScript,
-      reloadRuntime: _reloadRuntimePage,
-      runtimeReady: _isRuntimeReady,
-    );
-  }
-
   Future<void> _initialize() async {
     try {
       await _webView.initialize();
@@ -221,12 +159,11 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
         return;
       }
 
-      _transportAttached = true;
-      _attachTransport(widget.controller);
+      _session.attachTransport();
       await _loadRuntimePage();
     } on Object catch (error, stackTrace) {
       debugPrint('VrmView initialization failed: $error\n$stackTrace');
-      _showError('Failed to initialize the VRM runtime: $error');
+      _session.showError('Failed to initialize the VRM runtime: $error');
     }
   }
 
@@ -240,7 +177,6 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
     }
 
     final contentHost = LocalAssetsServer(runtimeAssetRoot: runtimeAssetRoot);
-    _contentHost = contentHost;
     await contentHost.start();
 
     if (_isDisposed) {
@@ -248,74 +184,28 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
       return;
     }
 
-    widget.controller._attachContentHost(contentHost);
+    _session.attachContentHost(contentHost);
     await _webView.load(contentHost.runtimeUri);
   }
 
   Future<void> _onRuntimeInitialized() async {
-    if (!mounted || _isRuntimeReady) {
-      return;
-    }
-    final runtimeGeneration = _replayCoordinator.beginRuntime();
-
-    setState(() {
-      _isRuntimeReady = true;
-      _errorMessage = null;
-    });
-    _recoveryAttempts = 0;
-    _recoveryInProgress = false;
-    _recoveryRequested = false;
-
-    try {
-      final folder = widget.initialModelFolder;
-      final file = widget.initialModelFile;
-      await _replayCoordinator.replay(
-        generation: runtimeGeneration,
-        steps: [
-          VrmRuntimeReplayStep(
-            VrmRuntimeReplayPhase.lifecycle,
-            _lifecycleCoordinator.attachRuntime,
-          ),
-          VrmRuntimeReplayStep(
-            VrmRuntimeReplayPhase.graphics,
-            _applyGraphicsConfiguration,
-          ),
-          VrmRuntimeReplayStep(
-            VrmRuntimeReplayPhase.background,
-            () => widget.controller.setBackground(
-              color: _effectiveBackground,
-              transparent: widget.transparent,
-            ),
-          ),
-          if (folder != null && file != null)
-            VrmRuntimeReplayStep(
-              VrmRuntimeReplayPhase.packageModel,
-              () => widget.controller.loadModel(folder, file),
-            ),
-          VrmRuntimeReplayStep(
-            VrmRuntimeReplayPhase.applicationState,
-            () async => widget.onCreated?.call(widget.controller),
-          ),
-          VrmRuntimeReplayStep(
-            VrmRuntimeReplayPhase.camera,
-            () => _restoreCameraAfterRecovery(runtimeGeneration),
-          ),
-        ],
-      );
-    } on Object catch (error, stackTrace) {
-      if (!_isCurrentRuntime(runtimeGeneration)) {
-        return;
-      }
-      widget.controller._bridge.reportAsyncError(error, stackTrace);
-      _showError('Failed to configure restored VRM runtime: $error');
-    }
-  }
-
-  bool _isCurrentRuntime(int generation) {
-    return mounted &&
-        !_isDisposed &&
-        _isRuntimeReady &&
-        _replayCoordinator.isCurrent(generation);
+    if (!mounted || _session.isRuntimeReady) return;
+    final folder = widget.initialModelFolder;
+    final file = widget.initialModelFile;
+    await _session.activateRuntime(
+      VrmRuntimeSessionReplayPlan(
+        applyGraphics: _applyGraphicsConfiguration,
+        applyBackground: () => widget.controller.setBackground(
+          color: _effectiveBackground,
+          transparent: widget.transparent,
+        ),
+        loadPackageModel: folder != null && file != null
+            ? () => widget.controller.loadModel(folder, file)
+            : null,
+        applyApplicationState: () async =>
+            widget.onCreated?.call(widget.controller),
+      ),
+    );
   }
 
   Future<void> _applyBackgroundSafely() async {
@@ -327,13 +217,13 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
       );
     } on VrmRuntimeException catch (error, stackTrace) {
       if (error.code == 'canceled') return;
-      if (_isRuntimeReady &&
+      if (_session.isRuntimeReady &&
           !_isDisposed &&
           identical(controller, widget.controller)) {
         controller._bridge.reportAsyncError(error, stackTrace);
       }
     } on Object catch (error, stackTrace) {
-      if (_isRuntimeReady &&
+      if (_session.isRuntimeReady &&
           !_isDisposed &&
           identical(controller, widget.controller)) {
         controller._bridge.reportAsyncError(error, stackTrace);
@@ -341,90 +231,15 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
     }
   }
 
-  void _handleRuntimeResourceError(String message) {
-    final error = StateError('WebView runtime resource error: $message');
-    _replayCoordinator.invalidateRuntime();
-    _lifecycleCoordinator.detachRuntime();
-    widget.controller._markRuntimeUnavailable(error);
-    if (mounted && !_isDisposed) {
-      setState(() {
-        _isRuntimeReady = false;
-        _modelAssessment = null;
-        _errorMessage = message;
-      });
-    }
-    if (_recoveryInProgress) {
-      _recoveryRequested = true;
-      return;
-    }
-    unawaited(_scheduleRuntimeRecovery());
-  }
-
-  Future<void> _scheduleRuntimeRecovery() async {
-    final policy = widget.recoveryPolicy;
-    if (_isDisposed ||
-        !policy.enabled ||
-        _recoveryInProgress ||
-        _recoveryAttempts >= policy.maxAttempts) {
-      return;
-    }
-    _recoveryInProgress = true;
-    _recoveryRequested = false;
-    _recoveryAttempts += 1;
-    try {
-      await Future<void>.delayed(policy.delayForAttempt(_recoveryAttempts));
-      if (!_isDisposed) {
-        await _reloadRuntimePage();
-      }
-    } on Object catch (error, stackTrace) {
-      _recoveryRequested = true;
-      widget.controller._bridge.reportAsyncError(error, stackTrace);
-      _showError('Failed to recover VRM runtime: $error');
-    } finally {
-      _recoveryInProgress = false;
-      if (_recoveryRequested && !_isDisposed) {
-        _recoveryRequested = false;
-        unawaited(_scheduleRuntimeRecovery());
-      }
-    }
-  }
-
-  Future<void> _reloadRuntimePage() async {
+  Future<void> _reloadRuntimeDocument() async {
     if (_isDisposed) {
       throw StateError('VrmView has already been disposed.');
     }
-    final contentHost = _contentHost;
+    final contentHost = _session.contentHost;
     if (contentHost == null || !contentHost.isStarted) {
       throw StateError('VRM runtime content host is not available.');
     }
-    _replayCoordinator.captureCamera(
-      widget.controller._lastKnownCameraTransform,
-      widget.controller._cameraTransformRevision,
-    );
-    _replayCoordinator.invalidateRuntime();
-    _lifecycleCoordinator.detachRuntime();
-    widget.controller._markRuntimeUnavailable(
-      StateError('VRM runtime is reloading.'),
-    );
-    if (mounted) {
-      setState(() {
-        _isRuntimeReady = false;
-        _modelAssessment = null;
-        _errorMessage = null;
-      });
-    }
     await _webView.load(contentHost.runtimeUri);
-  }
-
-  Future<void> _restoreCameraAfterRecovery([int? generation]) async {
-    final activeGeneration = generation ?? _replayCoordinator.activeGeneration;
-    if (activeGeneration == null) return;
-    await _replayCoordinator.restoreCamera(
-      generation: activeGeneration,
-      modelLoaded: widget.controller.isModelLoaded,
-      currentRevision: widget.controller._cameraTransformRevision,
-      apply: widget.controller.setTransform,
-    );
   }
 
   Future<void> _applyGraphicsConfiguration() async {
@@ -433,7 +248,7 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
       await _applyAdaptiveQuality();
     } on Object catch (error, stackTrace) {
       debugPrint('Failed to configure VRM graphics: $error\n$stackTrace');
-      _showError('Failed to configure VRM graphics: $error');
+      _session.showError('Failed to configure VRM graphics: $error');
     }
   }
 
@@ -459,47 +274,23 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
     return widget.controller.setAdaptiveQuality(settings);
   }
 
-  void _showError(String message) {
-    if (!mounted || _isDisposed) {
-      return;
-    }
-    setState(() => _errorMessage = message);
-  }
-
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    _lifecycleCoordinator.updateLifecycleState(state);
+    _session.updateLifecycleState(state);
   }
 
   @override
   void didHaveMemoryPressure() {
-    widget.controller._recordHostMemoryPressure();
+    _session.recordHostMemoryPressure();
   }
 
   @override
   void dispose() {
-    final shouldDisposeRuntime = _transportAttached && _isRuntimeReady;
+    final shouldDisposeRuntime =
+        _session.isTransportAttached && _session.isRuntimeReady;
     _isDisposed = true;
-    _replayCoordinator.dispose();
-    _lifecycleCoordinator.dispose();
+    _session.dispose();
     WidgetsBinding.instance.removeObserver(this);
-    widget.controller._detachHostResourceMonitoring();
-
-    for (final subscription in [
-      ..._subscriptions,
-      ..._controllerSubscriptions,
-    ]) {
-      unawaited(subscription.cancel());
-    }
-    _subscriptions.clear();
-    _controllerSubscriptions.clear();
-
-    widget.controller._bridge.detachTransport(_webView);
-    final contentHost = _contentHost;
-    if (contentHost != null) {
-      widget.controller._detachContentHost(contentHost);
-      unawaited(contentHost.close());
-    }
     unawaited(_disposeRuntimeAndWebView(shouldDisposeRuntime));
 
     super.dispose();
@@ -524,7 +315,7 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
         fit: StackFit.expand,
         children: [
           _webView.buildWidget(),
-          if (_errorMessage case final message?)
+          if (_session.errorMessage case final message?)
             Center(
               child: Padding(
                 padding: const EdgeInsets.all(16),
@@ -538,7 +329,7 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
                 ),
               ),
             )
-          else if (!_isRuntimeReady)
+          else if (!_session.isRuntimeReady)
             ColoredBox(color: _effectiveBackground),
         ],
       ),

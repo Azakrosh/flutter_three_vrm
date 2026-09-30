@@ -1,0 +1,187 @@
+import 'dart:async';
+
+import 'package:flutter/widgets.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_three_vrm/flutter_three_vrm.dart';
+import 'package:flutter_three_vrm/src/runtime/vrm_runtime_session_coordinator.dart';
+
+void main() {
+  group('VrmRuntimeSessionCoordinator', () {
+    test('owns ordered replay and runtime readiness', () async {
+      final harness = _SessionHarness();
+      final order = <String>[];
+
+      await harness.coordinator.activateRuntime(
+        VrmRuntimeSessionReplayPlan(
+          applyGraphics: () async => order.add('graphics'),
+          applyBackground: () async => order.add('background'),
+          loadPackageModel: () async => order.add('model'),
+          applyApplicationState: () async => order.add('application'),
+        ),
+      );
+
+      expect(harness.lifecyclePauses, <bool>[false]);
+      expect(order, <String>['graphics', 'background', 'model', 'application']);
+      expect(harness.coordinator.isRuntimeReady, isTrue);
+      expect(harness.changedCount, 1);
+      harness.coordinator.dispose();
+    });
+
+    test('runtime failure supersedes an in-flight replay', () async {
+      final harness = _SessionHarness(
+        recoveryPolicy: const VrmRuntimeRecoveryPolicy(enabled: false),
+      );
+      final graphicsStarted = Completer<void>();
+      final releaseGraphics = Completer<void>();
+      var applicationStateApplied = false;
+
+      final activation = harness.coordinator.activateRuntime(
+        VrmRuntimeSessionReplayPlan(
+          applyGraphics: () {
+            graphicsStarted.complete();
+            return releaseGraphics.future;
+          },
+          applyBackground: () async {},
+          applyApplicationState: () async {
+            applicationStateApplied = true;
+          },
+        ),
+      );
+      await graphicsStarted.future;
+
+      harness.coordinator.handleRuntimeResourceError('document failed');
+      releaseGraphics.complete();
+      await activation;
+
+      expect(applicationStateApplied, isFalse);
+      expect(harness.coordinator.isRuntimeReady, isFalse);
+      expect(harness.coordinator.errorMessage, 'document failed');
+      expect(harness.unavailableReasons, hasLength(1));
+      harness.coordinator.dispose();
+    });
+
+    test('recovery retries are bounded and serialized', () async {
+      var reloadFailures = 1;
+      final harness = _SessionHarness(
+        recoveryPolicy: const VrmRuntimeRecoveryPolicy(
+          maxAttempts: 2,
+          baseDelay: Duration.zero,
+          maxDelay: Duration.zero,
+        ),
+        reload: () async {
+          if (reloadFailures > 0) {
+            reloadFailures -= 1;
+            throw StateError('reload failed');
+          }
+        },
+      );
+
+      harness.coordinator.handleRuntimeResourceError('main frame failed');
+      await harness.coordinator.recoveryIdle;
+
+      expect(harness.reloadCount, 2);
+      expect(harness.coordinator.recoveryAttempts, 2);
+      expect(harness.coordinator.recoveryInProgress, isFalse);
+      expect(harness.coordinator.errorMessage, isNull);
+      expect(harness.reportedErrors, hasLength(1));
+      expect(harness.unavailableReasons, hasLength(3));
+      harness.coordinator.dispose();
+    });
+
+    test('successful activation cancels delayed recovery reload', () async {
+      final harness = _SessionHarness(
+        recoveryPolicy: const VrmRuntimeRecoveryPolicy(
+          maxAttempts: 1,
+          baseDelay: Duration(milliseconds: 20),
+          maxDelay: Duration(milliseconds: 20),
+        ),
+      );
+
+      harness.coordinator.handleRuntimeResourceError('transient failure');
+      await harness.coordinator.activateRuntime(
+        VrmRuntimeSessionReplayPlan(
+          applyGraphics: () async {},
+          applyBackground: () async {},
+          applyApplicationState: () async {},
+        ),
+      );
+      await harness.coordinator.recoveryIdle;
+
+      expect(harness.reloadCount, 0);
+      expect(harness.coordinator.isRuntimeReady, isTrue);
+      harness.coordinator.dispose();
+    });
+
+    test('camera snapshot survives reload and restores exactly once', () async {
+      const transform = VrmTransform(x: 0.2, y: -0.1, zoom: 1.3);
+      final harness = _SessionHarness(
+        cameraTransform: transform,
+        cameraRevision: 4,
+      );
+
+      await harness.coordinator.reloadRuntime();
+      await harness.coordinator.activateRuntime(
+        VrmRuntimeSessionReplayPlan(
+          applyGraphics: () async {},
+          applyBackground: () async {},
+          applyApplicationState: () async {},
+        ),
+      );
+      expect(harness.appliedCameraTransforms, isEmpty);
+
+      harness.modelLoaded = true;
+      await harness.coordinator.restoreCameraAfterModelLoad();
+      await harness.coordinator.restoreCameraAfterModelLoad();
+
+      expect(harness.appliedCameraTransforms, <VrmTransform>[transform]);
+      harness.coordinator.dispose();
+    });
+  });
+}
+
+final class _SessionHarness {
+  _SessionHarness({
+    this.recoveryPolicy = const VrmRuntimeRecoveryPolicy(),
+    this.reload,
+    this.cameraTransform,
+    this.cameraRevision = 0,
+  }) {
+    coordinator = VrmRuntimeSessionCoordinator(
+      platform: TargetPlatform.windows,
+      initialLifecycleState: AppLifecycleState.resumed,
+      renderingEnabled: true,
+      lifecyclePolicy: VrmRenderLifecyclePolicy.platformDefault,
+      recoveryPolicy: recoveryPolicy,
+      dispatchRenderingPaused: (paused) async {
+        lifecyclePauses.add(paused);
+      },
+      reloadRuntimeDocument: () async {
+        reloadCount += 1;
+        await reload?.call();
+      },
+      markRuntimeUnavailable: unavailableReasons.add,
+      reportAsyncError: (error, _) => reportedErrors.add(error),
+      onChanged: () => changedCount += 1,
+      readCameraTransform: () => cameraTransform,
+      readCameraRevision: () => cameraRevision,
+      isModelLoaded: () => modelLoaded,
+      applyCameraTransform: (transform) async {
+        appliedCameraTransforms.add(transform);
+      },
+    );
+  }
+
+  final VrmRuntimeRecoveryPolicy recoveryPolicy;
+  final Future<void> Function()? reload;
+  final VrmTransform? cameraTransform;
+  final int cameraRevision;
+
+  late final VrmRuntimeSessionCoordinator coordinator;
+  final List<bool> lifecyclePauses = [];
+  final List<Object> unavailableReasons = [];
+  final List<Object> reportedErrors = [];
+  final List<VrmTransform> appliedCameraTransforms = [];
+  bool modelLoaded = false;
+  int changedCount = 0;
+  int reloadCount = 0;
+}

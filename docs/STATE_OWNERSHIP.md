@@ -1,28 +1,47 @@
 # State ownership and runtime recovery
 
 Этот документ фиксирует контракт восстановления между Flutter-приложением,
-пакетом и WebView runtime. Он является рабочим артефактом Stage 27.
+пакетом и WebView runtime. Он создан в Stage 27 и актуализирован после изоляции
+runtime-сессии в Stage 34 и декомпозиции controller responsibilities в Stage 35.
 
 ## Владельцы состояния
 
 | Состояние | Desired state | Applied state | Поведение после WebView reload |
 |---|---|---|---|
-| Lifecycle и `renderingEnabled` | `VrmView` + `VrmRenderLifecycleCoordinator` | Web runtime | Повторно синхронизируется первым шагом |
+| Lifecycle и `renderingEnabled` | параметры `VrmView`, применяемые `VrmRuntimeSessionCoordinator` | Web runtime | Повторно синхронизируется первым шагом |
 | Graphics preset и adaptive quality | параметры `VrmView` | Web runtime | Повторно применяются пакетом |
 | Базовый цвет/transparent background | параметры `VrmView` | Web runtime | Повторно применяются пакетом |
 | Background, заданный напрямую через controller | приложение | Web runtime | Не сохраняется; приложение повторяет команду в `onCreated` |
 | `initialModelFolder`/`initialModelFile` | `VrmView` | Web runtime | Повторно загружается пакетом |
 | Авторизованная/серверная модель | приложение | Web runtime | Приложение получает свежий token и загружает модель в `onCreated` |
-| Camera pan/zoom | последний user-initiated transform в controller | Web runtime | Snapshot восстанавливается после загрузки модели, если пользователь не успел изменить камеру |
+| Camera pan/zoom | последний user-initiated transform в controller; snapshot хранит `VrmRuntimeSessionCoordinator` | Web runtime | Snapshot восстанавливается после загрузки модели, если пользователь не успел изменить камеру |
 | Speech session и direct lip-sync input | текущая runtime-сессия | Web runtime | Отменяются; сервер/аудиоплеер начинает следующее сообщение как новую сессию |
 | Одиночная VRMA/glTF/Pose операция | текущая runtime-сессия | Web runtime | Не replay-ится; незавершённый Future завершается ошибкой потери runtime |
 | `VrmAnimationQueue` | приложение/объект очереди | Web runtime | `runtimeUnavailable` отменяет stale transition без ошибки; очередь сохраняет позицию и запускает текущий элемент после нового `modelLoaded` |
 | Expressions, mood, wind, physics, lights | приложение | Web runtime | Неявно не сохраняются; при необходимости приложение повторяет их в `onCreated` после загрузки модели |
 
+Transient model transfer state имеет одного внутреннего владельца:
+`VrmModelDispatcher`. Он инкапсулирует `VrmModelSessionState`, generation-safe
+completion, cancel и unload. Публичный `VrmController` остаётся facade и
+координирует только связанные speech/camera side effects при unload.
+
+Transient speech state также имеет одного владельца: `VrmSpeechDispatcher`.
+Он инкапсулирует `VrmSpeechSessionState`, input revision, direct latest-value
+channels и timeline commands. Публичный `VrmSpeechSession` хранит ссылку только
+на dispatcher; replacement, runtime loss или dispose делают старый handle
+неактивным без доступа к новому runtime.
+
+Pose, face и gaze commands инкапсулированы в `VrmAvatarControlDispatcher`.
+Компонент не хранит replay-состояние, но согласует захват mouth-layer с
+`VrmSpeechDispatcher`: ручное mouth-expression инвалидирует активную speech
+session и передаёт runtime следующую монотонную input revision. Mood остаётся
+междоменной композицией публичного facade и не создаёт второго владельца state.
+
 ## Порядок replay
 
-Каждая новая WebView-сессия получает generation token. Старый replay прекращается
-после текущего асинхронного шага и не переходит к следующему.
+Каждая новая WebView-сессия получает generation token, которым владеет
+`VrmRuntimeSessionCoordinator`. Старый replay прекращается после текущего
+асинхронного шага и не переходит к следующему.
 
 1. Синхронизация lifecycle/render pause.
 2. Graphics preset и adaptive quality.
@@ -78,8 +97,16 @@ runtime уже загружена.
 - `vrm_runtime_replay_coordinator_test.dart` — строгий порядок, stale generation,
   camera revision и dispose;
 - `vrm_model_session_state_test.dart` — replace/cancel/runtime-loss model load;
+- `vrm_model_dispatcher_test.dart` — transfer payload, hosted release,
+  stale replacement, cancel и unload completion;
 - `vrm_speech_session_state_test.dart` — replacement, finishing и stale handles;
+- `vrm_speech_dispatcher_test.dart` — direct revisions, frame ordering,
+  stale handle, finishing, cancel и replacement command failure;
+- `vrm_avatar_control_dispatcher_test.dart` — pose serialization, mouth
+  ownership/revisions, face validation и latest-value gaze transport;
 - `vrm_animation_queue_snapshot_test.dart` — transition race и resume после model;
+- `vrm_runtime_session_coordinator_test.dart` — generation, ordered replay, bounded recovery и camera snapshot;
+- `vrm_runtime_controller_binding_test.dart` — rebind, transport/content-host ownership и teardown;
 - `vrm_render_lifecycle_coordinator_test.dart` — Android/Windows pause policy;
 - `vrm_controller_dispose_test.dart` — все публичные controller mutations.
 
