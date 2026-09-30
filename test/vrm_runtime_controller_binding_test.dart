@@ -116,7 +116,8 @@ void main() {
     test('dispose is idempotent and suppresses later messages', () async {
       final webView = _FakeWebViewAdapter();
       final endpoint = _EndpointHarness();
-      final host = _FakeContentHost();
+      final closeBarrier = Completer<void>();
+      final host = _FakeContentHost(closeBarrier: closeBarrier.future);
       final resourceErrors = <String>[];
       final bridgeErrors = <Object>[];
 
@@ -138,6 +139,13 @@ void main() {
 
       final firstDispose = binding.dispose();
       final secondDispose = binding.dispose();
+      var disposalCompleted = false;
+      unawaited(firstDispose.then<void>((_) => disposalCompleted = true));
+      await Future<void>.delayed(Duration.zero);
+
+      expect(disposalCompleted, isFalse);
+      expect(host.closeCount, 1);
+      closeBarrier.complete();
       await Future.wait<void>([firstDispose, secondDispose]);
       webView.messageController.add('stale');
       webView.errorController.add('stale resource error');
@@ -261,6 +269,9 @@ final class _FakeWebViewAdapter implements VrmWebViewAdapter {
 }
 
 final class _FakeContentHost implements VrmContentHost {
+  _FakeContentHost({this.closeBarrier});
+
+  final Future<void>? closeBarrier;
   int closeCount = 0;
 
   @override
@@ -275,6 +286,7 @@ final class _FakeContentHost implements VrmContentHost {
   @override
   Future<void> close() async {
     closeCount += 1;
+    await closeBarrier;
   }
 
   @override

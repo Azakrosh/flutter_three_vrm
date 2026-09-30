@@ -24,7 +24,7 @@ void main() {
       expect(order, <String>['graphics', 'background', 'model', 'application']);
       expect(harness.coordinator.isRuntimeReady, isTrue);
       expect(harness.changedCount, 1);
-      harness.coordinator.dispose();
+      await harness.coordinator.dispose();
     });
 
     test('runtime failure supersedes an in-flight replay', () async {
@@ -57,7 +57,7 @@ void main() {
       expect(harness.coordinator.isRuntimeReady, isFalse);
       expect(harness.coordinator.errorMessage, 'document failed');
       expect(harness.unavailableReasons, hasLength(1));
-      harness.coordinator.dispose();
+      await harness.coordinator.dispose();
     });
 
     test('recovery retries are bounded and serialized', () async {
@@ -85,7 +85,7 @@ void main() {
       expect(harness.coordinator.errorMessage, isNull);
       expect(harness.reportedErrors, hasLength(1));
       expect(harness.unavailableReasons, hasLength(3));
-      harness.coordinator.dispose();
+      await harness.coordinator.dispose();
     });
 
     test('successful activation cancels delayed recovery reload', () async {
@@ -109,8 +109,34 @@ void main() {
 
       expect(harness.reloadCount, 0);
       expect(harness.coordinator.isRuntimeReady, isTrue);
-      harness.coordinator.dispose();
+      await harness.coordinator.dispose();
     });
+
+    test(
+      'dispose cancels delayed recovery and shares one cleanup future',
+      () async {
+        final harness = _SessionHarness(
+          recoveryPolicy: const VrmRuntimeRecoveryPolicy(
+            maxAttempts: 1,
+            baseDelay: Duration(minutes: 1),
+            maxDelay: Duration(minutes: 1),
+          ),
+        );
+
+        harness.coordinator.handleRuntimeResourceError('waiting to recover');
+        await Future<void>.delayed(Duration.zero);
+        expect(harness.coordinator.recoveryInProgress, isTrue);
+
+        final first = harness.coordinator.dispose();
+        final second = harness.coordinator.dispose();
+
+        expect(identical(first, second), isTrue);
+        await first.timeout(const Duration(milliseconds: 200));
+        expect(harness.reloadCount, 0);
+        expect(harness.coordinator.recoveryInProgress, isFalse);
+        expect(harness.coordinator.isRuntimeReady, isFalse);
+      },
+    );
 
     test('camera snapshot survives reload and restores exactly once', () async {
       const transform = VrmTransform(x: 0.2, y: -0.1, zoom: 1.3);
@@ -134,7 +160,7 @@ void main() {
       await harness.coordinator.restoreCameraAfterModelLoad();
 
       expect(harness.appliedCameraTransforms, <VrmTransform>[transform]);
-      harness.coordinator.dispose();
+      await harness.coordinator.dispose();
     });
   });
 }

@@ -118,6 +118,8 @@ final class VrmRuntimeSessionCoordinator {
   bool _recoveryInProgress = false;
   bool _recoveryRequested = false;
   Future<void>? _recoveryTask;
+  Completer<void>? _recoveryDelayCancellation;
+  Future<void>? _disposeFuture;
 
   bool get isRuntimeReady => !_disposed && _runtimeReady;
   bool get isTransportAttached =>
@@ -168,6 +170,7 @@ final class VrmRuntimeSessionCoordinator {
     _recoveryPolicy = recoveryPolicy;
     if (!recoveryPolicy.enabled) {
       _recoveryRequested = false;
+      _cancelRecoveryDelay();
     }
     _lifecycle.updateConfiguration(
       renderingEnabled: renderingEnabled,
@@ -197,6 +200,7 @@ final class VrmRuntimeSessionCoordinator {
     _errorMessage = null;
     _recoveryAttempts = 0;
     _recoveryRequested = false;
+    _cancelRecoveryDelay();
     _notifyChanged();
 
     try {
@@ -273,8 +277,10 @@ final class VrmRuntimeSessionCoordinator {
     await _restoreCamera(generation);
   }
 
-  void dispose() {
-    if (_disposed) return;
+  Future<void> dispose() {
+    final existing = _disposeFuture;
+    if (existing != null) return existing;
+
     _disposed = true;
     final controllerBinding = _controllerBinding;
     _controllerBinding = null;
@@ -282,9 +288,15 @@ final class VrmRuntimeSessionCoordinator {
     _recoveryRequested = false;
     _replay.dispose();
     _lifecycle.dispose();
-    if (controllerBinding != null) {
-      unawaited(controllerBinding.dispose());
-    }
+    _cancelRecoveryDelay();
+
+    final pending = <Future<void>>[
+      ?controllerBinding?.dispose(),
+      ?_recoveryTask,
+    ];
+    final disposal = Future.wait<void>(pending).then<void>((_) {});
+    _disposeFuture = disposal;
+    return disposal;
   }
 
   void _setRuntimeUnavailable(Object reason, {required String? errorMessage}) {
@@ -310,7 +322,7 @@ final class VrmRuntimeSessionCoordinator {
           _recoveryAttempts < _recoveryPolicy.maxAttempts) {
         _recoveryRequested = false;
         _recoveryAttempts += 1;
-        await Future<void>.delayed(
+        await _waitForRecoveryDelay(
           _recoveryPolicy.delayForAttempt(_recoveryAttempts),
         );
         if (_disposed || _runtimeReady) return;
@@ -326,6 +338,28 @@ final class VrmRuntimeSessionCoordinator {
     } finally {
       _recoveryInProgress = false;
       _recoveryTask = null;
+    }
+  }
+
+  Future<void> _waitForRecoveryDelay(Duration duration) async {
+    final cancellation = Completer<void>();
+    _recoveryDelayCancellation = cancellation;
+    try {
+      await Future.any<void>([
+        Future<void>.delayed(duration),
+        cancellation.future,
+      ]);
+    } finally {
+      if (identical(_recoveryDelayCancellation, cancellation)) {
+        _recoveryDelayCancellation = null;
+      }
+    }
+  }
+
+  void _cancelRecoveryDelay() {
+    final cancellation = _recoveryDelayCancellation;
+    if (cancellation != null && !cancellation.isCompleted) {
+      cancellation.complete();
     }
   }
 
