@@ -2,7 +2,7 @@ part of 'vrm_runtime.dart';
 
 /// Primary controller for loading, animating, and interacting with one VRM model.
 class VrmController {
-  final _VrmBridge _bridge = _VrmBridge();
+  final VrmBridge _bridge = VrmBridge();
   late final VrmHostResourceMonitor _hostResourceMonitor;
   late final VrmPlatformThermalMonitor _platformThermalMonitor;
   late final VrmHostedResourceDispatcher _hostedResources;

@@ -1,11 +1,35 @@
-part of '../vrm_runtime.dart';
+﻿import 'dart:async';
+import 'dart:convert';
+
+import 'package:flutter/foundation.dart';
+
+import '../models/vrm_events.dart';
+import '../models/vrm_exception.dart';
+import 'latest_value_dispatcher.dart';
+import 'vrm_event_decoder.dart';
+import 'vrm_protocol_contract.dart';
 
 typedef VrmJavaScriptRunner = Future<void> Function(String source);
 typedef VrmRuntimeReloader = Future<void> Function();
 
-final class _VrmBridge {
-  static const Duration _commandTimeout = Duration(minutes: 2);
+/// Internal protocol-v3 transport used by [VrmController].
+///
+/// The class is intentionally not exported from the package public library.
+final class VrmBridge {
+  VrmBridge({Duration commandTimeout = const Duration(minutes: 2)})
+    : _commandTimeout = commandTimeout {
+    if (commandTimeout.isNegative || commandTimeout == Duration.zero) {
+      throw ArgumentError.value(
+        commandTimeout,
+        'commandTimeout',
+        'Must be greater than zero.',
+      );
+    }
+  }
+
   static const int _maxIgnoredResponseIds = 256;
+
+  final Duration _commandTimeout;
   final StreamController<VrmEvent> _eventController =
       StreamController<VrmEvent>.broadcast();
   final Map<String, _PendingCommand> _pending = <String, _PendingCommand>{};
@@ -74,56 +98,69 @@ final class _VrmBridge {
       if (decodedValue is! Map<String, dynamic>) {
         throw const FormatException('Bridge message must be a JSON object.');
       }
-      if (decodedValue['type'] == 'response') {
-        _handleResponse(decodedValue);
-        return;
+      switch (decodedValue['type']) {
+        case 'response':
+          _handleResponse(decodedValue);
+        case 'event':
+          _handleEvent(decodedValue);
+        default:
+          throw const FormatException('Unknown VRM bridge message type.');
       }
-      if (decodedValue['type'] == 'event') {
-        _handleEvent(decodedValue);
-        return;
-      }
-      throw const FormatException('Unknown VRM bridge message type.');
     } on Object catch (error, stackTrace) {
-      debugPrint('Invalid VRM runtime message: $error\n$stackTrace');
+      reportAsyncError(error, stackTrace);
     }
   }
 
   void _handleResponse(Map<String, dynamic> envelope) {
-    if (envelope['version'] != vrmProtocolVersion) {
-      throw FormatException(
-        'Unsupported VRM protocol version: ${envelope['version']}.',
-      );
-    }
-    final id = envelope['id'];
-    if (id is! String) {
+    final rawId = envelope['id'];
+    if (rawId is! String || rawId.isEmpty) {
       throw const FormatException('Response id is missing.');
     }
-    final pending = _pending.remove(id);
+
+    final pending = _pending.remove(rawId);
     if (pending == null) {
-      if (_ignoredResponseIds.remove(id)) {
+      if (_ignoredResponseIds.remove(rawId)) {
         return;
       }
-      debugPrint('Ignoring response for unknown VRM command: $id');
+      debugPrint('Ignoring response for unknown VRM command: $rawId');
       return;
     }
     pending.timer.cancel();
 
-    if (envelope['ok'] == true) {
-      pending.completer.complete(envelope['result']);
-      return;
-    }
+    try {
+      if (envelope['version'] != vrmProtocolVersion) {
+        throw FormatException(
+          'Unsupported VRM protocol version: ${envelope['version']}.',
+        );
+      }
+      final ok = envelope['ok'];
+      if (ok is! bool) {
+        throw const FormatException('Response ok flag is missing.');
+      }
+      if (ok) {
+        pending.completer.complete(envelope['result']);
+        return;
+      }
 
-    final rawError = envelope['error'];
-    final error = rawError is Map<String, dynamic>
-        ? rawError
-        : const <String, dynamic>{};
-    pending.completer.completeError(
-      VrmRuntimeException(
-        code: error['code'] as String? ?? 'runtimeError',
-        message: error['message'] as String? ?? 'VRM runtime command failed.',
-        details: error['details'],
-      ),
-    );
+      final rawError = envelope['error'];
+      if (rawError is! Map<String, dynamic>) {
+        throw const FormatException('Response error is missing.');
+      }
+      final code = rawError['code'];
+      final message = rawError['message'];
+      if (code is! String || code.isEmpty || message is! String) {
+        throw const FormatException('Response error payload is malformed.');
+      }
+      pending.completer.completeError(
+        VrmRuntimeException(
+          code: code,
+          message: message,
+          details: rawError['details'],
+        ),
+      );
+    } on Object catch (error, stackTrace) {
+      pending.completer.completeError(error, stackTrace);
+    }
   }
 
   void _handleEvent(Map<String, dynamic> decoded) {
@@ -142,9 +179,6 @@ final class _VrmBridge {
   }
 
   /// Sends realtime state with one in-flight command per channel.
-  ///
-  /// While a command is awaiting its WebView response, repeated updates replace
-  /// the queued value instead of growing the pending-command map.
   void sendLatestCommand({
     required String channel,
     required VrmProtocolCommand action,
@@ -205,7 +239,9 @@ final class _VrmBridge {
     final completer = Completer<Object?>();
     final timer = Timer(_commandTimeout, () {
       final pending = _pending.remove(id);
-      pending?.completer.completeError(
+      if (pending == null) return;
+      _rememberIgnoredResponseId(id);
+      pending.completer.completeError(
         TimeoutException(
           'VRM command "${action.name}" did not complete.',
           _commandTimeout,
@@ -224,8 +260,10 @@ final class _VrmBridge {
 
     void failDispatch(Object error, StackTrace stackTrace) {
       final pending = _pending.remove(id);
-      pending?.timer.cancel();
-      pending?.completer.completeError(error, stackTrace);
+      if (pending == null) return;
+      pending.timer.cancel();
+      _rememberIgnoredResponseId(id);
+      pending.completer.completeError(error, stackTrace);
     }
 
     try {
@@ -255,15 +293,19 @@ final class _VrmBridge {
   }
 
   void _failPending(Object error) {
-    _ignoredResponseIds.addAll(_pending.keys);
+    final pendingEntries = _pending.entries.toList(growable: false);
+    _pending.clear();
+    for (final entry in pendingEntries) {
+      _rememberIgnoredResponseId(entry.key);
+      entry.value.timer.cancel();
+      entry.value.completer.completeError(error);
+    }
+  }
+
+  void _rememberIgnoredResponseId(String id) {
+    _ignoredResponseIds.add(id);
     while (_ignoredResponseIds.length > _maxIgnoredResponseIds) {
       _ignoredResponseIds.remove(_ignoredResponseIds.first);
-    }
-    final pendingCommands = _pending.values.toList(growable: false);
-    _pending.clear();
-    for (final pending in pendingCommands) {
-      pending.timer.cancel();
-      pending.completer.completeError(error);
     }
   }
 
