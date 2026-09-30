@@ -31,6 +31,12 @@ replay и полный список владельцев состояния на
 готового/прикреплённого runtime, reload или dispose дают `StateError`. Команда,
 не ответившая за transport timeout, завершается `TimeoutException`.
 
+Получение response с известным correlation ID всегда является terminal:
+повреждённый envelope немедленно завершает ожидающий Future с
+`FormatException`, а не ждёт повторного timeout. Ожидаемый поздний response
+после timeout, detach/reload или ошибки dispatch игнорируется. Malformed
+сообщение без известной pending-команды публикуется в `onError`.
+
 Ошибка, возвращённая самим web runtime, представлена `VrmRuntimeException`.
 Для управления потоком приложение может стабильно распознавать
 `code == 'canceled'`: так завершаются заменённые или явно отменённые загрузки.

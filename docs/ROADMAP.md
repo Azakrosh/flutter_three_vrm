@@ -73,6 +73,7 @@
 | 33 | Воспроизводимые Firebase performance gates и evidence artifacts | Выполнено |
 | 34 | Изоляция runtime-сессии от Flutter-представления | Выполнено |
 | 35 | Внутренняя декомпозиция `VrmController` | Выполнено |
+| 36 | Terminal semantics и диагностика transport bridge | Выполнено |
 
 ## 3. Состояние реализации
 
@@ -85,7 +86,7 @@ Flutter application
       │   └─ VrmRuntimeControllerBinding subscriptions, transport, content-host lifetime
       │       └─ content host        session loopback, opaque resources
       ├─ VrmController               публичный высокоуровневый facade
-      │   ├─ _VrmBridge              protocol v3, correlation IDs, timeout, events
+      │   ├─ VrmBridge               protocol v3, terminal responses, timeout, events
       │   ├─ hosted resources        expose, dispatch, guaranteed release
       │   ├─ animation dispatcher    validation, playback identity, commands
       │   ├─ model dispatcher        transfer generation, cancel, unload
@@ -138,11 +139,11 @@ WebView runtime
 
 ### Текущий размер и покрытие
 
-- Flutter library: 48 файлов, примерно 6940 строк;
+- Flutter library: 48 файлов, примерно 6970 строк;
 - web source: 35 файлов, примерно 6860 строк;
 - `runner.ts`: примерно 675 строк;
 - `VrmController`: примерно 910 строк;
-- Flutter unit tests: 125;
+- Flutter unit tests: 130;
 - web unit tests: 167;
 - integration matrix разделена на runtime/scene, motion/speech,
   lifecycle/recovery, model-race, resource-loading и performance soak gates.
@@ -195,6 +196,14 @@ speech, scene/graphics и avatar-control обязанности вынесены
 компоненты с явными границами владения. В controller осталась междоменная
 координация, публичные события, runtime lifetime и camera recovery.
 
+### Закрыто в Stage 36 — незавершённые malformed bridge responses
+
+Любой response с известным correlation ID теперь является terminal: success,
+runtime error и повреждённый envelope немедленно завершают соответствующий
+Future. Timeout, detach, reload и dispatch failure сохраняют bounded-набор ID,
+чтобы ожидаемый поздний response не создавал ложную диагностику. Некоррелируемый
+malformed input публикуется в `onError`, а не теряется только в debug log.
+
 ### P2 — публикационная готовность отложена
 
 В `pubspec.yaml` установлен `publish_to: none`. Это соответствует принятому
@@ -203,22 +212,18 @@ speech, scene/graphics и avatar-control обязанности вынесены
 
 ## 5. Текущее направление
 
-Stage 35 завершён: hosted-resource, animation, model, speech, scene/graphics и
-avatar-control pipelines вынесены из `VrmController` в отдельные внутренние
-компоненты. Публичный API и protocol v3 не изменены; 125 Flutter-тестов,
-`flutter analyze`, Windows motion/speech и runtime smoke gates проходят.
+Stage 36 завершён: `VrmBridge` стал самостоятельным внутренним компонентом со
+строгой terminal-семантикой correlated responses, bounded late-response
+suppression и observable malformed-input errors. Публичный API и protocol v3
+не изменены; проходят 130 Flutter-тестов, `flutter analyze`, Windows
+runtime/recovery и runtime smoke gates.
 
-Stage 34 завершён: runtime-сессия отделена от `VrmView` без изменения
-публичного API и protocol v3.
+Stage 35 завершён и зафиксирован коммитом `ef57a75`: controller domains имеют
+явных внутренних владельцев при сохранении единого публичного facade.
 
-Stage 33 завершён: Firebase manifest, run records, evidence и repeat comparison
-реализованы. Новый физический прогон остаётся pre-release gate, но не блокирует
-архитектурную работу.
+Следующее направление выбирается после нового стабилизационного аудита.
+Публикация и обновление Three.js/three-vrm по-прежнему отложены.
 
-Следующее направление выбирается по измеримой проблеме после стабилизационного
-аудита новых границ. Дополнительное дробление controller без нового владельца
-состояния не планируется; публикация и обновление Three.js/three-vrm
-по-прежнему отложены.
 Сейчас не следует:
 
 - обновлять Three.js/three-vrm без отдельной причины;
@@ -752,6 +757,43 @@ state/race/resource границы; дальнейшее дробление faca
 - `VrmController` остаётся единым публичным facade и источником событий;
 - unit/analyze и затронутые Windows integration gates проходят.
 
+Реализация Stage 34–35 зафиксирована коммитом `ef57a75`.
+
+### Stage 36 — terminal semantics и диагностика transport bridge
+
+Статус: выполнено.
+
+Цель: гарантировать, что каждая отправленная protocol-команда имеет ровно один
+terminal outcome и не остаётся pending до общего timeout после получения
+повреждённого ответа.
+
+Работы:
+
+1. Выделить `VrmBridge` из library-part в самостоятельный внутренний компонент,
+   не экспортируя низкоуровневый API пользователю пакета.
+2. Сделать success, runtime error и malformed response с известным correlation
+   ID terminal для соответствующего Future.
+3. Поглощать ожидаемые поздние responses после timeout, dispatch failure,
+   transport detach/reload и dispose с bounded-памятью ID.
+4. Публиковать некоррелируемые malformed сообщения через `onError` и покрыть
+   success/error/timeout/detach/dispatch failure regression-тестами.
+5. Повторить полный Flutter suite и Windows runtime/recovery/smoke gates.
+
+Этап завершён. Пять новых unit-тестов фиксируют success/runtime error,
+немедленное завершение malformed correlated response, timeout, detach,
+dispatch failure и отсутствие ложной ошибки от позднего ответа. Всего проходят
+130 Flutter-тестов и `flutter analyze`. Windows runtime/recovery и runtime smoke
+gates повторно прошли 2026-09-30. Публичный API и protocol v3 не изменены.
+Реализация зафиксирована коммитом `4ff4bb7`.
+
+Критерии готовности:
+
+- известный response ID никогда не остаётся pending после получения envelope;
+- каждая pending-команда завершается не более одного раза;
+- ожидаемые late responses не создают ложный `onError`;
+- malformed input без известной команды наблюдаем через `onError`;
+- timeout остаётся bounded и тестируется без двухминутного ожидания;
+- unit/analyze и Windows runtime gates проходят.
 ## 7. Правила обновления roadmap
 
 - После этапа обновлять его статус и добавлять commit hash.
