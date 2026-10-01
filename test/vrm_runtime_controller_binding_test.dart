@@ -113,6 +113,61 @@ void main() {
       },
     );
 
+    test('dispose waits for an async callback started before rebind', () async {
+      final callbackStarted = Completer<void>();
+      final callbackBarrier = Completer<void>();
+      final failure = StateError('stale callback failed');
+      final webView = _FakeWebViewAdapter();
+      final first = _EndpointHarness();
+      final second = _EndpointHarness();
+      final host = _FakeContentHost();
+      final binding = VrmRuntimeControllerBinding(
+        endpoint: first.endpoint,
+        webView: webView,
+        reloadRuntime: () async {},
+        isRuntimeReady: () => true,
+        onRuntimeInitialized: () async {},
+        onControllerError: (_) {},
+        onModelLoaded: () async {
+          callbackStarted.complete();
+          await callbackBarrier.future;
+          throw failure;
+        },
+        onModelReport: (_) async {},
+        onModelUnloaded: () async {},
+        onBridgeMessageError: (_, _) {},
+        onRuntimeResourceError: (_) {},
+      );
+      binding.attachContentHost(host);
+      addTearDown(() async {
+        if (!callbackBarrier.isCompleted) callbackBarrier.complete();
+        await binding.dispose();
+        await first.close();
+        await second.close();
+        await webView.close();
+      });
+
+      first.modelLoadedEvents.add(
+        VrmModelLoadedEvent(name: 'avatar', version: '1.0'),
+      );
+      await callbackStarted.future;
+      binding.rebind(second.endpoint);
+      final disposal = binding.dispose();
+      var disposalCompleted = false;
+      unawaited(disposal.then<void>((_) => disposalCompleted = true));
+      await Future<void>.delayed(Duration.zero);
+
+      expect(disposalCompleted, isFalse);
+      expect(host.closeCount, 0);
+
+      callbackBarrier.complete();
+      await disposal;
+      expect(disposalCompleted, isTrue);
+      expect(host.closeCount, 1);
+      expect(first.reportedErrors, isEmpty);
+      expect(second.reportedErrors, isEmpty);
+    });
+
     test('dispose waits for subscription cleanup started by rebind', () async {
       final cancellationBarrier = Completer<void>();
       final webView = _FakeWebViewAdapter();

@@ -136,6 +136,7 @@ final class VrmRuntimeControllerBinding {
   final Future<void> Function() _onModelUnloaded;
   final List<StreamSubscription<dynamic>> _controllerSubscriptions = [];
   final List<StreamSubscription<dynamic>> _webViewSubscriptions = [];
+  final Set<Future<void>> _inFlightCallbacks = <Future<void>>{};
 
   VrmRuntimeControllerEndpoint _endpoint;
   VrmContentHost? _contentHost;
@@ -227,6 +228,7 @@ final class VrmRuntimeControllerBinding {
       await Future.wait<void>([
         _retiredControllerSubscriptionCleanup,
         ...subscriptions.map((subscription) => subscription.cancel()),
+        ..._inFlightCallbacks,
       ]);
     } finally {
       await contentHost?.close();
@@ -291,14 +293,18 @@ final class VrmRuntimeControllerBinding {
     Future<void> Function() action,
     VrmRuntimeControllerEndpoint endpoint,
   ) {
+    final task = Future<void>.sync(action).catchError((
+      Object error,
+      StackTrace stackTrace,
+    ) {
+      if (_isCurrent(endpoint)) {
+        endpoint.reportAsyncError(error, stackTrace);
+      }
+    });
+    _inFlightCallbacks.add(task);
     unawaited(
-      Future<void>.sync(action).catchError((
-        Object error,
-        StackTrace stackTrace,
-      ) {
-        if (_isCurrent(endpoint)) {
-          endpoint.reportAsyncError(error, stackTrace);
-        }
+      task.then<void>((_) {
+        _inFlightCallbacks.remove(task);
       }),
     );
   }
