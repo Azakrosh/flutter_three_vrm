@@ -92,7 +92,7 @@ void main() {
 
       expect(values, <bool>[false, false]);
       expect(errors, isEmpty);
-      coordinator.dispose();
+      await coordinator.dispose();
     },
   );
 
@@ -117,10 +117,38 @@ void main() {
       await attaching;
 
       expect(errors, isEmpty);
-      coordinator.dispose();
+      await coordinator.dispose();
     },
   );
 
+  test('dispose waits for active dispatch and shares one future', () async {
+    final dispatchStarted = Completer<void>();
+    final releaseDispatch = Completer<void>();
+    final errors = <Object>[];
+    final coordinator = VrmRenderLifecycleCoordinator(
+      platform: TargetPlatform.windows,
+      initialLifecycleState: AppLifecycleState.resumed,
+      renderingEnabled: true,
+      policy: VrmRenderLifecyclePolicy.platformDefault,
+      dispatch: (_) async {
+        dispatchStarted.complete();
+        await releaseDispatch.future;
+      },
+      onError: (error, _) => errors.add(error),
+    );
+
+    final attaching = coordinator.attachRuntime();
+    await dispatchStarted.future;
+    final first = coordinator.dispose();
+    final second = coordinator.dispose();
+
+    expect(identical(first, second), isTrue);
+    expect(await _isCompleted(first), isFalse);
+
+    releaseDispatch.complete();
+    await Future.wait<void>([attaching, first]);
+    expect(errors, isEmpty);
+  });
   test('configuration changes are declarative and deduplicated', () async {
     final values = <bool>[];
     final coordinator = VrmRenderLifecycleCoordinator(
@@ -150,8 +178,15 @@ void main() {
     await coordinator.idle;
 
     expect(values, <bool>[false, true, false]);
-    coordinator.dispose();
+    await coordinator.dispose();
   });
+}
+
+Future<bool> _isCompleted(Future<void> future) async {
+  var completed = false;
+  unawaited(future.then<void>((_) => completed = true, onError: (_) {}));
+  await Future<void>.delayed(Duration.zero);
+  return completed;
 }
 
 bool _resolve(

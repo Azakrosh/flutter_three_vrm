@@ -138,6 +138,33 @@ void main() {
       },
     );
 
+    test('dispose waits for an active render lifecycle dispatch', () async {
+      final dispatchStarted = Completer<void>();
+      final releaseDispatch = Completer<void>();
+      final harness = _SessionHarness(
+        renderDispatch: (_) async {
+          dispatchStarted.complete();
+          await releaseDispatch.future;
+        },
+      );
+
+      final activation = harness.coordinator.activateRuntime(
+        VrmRuntimeSessionReplayPlan(
+          applyGraphics: () async {},
+          applyBackground: () async {},
+          applyApplicationState: () async {},
+        ),
+      );
+      await dispatchStarted.future;
+
+      final disposal = harness.coordinator.dispose();
+      expect(await _isCompleted(disposal), isFalse);
+
+      releaseDispatch.complete();
+      await disposal;
+      await activation;
+      expect(harness.coordinator.isRuntimeReady, isFalse);
+    });
     test('camera snapshot survives reload and restores exactly once', () async {
       const transform = VrmTransform(x: 0.2, y: -0.1, zoom: 1.3);
       final harness = _SessionHarness(
@@ -171,6 +198,7 @@ final class _SessionHarness {
     this.reload,
     this.cameraTransform,
     this.cameraRevision = 0,
+    this.renderDispatch,
   }) {
     coordinator = VrmRuntimeSessionCoordinator(
       platform: TargetPlatform.windows,
@@ -180,6 +208,7 @@ final class _SessionHarness {
       recoveryPolicy: recoveryPolicy,
       dispatchRenderingPaused: (paused) async {
         lifecyclePauses.add(paused);
+        await renderDispatch?.call(paused);
       },
       reloadRuntimeDocument: () async {
         reloadCount += 1;
@@ -201,6 +230,7 @@ final class _SessionHarness {
   final Future<void> Function()? reload;
   final VrmTransform? cameraTransform;
   final int cameraRevision;
+  final Future<void> Function(bool paused)? renderDispatch;
 
   late final VrmRuntimeSessionCoordinator coordinator;
   final List<bool> lifecyclePauses = [];
@@ -210,4 +240,11 @@ final class _SessionHarness {
   bool modelLoaded = false;
   int changedCount = 0;
   int reloadCount = 0;
+}
+
+Future<bool> _isCompleted(Future<void> future) async {
+  var completed = false;
+  unawaited(future.then<void>((_) => completed = true, onError: (_) {}));
+  await Future<void>.delayed(Duration.zero);
+  return completed;
 }

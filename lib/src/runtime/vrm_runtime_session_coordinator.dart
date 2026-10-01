@@ -287,10 +287,11 @@ final class VrmRuntimeSessionCoordinator {
     _runtimeReady = false;
     _recoveryRequested = false;
     _replay.dispose();
-    _lifecycle.dispose();
+    final lifecycleDisposal = _lifecycle.dispose();
     _cancelRecoveryDelay();
 
     final pending = <Future<void>>[
+      lifecycleDisposal,
       ?controllerBinding?.dispose(),
       ?_recoveryTask,
     ];

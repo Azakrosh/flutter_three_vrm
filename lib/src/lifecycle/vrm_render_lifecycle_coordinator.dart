@@ -72,6 +72,7 @@ final class VrmRenderLifecycleCoordinator {
   bool _runtimeAttached = false;
   bool _isDisposed = false;
   bool? _lastRequestedPause;
+  Future<void>? _disposeFuture;
 
   bool get shouldPause => shouldPauseVrmRendering(
     policy: _policy,
@@ -113,12 +114,17 @@ final class VrmRenderLifecycleCoordinator {
     _scheduleSynchronization();
   }
 
-  void dispose() {
-    if (_isDisposed) return;
+  Future<void> dispose() {
+    final existing = _disposeFuture;
+    if (existing != null) return existing;
+
     _isDisposed = true;
     _runtimeAttached = false;
     _lastRequestedPause = null;
     _dispatcher.close();
+    final disposal = _dispatcher.idle;
+    _disposeFuture = disposal;
+    return disposal;
   }
 
   void _scheduleSynchronization() {
