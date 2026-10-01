@@ -344,11 +344,17 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
     _isDisposed = true;
     _graphicsConfigurations.close();
     _backgroundConfigurations.close();
+    final declarativeTaskSettlement = Future.wait<void>([
+      _graphicsConfigurations.idle,
+      _backgroundConfigurations.idle,
+    ]);
     final sessionDisposal = _session.dispose();
     WidgetsBinding.instance.removeObserver(this);
     unawaited(
       _viewLifecycle.dispose(
-        () => _disposeRuntimeAndWebView(shouldDisposeRuntime, sessionDisposal),
+        settleBeforeCleanup: () => declarativeTaskSettlement,
+        cleanup: () =>
+            _disposeRuntimeAndWebView(shouldDisposeRuntime, sessionDisposal),
       ),
     );
 

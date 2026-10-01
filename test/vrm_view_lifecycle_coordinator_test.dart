@@ -12,8 +12,10 @@ void main() {
         initialize: () => initializationBarrier.future,
       );
 
-      final first = coordinator.dispose(() async => cleanupCount += 1);
-      final second = coordinator.dispose(() async => cleanupCount += 100);
+      final first = coordinator.dispose(cleanup: () async => cleanupCount += 1);
+      final second = coordinator.dispose(
+        cleanup: () async => cleanupCount += 100,
+      );
       var completed = false;
       unawaited(first.then<void>((_) => completed = true));
       await Future<void>.delayed(Duration.zero);
@@ -28,6 +30,36 @@ void main() {
       expect(completed, isTrue);
     });
 
+    test('waits for active work before cleanup', () async {
+      final initializationBarrier = Completer<void>();
+      final activeWorkBarrier = Completer<void>();
+      final phases = <String>[];
+      final coordinator = VrmViewLifecycleCoordinator(
+        initialize: () async {
+          phases.add('initialize');
+          await initializationBarrier.future;
+        },
+      );
+
+      final disposal = coordinator.dispose(
+        settleBeforeCleanup: () async {
+          phases.add('settle');
+          await activeWorkBarrier.future;
+        },
+        cleanup: () async => phases.add('cleanup'),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(phases, <String>['initialize']);
+
+      initializationBarrier.complete();
+      await Future<void>.delayed(Duration.zero);
+      expect(phases, <String>['initialize', 'settle']);
+
+      activeWorkBarrier.complete();
+      await disposal;
+      expect(phases, <String>['initialize', 'settle', 'cleanup']);
+    });
+
     test('runs cleanup when initialization fails', () async {
       final initializationBarrier = Completer<void>();
       final failure = StateError('initialization failed');
@@ -36,8 +68,24 @@ void main() {
         initialize: () => initializationBarrier.future,
       );
 
-      final disposal = coordinator.dispose(() async => cleanupCount += 1);
+      final disposal = coordinator.dispose(
+        cleanup: () async => cleanupCount += 1,
+      );
       initializationBarrier.completeError(failure);
+
+      await expectLater(disposal, throwsA(same(failure)));
+      expect(cleanupCount, 1);
+    });
+
+    test('runs cleanup and preserves an active work failure', () async {
+      final failure = StateError('active work failed');
+      var cleanupCount = 0;
+      final coordinator = VrmViewLifecycleCoordinator(initialize: () async {});
+
+      final disposal = coordinator.dispose(
+        settleBeforeCleanup: () => Future<void>.error(failure),
+        cleanup: () async => cleanupCount += 1,
+      );
 
       await expectLater(disposal, throwsA(same(failure)));
       expect(cleanupCount, 1);
