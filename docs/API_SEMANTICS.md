@@ -17,6 +17,9 @@ replay и полный список владельцев состояния на
   владеет controller, своими subscriptions, animation queue и speech handles.
 - После `VrmController.dispose()` новые mutating-команды завершаются
   `StateError`. Каждый `VrmAnimationQueue` тоже необходимо `dispose()`.
+- Быстрые изменения `VrmView.graphicsPreset`, adaptive policy и базового
+  background сериализуются по каналам: промежуточное ожидающее состояние может
+  быть пропущено, но последним применяется самое новое значение.
 
 ## Команды и ошибки
 

@@ -2,16 +2,16 @@
 
 Этот документ фиксирует контракт восстановления между Flutter-приложением,
 пакетом и WebView runtime. Он создан в Stage 27 и актуализирован после изоляции
-runtime-сессии в Stage 34, декомпозиции controller responsibilities в Stage 35
-и детерминированного teardown в Stage 37.
+runtime-сессии в Stage 34, декомпозиции controller responsibilities в Stage 35,
+детерминированного teardown в Stage 37 и declarative serialization в Stage 38.
 
 ## Владельцы состояния
 
 | Состояние | Desired state | Applied state | Поведение после WebView reload |
 |---|---|---|---|
 | Lifecycle и `renderingEnabled` | параметры `VrmView`, применяемые `VrmRuntimeSessionCoordinator` | Web runtime | Повторно синхронизируется первым шагом |
-| Graphics preset и adaptive quality | параметры `VrmView` | Web runtime | Повторно применяются пакетом |
-| Базовый цвет/transparent background | параметры `VrmView` | Web runtime | Повторно применяются пакетом |
+| Graphics preset и adaptive quality | последний snapshot параметров `VrmView` | Web runtime | Сериализованно применяется при rebuild и replay |
+| Базовый цвет/transparent background | последний snapshot параметров `VrmView` | Web runtime | Сериализованно применяется при rebuild и replay |
 | Background, заданный напрямую через controller | приложение | Web runtime | Не сохраняется; приложение повторяет команду в `onCreated` |
 | `initialModelFolder`/`initialModelFile` | `VrmView` | Web runtime | Повторно загружается пакетом |
 | Авторизованная/серверная модель | приложение | Web runtime | Приложение получает свежий token и загружает модель в `onCreated` |
@@ -31,6 +31,12 @@ Transient speech state также имеет одного владельца: `V
 channels и timeline commands. Публичный `VrmSpeechSession` хранит ссылку только
 на dispatcher; replacement, runtime loss или dispose делают старый handle
 неактивным без доступа к новому runtime.
+
+Declarative graphics/background state сериализует
+`VrmLatestTaskDispatcher`. Initial/recovery replay, model assessment и
+`didUpdateWidget` используют одинаковые каналы. Один task выполняется, хранится
+только последний pending snapshot; superseded waiters получают его outcome.
+При controller rebind актуальные snapshots ставятся повторно.
 
 Pose, face и gaze commands инкапсулированы в `VrmAvatarControlDispatcher`.
 Компонент не хранит replay-состояние, но согласует захват mouth-layer с

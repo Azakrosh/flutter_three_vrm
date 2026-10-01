@@ -75,6 +75,7 @@
 | 35 | Внутренняя декомпозиция `VrmController` | Выполнено |
 | 36 | Terminal semantics и диагностика transport bridge | Выполнено |
 | 37 | Детерминированный async teardown runtime-сессии | Выполнено |
+| 38 | Сериализация declarative graphics/background configuration | Выполнено |
 
 ## 3. Состояние реализации
 
@@ -83,6 +84,7 @@
 ```text
 Flutter application
   └─ VrmView                         Flutter widget и привязка WebView
+      ├─ latest configuration queues  graphics/background serialization
       ├─ VrmRuntimeSessionCoordinator lifecycle, replay, recovery, camera snapshot
       │   └─ VrmRuntimeControllerBinding subscriptions, transport, content-host lifetime
       │       └─ content host        session loopback, opaque resources
@@ -140,11 +142,11 @@ WebView runtime
 
 ### Текущий размер и покрытие
 
-- Flutter library: 48 файлов, примерно 7010 строк;
+- Flutter library: 49 файлов, примерно 7170 строк;
 - web source: 35 файлов, примерно 6860 строк;
 - `runner.ts`: примерно 675 строк;
 - `VrmController`: примерно 910 строк;
-- Flutter unit tests: 131;
+- Flutter unit tests: 134;
 - web unit tests: 167;
 - integration matrix разделена на runtime/scene, motion/speech,
   lifecycle/recovery, model-race, resource-loading и performance soak gates.
@@ -213,17 +215,19 @@ malformed input публикуется в `onError`, а не теряется т
 
 ## 5. Текущее направление
 
-Stage 37 завершён: teardown runtime-сессии стал асинхронным, идемпотентным и
-упорядоченным. Recovery backoff отменяется немедленно; binding дожидается
-subscriptions и content host, после чего `VrmView` освобождает native WebView.
-Проходят 131 Flutter-тест, `flutter analyze`, Windows runtime/recovery и
-resource-loading gates.
+Stage 38 завершён: initial replay и быстрые rebuild-обновления graphics и
+background используют общие сериализованные latest-task queues. Одновременно
+выполняется не более одной операции каждого канала, промежуточные pending
+значения схлопываются, а конечным состоянием остаётся последнее desired value.
+Проходят 134 Flutter-теста, `flutter analyze`, Windows runtime/recovery и
+runtime smoke gates.
 
-Stage 36 завершён и зафиксирован коммитом `4ff4bb7`: bridge обеспечивает
-terminal outcome для каждой correlated protocol-команды.
+Stage 37 завершён и зафиксирован коммитом `9453052`: runtime teardown имеет
+единый идемпотентный cleanup Future и отменяемый recovery delay.
 
 Следующее направление выбирается после нового стабилизационного аудита.
 Публикация и обновление Three.js/three-vrm по-прежнему отложены.
+
 Сейчас не следует:
 
 - обновлять Three.js/three-vrm без отдельной причины;
@@ -832,6 +836,44 @@ gates повторно прошли 2026-09-30. Публичный API и protoc
 - content host и subscriptions закрываются до окончательного WebView disposal;
 - ошибка одного teardown-шага не оставляет native WebView неосвобождённым;
 - unit/analyze и Windows recovery/resource-loading gates проходят.
+
+### Stage 38 — сериализация declarative graphics/background configuration
+
+Статус: выполнено.
+
+Цель: исключить out-of-order применение `VrmView` graphics/background state при
+быстрых rebuild, controller rebind и одновременном initial/recovery replay.
+
+Работы:
+
+1. Добавить внутренний `VrmLatestTaskDispatcher<T>` с одним in-flight task и
+   только последним ещё не начатым значением.
+2. Предоставить terminal Future каждому submit; superseded pending-вызовы
+   разделяют outcome последнего реально отправленного значения.
+3. Провести initial replay, model-assessment updates и `didUpdateWidget` через
+   одни и те же сериализованные graphics/background каналы.
+4. При controller rebind обязательно поставить актуальные snapshots в очередь,
+   чтобы операция старого controller не могла стать конечным состоянием.
+5. Закрывать queues до runtime-session teardown и покрыть serialization,
+   supersession, error и close semantics unit-тестами.
+
+Этап завершён. Graphics preset вместе с рассчитанной adaptive policy и базовый
+background захватываются в immutable snapshots. Для каждого канала выполняется
+одна команда за раз; серия rebuild сохраняет только последний pending snapshot.
+Три новых unit-теста фиксируют порядок `[first, latest]`, общий error outcome
+superseded waiters и закрытие очереди при активной операции. Всего проходят 134
+Flutter-теста и `flutter analyze`; Windows runtime/recovery и runtime smoke gates
+повторно прошли 2026-10-01. Публичный API и protocol v3 не изменены.
+Реализация зафиксирована коммитом `36d4678`.
+
+Критерии готовности:
+
+- replay и rebuild не отправляют параллельные конфигурации одного канала;
+- промежуточные pending snapshots не применяются;
+- последний desired snapshot становится конечным applied state;
+- controller rebind не оставляет конфигурацию предыдущего controller последней;
+- dispose отклоняет queued/future submit и позволяет in-flight cleanup;
+- unit/analyze и Windows recovery/smoke gates проходят.
 
 ## 7. Правила обновления roadmap
 
