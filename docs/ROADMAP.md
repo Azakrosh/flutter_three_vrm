@@ -2,7 +2,7 @@
 
 Статус: активный рабочий документ
 Дата аудита: 2026-10-01
-Проверенная база: `f51e9ac fix: make animation queue teardown deterministic`
+Проверенная база: `0cbbf6d fix: make controller rebind cleanup deterministic`
 Целевые платформы: Android и Windows; приоритет — Android
 
 ## 1. Откуда восстановлен первоначальный план
@@ -77,6 +77,7 @@
 | 37 | Детерминированный async teardown runtime-сессии | Выполнено |
 | 38 | Сериализация declarative graphics/background configuration | Выполнено |
 | 39 | Детерминированный lifecycle `VrmAnimationQueue` | Выполнено |
+| 40 | Детерминированная очистка controller rebind | Выполнено |
 
 ## 3. Состояние реализации
 
@@ -143,11 +144,11 @@ WebView runtime
 
 ### Текущий размер и покрытие
 
-- Flutter library: 49 файлов, примерно 7180 строк;
+- Flutter library: 49 файлов, примерно 7200 строк;
 - web source: 35 файлов, примерно 6860 строк;
 - `runner.ts`: примерно 675 строк;
 - `VrmController`: примерно 910 строк;
-- Flutter unit tests: 136;
+- Flutter unit tests: 139;
 - web unit tests: 167;
 - integration matrix разделена на runtime/scene, motion/speech,
   lifecycle/recovery, model-race, resource-loading и performance soak gates.
@@ -216,6 +217,14 @@ lifetime очереди, поэтому быстрый `stop → start` не с�
 listeners. Идемпотентный `Future<void> dispose()` сначала дожидается отмены всех
 входящих подписок и только затем закрывает публичные event streams.
 
+### Закрыто в Stage 40 — fire-and-forget очистка controller rebind
+
+Старые controller subscriptions после `rebind` немедленно теряют право на
+callbacks через identity guard, а их асинхронная отмена теперь сохраняется в
+tracked cleanup Future. Session dispose дожидается всех retired и текущих
+subscriptions. Ошибка retired cleanup публикуется через прежний endpoint;
+`contentHost.close()` выполняется в `finally` даже при ошибке текущей отмены.
+
 ### P2 — публикационная готовность отложена
 
 В `pubspec.yaml` установлен `publish_to: none`. Это соответствует принятому
@@ -224,20 +233,19 @@ listeners. Идемпотентный `Future<void> dispose()` сначала д
 
 ## 5. Текущее направление
 
-Stage 39 завершён: `VrmAnimationQueue` владеет event subscriptions на протяжении
-всего lifetime, а её идемпотентный async dispose является единственной точкой их
-закрытия. Быстрый `stop → start` больше не зависит от незавершённой отмены старых
-listeners. Проходят 136 Flutter-тестов, `flutter analyze`, Windows motion/speech
-и runtime/recovery gates.
+Stage 40 завершён: controller rebind синхронно передаёт ownership новому endpoint,
+но сохраняет Future отмены retired subscriptions. Session dispose ждёт retired,
+current controller и WebView listeners, а content host закрывается даже при
+ошибке отмены. Проходят 139 Flutter-тестов, `flutter analyze`, Windows
+runtime/recovery, resource-loading и runtime smoke gates.
 
-Stage 38 завершён и зафиксирован коммитом `36d4678`: declarative graphics и
-background применяются через сериализованные latest-task queues.
+Stage 39 завершён и зафиксирован коммитом `f51e9ac`: animation queue использует
+lifetime subscriptions и ожидаемый идемпотентный dispose.
 
-Следующее направление — Stage 40: сделать controller rebind полностью
-детерминированным. Сейчас старые controller subscriptions отменяются
-fire-and-forget; callbacks защищены identity-проверкой, но session dispose не
-обязан ждать незавершённую rebind-отмену. Публикация и обновление
-Three.js/three-vrm по-прежнему отложены.
+Следующее направление — Stage 41: учесть уже запущенные async callbacks binding.
+Identity guard блокирует новые stale callbacks, но callback, начавшийся до
+`rebind` или `dispose`, пока не входит в terminal cleanup Future. Публикация и
+обновление Three.js/three-vrm по-прежнему отложены.
 
 Сейчас не следует:
 
@@ -922,6 +930,43 @@ Flutter-теста и `flutter analyze`; Windows runtime/recovery и runtime smo
 - dispose ожидает отмену subscriptions и закрытие event streams;
 - после начала dispose новые queue-команды синхронно отклоняются;
 - unit/analyze и Windows motion/speech/recovery gates проходят.
+
+### Stage 40 — детерминированная очистка controller rebind
+
+Статус: выполнено.
+
+Цель: исключить незавершённые fire-and-forget отмены controller subscriptions
+при замене `VrmController` в существующем `VrmView`.
+
+Работы:
+
+1. Сохранить синхронную передачу endpoint/transport/content-host ownership, чтобы
+   `didUpdateWidget` не блокировался на отмене старых listeners.
+2. Объединять отмену всех retired controller subscriptions в tracked cleanup
+   Future.
+3. При session dispose ждать retired cleanup вместе с текущими controller и
+   WebView subscriptions.
+4. Публиковать ошибки retired cancellation через соответствующий старый endpoint,
+   не превращая их в необработанные async errors.
+5. Закрывать content host через `finally`, даже если отмена текущей subscription
+   завершилась ошибкой.
+
+Этап завершён. Identity guard немедленно запрещает старому endpoint влиять на
+сессию, а resource cleanup получает строгую terminal-границу. Три новых
+regression-теста проверяют ожидание rebind cancellation, диагностику retired
+ошибки и закрытие content host при ошибке текущей отмены. Всего проходят 139
+Flutter-тестов и `flutter analyze`; Windows runtime/recovery, resource-loading и
+runtime smoke gates повторно прошли 2026-10-01. Публичный API и protocol v3 не
+изменены. Реализация зафиксирована коммитом `0cbbf6d`.
+
+Критерии готовности:
+
+- старый endpoint синхронно теряет callback ownership при rebind;
+- dispose ждёт отмену subscriptions всех предыдущих endpoint;
+- ошибка retired cancellation диагностируется и не становится unhandled;
+- content host закрывается при успешной и ошибочной отмене subscriptions;
+- повторный dispose сохраняет один terminal Future;
+- unit/analyze и Windows recovery/resource/smoke gates проходят.
 
 ## 7. Правила обновления roadmap
 

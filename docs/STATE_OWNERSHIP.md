@@ -3,8 +3,8 @@
 Этот документ фиксирует контракт восстановления между Flutter-приложением,
 пакетом и WebView runtime. Он создан в Stage 27 и актуализирован после изоляции
 runtime-сессии в Stage 34, декомпозиции controller responsibilities в Stage 35,
-детерминированного teardown в Stage 37, declarative serialization в Stage 38
-и lifecycle очереди в Stage 39.
+детерминированного teardown в Stage 37, declarative serialization в Stage 38,
+lifecycle очереди в Stage 39 и rebind cleanup в Stage 40.
 
 ## Владельцы состояния
 
@@ -64,7 +64,9 @@ model/speech state.
 
 Dispose runtime-сессии синхронно запрещает новые callbacks и возвращает
 идемпотентный cleanup Future. Recovery delay отменяется без ожидания backoff;
-затем binding дожидается отмены subscriptions и `contentHost.close()`. Native
+затем binding дожидается отмены retired rebind, текущих controller/WebView
+subscriptions и `contentHost.close()`. Ошибка retired cancellation публикуется
+через соответствующий endpoint, а content host закрывается в `finally`. Native
 WebView освобождается после session cleanup и освобождается даже при ошибке
 одного из предыдущих teardown-шагов.
 
@@ -121,7 +123,8 @@ runtime уже загружена.
 - `vrm_animation_queue_snapshot_test.dart` — transition race, resume после model,
   lifetime subscriptions и async dispose;
 - `vrm_runtime_session_coordinator_test.dart` — generation, ordered replay, bounded recovery, cancelable teardown и camera snapshot;
-- `vrm_runtime_controller_binding_test.dart` — rebind, transport/content-host ownership и teardown;
+- `vrm_runtime_controller_binding_test.dart` — rebind, tracked retired cleanup,
+  transport/content-host ownership и teardown error paths;
 - `vrm_render_lifecycle_coordinator_test.dart` — Android/Windows pause policy;
 - `vrm_controller_dispose_test.dart` — все публичные controller mutations.
 
