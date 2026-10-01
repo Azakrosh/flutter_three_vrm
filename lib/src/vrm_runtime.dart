@@ -41,6 +41,7 @@ import 'performance/vrm_host_resource_monitor.dart';
 import 'performance/vrm_platform_thermal_monitor.dart';
 import 'runtime/vrm_runtime_session_coordinator.dart';
 import 'runtime/vrm_runtime_controller_binding.dart';
+import 'runtime/vrm_latest_task_dispatcher.dart';
 
 part 'vrm_controller.dart';
 part 'vrm_view.dart';

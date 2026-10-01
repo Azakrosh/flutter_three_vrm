@@ -50,6 +50,10 @@ class VrmView extends StatefulWidget {
 class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
   late final VrmWebViewAdapter _webView;
   late final VrmRuntimeSessionCoordinator _session;
+  late final VrmLatestTaskDispatcher<_VrmGraphicsConfiguration>
+  _graphicsConfigurations;
+  late final VrmLatestTaskDispatcher<_VrmBackgroundConfiguration>
+  _backgroundConfigurations;
   bool _isDisposed = false;
   VrmModelAssessment? _modelAssessment;
 
@@ -86,6 +90,12 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
       applyCameraTransform: (transform) =>
           widget.controller.setTransform(transform),
     );
+    _graphicsConfigurations = VrmLatestTaskDispatcher(
+      dispatch: _dispatchGraphicsConfiguration,
+    );
+    _backgroundConfigurations = VrmLatestTaskDispatcher(
+      dispatch: _dispatchBackgroundConfiguration,
+    );
     final controllerBinding = VrmRuntimeControllerBinding(
       endpoint: widget.controller._createRuntimeEndpoint(),
       webView: _webView,
@@ -98,12 +108,12 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
       onModelLoaded: _session.restoreCameraAfterModelLoad,
       onModelReport: (report) async {
         _assessModel(report);
-        await _applyAdaptiveQuality();
+        await _synchronizeGraphicsConfiguration();
       },
       onModelUnloaded: () async {
         if (_modelAssessment == null) return;
         _modelAssessment = null;
-        await _applyAdaptiveQuality();
+        await _synchronizeGraphicsConfiguration();
       },
       onBridgeMessageError: (error, stackTrace) {
         _session.showError('WebView bridge error: $error');
@@ -124,11 +134,16 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
       lifecyclePolicy: widget.lifecyclePolicy,
       recoveryPolicy: widget.recoveryPolicy,
     );
-    if (!identical(oldWidget.controller, widget.controller)) {
+    final controllerChanged = !identical(
+      oldWidget.controller,
+      widget.controller,
+    );
+    if (controllerChanged) {
       _session.rebindController(widget.controller._createRuntimeEndpoint());
     }
     if (_session.isRuntimeReady &&
-        (oldWidget.graphicsPreset != widget.graphicsPreset ||
+        (controllerChanged ||
+            oldWidget.graphicsPreset != widget.graphicsPreset ||
             oldWidget.adaptiveQuality != widget.adaptiveQuality ||
             oldWidget.modelPerformancePolicy !=
                 widget.modelPerformancePolicy)) {
@@ -136,12 +151,13 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
       if (report != null) {
         _assessModel(report);
       }
-      unawaited(_applyGraphicsConfiguration());
+      _queueGraphicsConfiguration();
     }
     if (_session.isRuntimeReady &&
-        (oldWidget.backgroundColor != widget.backgroundColor ||
+        (controllerChanged ||
+            oldWidget.backgroundColor != widget.backgroundColor ||
             oldWidget.transparent != widget.transparent)) {
-      unawaited(_applyBackgroundSafely());
+      _queueBackgroundConfiguration();
     }
   }
 
@@ -194,11 +210,8 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
     final file = widget.initialModelFile;
     await _session.activateRuntime(
       VrmRuntimeSessionReplayPlan(
-        applyGraphics: _applyGraphicsConfiguration,
-        applyBackground: () => widget.controller.setBackground(
-          color: _effectiveBackground,
-          transparent: widget.transparent,
-        ),
+        applyGraphics: _synchronizeGraphicsConfiguration,
+        applyBackground: _synchronizeBackgroundConfiguration,
         loadPackageModel: folder != null && file != null
             ? () => widget.controller.loadModel(folder, file)
             : null,
@@ -208,27 +221,90 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
     );
   }
 
-  Future<void> _applyBackgroundSafely() async {
-    final controller = widget.controller;
-    try {
-      await controller.setBackground(
-        color: _effectiveBackground,
-        transparent: widget.transparent,
-      );
-    } on VrmRuntimeException catch (error, stackTrace) {
-      if (error.code == 'canceled') return;
-      if (_session.isRuntimeReady &&
-          !_isDisposed &&
-          identical(controller, widget.controller)) {
-        controller._bridge.reportAsyncError(error, stackTrace);
-      }
-    } on Object catch (error, stackTrace) {
-      if (_session.isRuntimeReady &&
-          !_isDisposed &&
-          identical(controller, widget.controller)) {
-        controller._bridge.reportAsyncError(error, stackTrace);
-      }
-    }
+  void _queueGraphicsConfiguration() {
+    final configuration = _captureGraphicsConfiguration();
+    unawaited(
+      _graphicsConfigurations.submit(configuration).catchError((
+        Object error,
+        StackTrace stackTrace,
+      ) {
+        if (_isCurrentConfiguration(configuration.controller)) {
+          debugPrint('Failed to configure VRM graphics: $error');
+          debugPrintStack(stackTrace: stackTrace);
+          _session.showError('Failed to configure VRM graphics: $error');
+        }
+      }),
+    );
+  }
+
+  Future<void> _synchronizeGraphicsConfiguration() {
+    return _graphicsConfigurations.submit(_captureGraphicsConfiguration());
+  }
+
+  _VrmGraphicsConfiguration _captureGraphicsConfiguration() {
+    final assessment = _modelAssessment;
+    final adaptiveQuality = assessment == null
+        ? widget.adaptiveQuality
+        : widget.modelPerformancePolicy.applyTo(
+            widget.adaptiveQuality,
+            assessment,
+          );
+    return _VrmGraphicsConfiguration(
+      controller: widget.controller,
+      preset: widget.graphicsPreset,
+      adaptiveQuality: adaptiveQuality,
+    );
+  }
+
+  Future<void> _dispatchGraphicsConfiguration(
+    _VrmGraphicsConfiguration configuration,
+  ) async {
+    await configuration.controller.setGraphicsPreset(configuration.preset);
+    await configuration.controller.setAdaptiveQuality(
+      configuration.adaptiveQuality,
+    );
+  }
+
+  void _queueBackgroundConfiguration() {
+    final configuration = _captureBackgroundConfiguration();
+    unawaited(
+      _backgroundConfigurations.submit(configuration).catchError((
+        Object error,
+        StackTrace stackTrace,
+      ) {
+        if (error is VrmRuntimeException && error.code == 'canceled') return;
+        if (_isCurrentConfiguration(configuration.controller)) {
+          configuration.controller._bridge.reportAsyncError(error, stackTrace);
+        }
+      }),
+    );
+  }
+
+  Future<void> _synchronizeBackgroundConfiguration() {
+    return _backgroundConfigurations.submit(_captureBackgroundConfiguration());
+  }
+
+  _VrmBackgroundConfiguration _captureBackgroundConfiguration() {
+    return _VrmBackgroundConfiguration(
+      controller: widget.controller,
+      color: _effectiveBackground,
+      transparent: widget.transparent,
+    );
+  }
+
+  Future<void> _dispatchBackgroundConfiguration(
+    _VrmBackgroundConfiguration configuration,
+  ) {
+    return configuration.controller.setBackground(
+      color: configuration.color,
+      transparent: configuration.transparent,
+    );
+  }
+
+  bool _isCurrentConfiguration(VrmController controller) {
+    return _session.isRuntimeReady &&
+        !_isDisposed &&
+        identical(controller, widget.controller);
   }
 
   Future<void> _reloadRuntimeDocument() async {
@@ -242,16 +318,6 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
     await _webView.load(contentHost.runtimeUri);
   }
 
-  Future<void> _applyGraphicsConfiguration() async {
-    try {
-      await widget.controller.setGraphicsPreset(widget.graphicsPreset);
-      await _applyAdaptiveQuality();
-    } on Object catch (error, stackTrace) {
-      debugPrint('Failed to configure VRM graphics: $error\n$stackTrace');
-      _session.showError('Failed to configure VRM graphics: $error');
-    }
-  }
-
   void _assessModel(VrmModelReport report) {
     try {
       final assessment = widget.modelPerformancePolicy.assess(report);
@@ -261,17 +327,6 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
       _modelAssessment = null;
       widget.controller._bridge.reportAsyncError(error, stackTrace);
     }
-  }
-
-  Future<void> _applyAdaptiveQuality() {
-    final assessment = _modelAssessment;
-    final settings = assessment == null
-        ? widget.adaptiveQuality
-        : widget.modelPerformancePolicy.applyTo(
-            widget.adaptiveQuality,
-            assessment,
-          );
-    return widget.controller.setAdaptiveQuality(settings);
   }
 
   @override
@@ -289,6 +344,8 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
     final shouldDisposeRuntime =
         _session.isTransportAttached && _session.isRuntimeReady;
     _isDisposed = true;
+    _graphicsConfigurations.close();
+    _backgroundConfigurations.close();
     final sessionDisposal = _session.dispose();
     WidgetsBinding.instance.removeObserver(this);
     unawaited(_disposeRuntimeAndWebView(shouldDisposeRuntime, sessionDisposal));
@@ -351,4 +408,28 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
       ),
     );
   }
+}
+
+final class _VrmGraphicsConfiguration {
+  const _VrmGraphicsConfiguration({
+    required this.controller,
+    required this.preset,
+    required this.adaptiveQuality,
+  });
+
+  final VrmController controller;
+  final VrmGraphicsPreset preset;
+  final VrmAdaptiveQualitySettings adaptiveQuality;
+}
+
+final class _VrmBackgroundConfiguration {
+  const _VrmBackgroundConfiguration({
+    required this.controller,
+    required this.color,
+    required this.transparent,
+  });
+
+  final VrmController controller;
+  final Color color;
+  final bool transparent;
 }
