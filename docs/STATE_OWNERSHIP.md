@@ -5,7 +5,8 @@
 runtime-сессии в Stage 34, декомпозиции controller responsibilities в Stage 35,
 детерминированного teardown в Stage 37, declarative serialization в Stage 38,
 lifecycle очереди в Stage 39, rebind cleanup в Stage 40, callback cleanup
-в Stage 41 и view lifecycle serialization в Stage 42.
+в Stage 41, view lifecycle serialization в Stage 42 и declarative task
+settlement в Stage 43.
 
 ## Владельцы состояния
 
@@ -70,7 +71,8 @@ subscriptions, terminal completion уже запущенных callbacks и
 `contentHost.close()`. Ошибка retired cancellation публикуется через
 соответствующий endpoint, stale callback error подавляется identity guard, а
 content host закрывается в `finally`. `VrmViewLifecycleCoordinator` сначала ждёт
-уже запущенную initialization, затем ожидает session cleanup и освобождает native
+уже запущенную initialization, затем terminal state активных
+graphics/background задач, session cleanup и освобождает native
 WebView ровно одной ветвью, включая initialization/teardown error paths.
 
 ## Lifecycle pause
@@ -131,7 +133,7 @@ runtime уже загружена.
 - `vrm_render_lifecycle_coordinator_test.dart` — Android/Windows pause policy;
 - `vrm_controller_dispose_test.dart` — все публичные controller mutations;
 - `vrm_view_lifecycle_coordinator_test.dart` — initialization/cleanup ordering,
-  idempotence и initialization error path.
+  idempotence, active task settlement и error paths.
 
 Android `integration_test` не пересылает synthetic `WidgetTester` pointer в
 native WebView PlatformView. Поэтому pointer semantics проверяются web unit-тестом

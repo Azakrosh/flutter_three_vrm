@@ -2,7 +2,7 @@
 
 Статус: активный рабочий документ
 Дата аудита: 2026-10-01
-Проверенная база: `9c211e8 fix: serialize VRM view initialization teardown`
+Проверенная база: `26dfc26 fix: await declarative tasks during view teardown`
 Целевые платформы: Android и Windows; приоритет — Android
 
 ## 1. Откуда восстановлен первоначальный план
@@ -80,6 +80,7 @@
 | 40 | Детерминированная очистка controller rebind | Выполнено |
 | 41 | Terminal cleanup запущенных runtime binding callbacks | Выполнено |
 | 42 | Сериализация initialization/teardown `VrmView` | Выполнено |
+| 43 | Terminal settlement declarative-задач `VrmView` | Выполнено |
 
 ## 3. Состояние реализации
 
@@ -146,11 +147,11 @@ WebView runtime
 
 ### Текущий размер и покрытие
 
-- Flutter library: 50 файлов, примерно 7240 строк;
+- Flutter library: 50 файлов, примерно 7260 строк;
 - web source: 35 файлов, примерно 6860 строк;
 - `runner.ts`: примерно 675 строк;
 - `VrmController`: примерно 910 строк;
-- Flutter unit tests: 142;
+- Flutter unit tests: 144;
 - web unit tests: 167;
 - integration matrix разделена на runtime/scene, motion/speech,
   lifecycle/recovery, model-race, resource-loading и performance soak gates.
@@ -243,6 +244,14 @@ cleanup Future. Widget синхронно помечает session disposed, н�
 initialization больше не вызывает `WebView.dispose()` самостоятельно, поэтому
 adapter освобождается ровно одним владельцем даже при раннем удалении widget.
 
+### Закрыто в Stage 43 — declarative-задачи вне terminal teardown
+
+После `close()` graphics/background dispatchers отклоняют queued и future work, а
+их `idle` Futures входят в lifecycle settlement до native cleanup. Session
+teardown синхронно отсоединяет transport и завершает активные bridge-команды,
+после чего WebView освобождается только по достижении terminal state обеими
+очередями. Cleanup всё равно выполняется при ошибке предыдущей lifecycle-фазы.
+
 ### P2 — публикационная готовность отложена
 
 В `pubspec.yaml` установлен `publish_to: none`. Это соответствует принятому
@@ -251,18 +260,18 @@ adapter освобождается ровно одним владельцем д
 
 ## 5. Текущее направление
 
-Stage 42 завершён: initialization `VrmView` и terminal cleanup принадлежат одному
-lifecycle coordinator. Ранний dispose ждёт initialization, а native WebView
-освобождается одной ветвью ровно один раз. Проходят 142 Flutter-теста,
-`flutter analyze`, Windows runtime-race, runtime/recovery и runtime smoke gates.
+Stage 43 завершён: lifecycle coordinator последовательно ожидает initialization,
+terminal state активных graphics/background operations и только затем native
+cleanup. Проходят 144 Flutter-теста, `flutter analyze`, Windows runtime-race,
+runtime/recovery и runtime smoke gates.
 
-Stage 41 завершён и зафиксирован коммитом `5713400`: binding teardown ждёт уже
-запущенные runtime callbacks.
+Stage 42 завершён и зафиксирован коммитом `9c211e8`: initialization и native
+WebView disposal принадлежат одному lifecycle owner.
 
-Следующее направление — Stage 43: включить активные declarative graphics и
-background tasks в terminal teardown `VrmView`. Dispatcher уже отклоняет queued
-работу после close, но его in-flight operation пока не ожидается widget cleanup.
-Публикация и обновление Three.js/three-vrm по-прежнему отложены.
+Следующее направление — Stage 44: включить активную pause/resume-команду
+`VrmRenderLifecycleCoordinator` в terminal Future runtime-сессии. Сейчас его
+latest-value dispatcher закрывается синхронно, но session cleanup не ожидает
+`idle`. Публикация и обновление Three.js/three-vrm по-прежнему отложены.
 
 Сейчас не следует:
 
@@ -1049,6 +1058,41 @@ runtime/recovery и runtime smoke gates повторно прошли 2026-10-01
 - cleanup выполняется один раз после success/error initialization;
 - повторные dispose-вызовы разделяют один terminal Future;
 - session callbacks блокируются синхронно в `State.dispose()`;
+- unit/analyze и Windows race/recovery/smoke gates проходят.
+
+### Stage 43 — terminal settlement declarative-задач VrmView
+
+Статус: выполнено.
+
+Цель: не уничтожать native WebView, пока активная graphics или background
+configuration ещё выполняется через bridge.
+
+Работы:
+
+1. После закрытия обоих `VrmLatestTaskDispatcher` захватить их актуальные `idle`
+   Futures одним settlement barrier.
+2. Добавить lifecycle-фазу `settleBeforeCleanup` между initialization и native
+   cleanup.
+3. Выполнять все lifecycle-фазы даже после ошибки и повторно выбрасывать первую
+   ошибку с исходным stack trace после cleanup.
+4. Сохранить немедленное начало session teardown, чтобы transport detach быстро
+   завершал активные bridge-команды вместо ожидания command timeout.
+5. Покрыть порядок фаз, идемпотентность и error path unit-тестами.
+
+Этап завершён. Terminal порядок теперь имеет вид initialization → declarative
+settlement → runtime/native cleanup. Queued и future configurations отклоняются,
+а уже активные операции достигают terminal state до освобождения WebView. Всего
+проходят 144 Flutter-теста и `flutter analyze`; Windows runtime-race,
+runtime/recovery и runtime smoke gates повторно прошли 2026-10-01. Публичный API
+и protocol v3 не изменены. Реализация зафиксирована коммитом `26dfc26`.
+
+Критерии готовности:
+
+- active graphics/background operations входят в terminal Future view;
+- queued и future dispatcher work отклоняются после close;
+- native cleanup начинается после initialization и declarative settlement;
+- cleanup выполняется при ошибке любой предыдущей lifecycle-фазы;
+- повторный dispose сохраняет один terminal Future;
 - unit/analyze и Windows race/recovery/smoke gates проходят.
 
 ## 7. Правила обновления roadmap

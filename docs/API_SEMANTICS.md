@@ -13,7 +13,8 @@ replay и полный список владельцев состояния на
   recovery/reload. Здесь приложение повторно загружает авторизованную модель и
   принадлежащее ему model-dependent состояние.
 - `VrmView` владеет WebView surface. Его initialization завершается до terminal
-  native cleanup, а adapter освобождается ровно один раз. Внутренний
+  native cleanup; активные graphics/background-задачи достигают terminal state до
+  этого cleanup, а adapter освобождается ровно один раз. Внутренний
   runtime-session owner владеет transport, controller/WebView subscriptions и
   loopback content host. Приложение владеет controller, своими subscriptions,
   animation queue и speech handles.
