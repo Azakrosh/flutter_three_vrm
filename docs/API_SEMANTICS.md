@@ -15,8 +15,8 @@ replay и полный список владельцев состояния на
 - `VrmView` владеет WebView surface. Его initialization завершается до terminal
   native cleanup; активные graphics/background-задачи достигают terminal state до
   этого cleanup, а adapter освобождается ровно один раз. Внутренний
-  runtime-session owner владеет transport, controller/WebView subscriptions и
-  loopback content host. Приложение владеет controller, своими subscriptions,
+  runtime-session owner владеет transport, render lifecycle dispatch,
+  controller/WebView subscriptions и loopback content host. Приложение владеет controller, своими subscriptions,
   animation queue и speech handles.
 - После `VrmController.dispose()` новые mutating-команды завершаются
   `StateError`. Каждый `VrmAnimationQueue` тоже необходимо завершить через

@@ -2,7 +2,7 @@
 
 Статус: активный рабочий документ
 Дата аудита: 2026-10-01
-Проверенная база: `26dfc26 fix: await declarative tasks during view teardown`
+Проверенная база: `3e6b793 fix: await render lifecycle teardown`
 Целевые платформы: Android и Windows; приоритет — Android
 
 ## 1. Откуда восстановлен первоначальный план
@@ -81,6 +81,7 @@
 | 41 | Terminal cleanup запущенных runtime binding callbacks | Выполнено |
 | 42 | Сериализация initialization/teardown `VrmView` | Выполнено |
 | 43 | Terminal settlement declarative-задач `VrmView` | Выполнено |
+| 44 | Детерминированный teardown render lifecycle | Выполнено |
 
 ## 3. Состояние реализации
 
@@ -147,11 +148,11 @@ WebView runtime
 
 ### Текущий размер и покрытие
 
-- Flutter library: 50 файлов, примерно 7260 строк;
+- Flutter library: 50 файлов, примерно 7270 строк;
 - web source: 35 файлов, примерно 6860 строк;
 - `runner.ts`: примерно 675 строк;
 - `VrmController`: примерно 910 строк;
-- Flutter unit tests: 144;
+- Flutter unit tests: 146;
 - web unit tests: 167;
 - integration matrix разделена на runtime/scene, motion/speech,
   lifecycle/recovery, model-race, resource-loading и performance soak gates.
@@ -252,6 +253,14 @@ teardown синхронно отсоединяет transport и завершае
 после чего WebView освобождается только по достижении terminal state обеими
 очередями. Cleanup всё равно выполняется при ошибке предыдущей lifecycle-фазы.
 
+### Закрыто в Stage 44 — render lifecycle dispatch вне session teardown
+
+`VrmRenderLifecycleCoordinator.dispose()` закрывает latest-value dispatcher и
+возвращает один идемпотентный Future его `idle`. Runtime session включает этот
+Future в общий cleanup barrier вместе с binding и recovery. Активная
+pause/resume-команда теперь достигает terminal state до session и native WebView
+cleanup, а её stale error после close не публикуется приложению.
+
 ### P2 — публикационная готовность отложена
 
 В `pubspec.yaml` установлен `publish_to: none`. Это соответствует принятому
@@ -260,18 +269,18 @@ teardown синхронно отсоединяет transport и завершае
 
 ## 5. Текущее направление
 
-Stage 43 завершён: lifecycle coordinator последовательно ожидает initialization,
-terminal state активных graphics/background operations и только затем native
-cleanup. Проходят 144 Flutter-теста, `flutter analyze`, Windows runtime-race,
-runtime/recovery и runtime smoke gates.
+Stage 44 завершён: render lifecycle dispose стал асинхронным, идемпотентным и
+входит в terminal Future runtime-сессии. Проходят 146 Flutter-тестов,
+`flutter analyze`, Windows runtime-race, runtime/recovery и runtime smoke gates.
 
-Stage 42 завершён и зафиксирован коммитом `9c211e8`: initialization и native
-WebView disposal принадлежат одному lifecycle owner.
+Stage 43 завершён и зафиксирован коммитом `26dfc26`: активные declarative
+graphics/background tasks ожидаются до native cleanup.
 
-Следующее направление — Stage 44: включить активную pause/resume-команду
-`VrmRenderLifecycleCoordinator` в terminal Future runtime-сессии. Сейчас его
-latest-value dispatcher закрывается синхронно, но session cleanup не ожидает
-`idle`. Публикация и обновление Three.js/three-vrm по-прежнему отложены.
+Следующее направление — Stage 45: сделать `VrmController.dispose()` единым
+идемпотентным и error-safe terminal Future. Сейчас конкурентный повторный вызов
+может завершиться до первого, а ошибка thermal/subscription cleanup способна
+пропустить последующие шаги. Публикация и обновление Three.js/three-vrm
+по-прежнему отложены.
 
 Сейчас не следует:
 
@@ -1093,6 +1102,39 @@ runtime/recovery и runtime smoke gates повторно прошли 2026-10-01
 - native cleanup начинается после initialization и declarative settlement;
 - cleanup выполняется при ошибке любой предыдущей lifecycle-фазы;
 - повторный dispose сохраняет один terminal Future;
+- unit/analyze и Windows race/recovery/smoke gates проходят.
+
+### Stage 44 — детерминированный teardown render lifecycle
+
+Статус: выполнено.
+
+Цель: включить уже выполняющуюся pause/resume-команду render loop в terminal
+границу runtime-сессии.
+
+Работы:
+
+1. Сделать `VrmRenderLifecycleCoordinator.dispose()` асинхронным и
+   идемпотентным.
+2. Синхронно закрыть dispatcher и вернуть Future его актуального `idle`.
+3. Включить lifecycle disposal в `VrmRuntimeSessionCoordinator.dispose()` рядом
+   с binding cleanup и recovery task.
+4. Сохранить подавление stale lifecycle errors после close.
+5. Проверить coordinator- и session-уровни отдельными regression-тестами.
+
+Этап завершён. Активный render lifecycle dispatch удерживает session terminal
+Future до своего завершения, повторный dispose разделяет тот же Future, а queued
+состояние после close не запускается. Всего проходят 146 Flutter-тестов и
+`flutter analyze`; Windows runtime-race, runtime/recovery и runtime smoke gates
+повторно прошли 2026-10-01. Публичный API и protocol v3 не изменены. Реализация
+зафиксирована коммитом `3e6b793`.
+
+Критерии готовности:
+
+- lifecycle dispose синхронно запрещает новую синхронизацию;
+- активная pause/resume-команда входит в terminal Future;
+- повторные dispose-вызовы возвращают один Future;
+- runtime session ожидает lifecycle, binding и recovery cleanup;
+- stale lifecycle error после close не публикуется;
 - unit/analyze и Windows race/recovery/smoke gates проходят.
 
 ## 7. Правила обновления roadmap
