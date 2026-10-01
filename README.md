@@ -245,6 +245,9 @@ queue.restore(
   VrmAnimationQueueSnapshot.fromJson(json),
   resumePlayback: true,
 );
+
+// При уничтожении владельца очереди:
+await queue.dispose();
 ```
 
 Каждый вызов playAnimation возвращает объект VrmAnimationPlayback с opaque ID.

@@ -1,8 +1,8 @@
 # План рефакторинга и развития flutter_three_vrm
 
 Статус: активный рабочий документ
-Дата аудита: 2026-09-29
-Проверенная база: `aba8702 refactor: separate camera pan from avatar orbit pivot`
+Дата аудита: 2026-10-01
+Проверенная база: `f51e9ac fix: make animation queue teardown deterministic`
 Целевые платформы: Android и Windows; приоритет — Android
 
 ## 1. Откуда восстановлен первоначальный план
@@ -76,6 +76,7 @@
 | 36 | Terminal semantics и диагностика transport bridge | Выполнено |
 | 37 | Детерминированный async teardown runtime-сессии | Выполнено |
 | 38 | Сериализация declarative graphics/background configuration | Выполнено |
+| 39 | Детерминированный lifecycle `VrmAnimationQueue` | Выполнено |
 
 ## 3. Состояние реализации
 
@@ -142,11 +143,11 @@ WebView runtime
 
 ### Текущий размер и покрытие
 
-- Flutter library: 49 файлов, примерно 7170 строк;
+- Flutter library: 49 файлов, примерно 7180 строк;
 - web source: 35 файлов, примерно 6860 строк;
 - `runner.ts`: примерно 675 строк;
 - `VrmController`: примерно 910 строк;
-- Flutter unit tests: 134;
+- Flutter unit tests: 136;
 - web unit tests: 167;
 - integration matrix разделена на runtime/scene, motion/speech,
   lifecycle/recovery, model-race, resource-loading и performance soak gates.
@@ -207,6 +208,14 @@ Future. Timeout, detach, reload и dispatch failure сохраняют bounded-�
 чтобы ожидаемый поздний response не создавал ложную диагностику. Некоррелируемый
 malformed input публикуется в `onError`, а не теряется только в debug log.
 
+### Закрыто в Stage 39 — недетерминированный lifecycle animation queue
+
+`stop()`, естественное завершение и восстановление stopped snapshot больше не
+запускают fire-and-forget отмену event subscriptions. Подписки принадлежат всему
+lifetime очереди, поэтому быстрый `stop → start` не создаёт перекрывающиеся
+listeners. Идемпотентный `Future<void> dispose()` сначала дожидается отмены всех
+входящих подписок и только затем закрывает публичные event streams.
+
 ### P2 — публикационная готовность отложена
 
 В `pubspec.yaml` установлен `publish_to: none`. Это соответствует принятому
@@ -215,18 +224,20 @@ malformed input публикуется в `onError`, а не теряется т
 
 ## 5. Текущее направление
 
-Stage 38 завершён: initial replay и быстрые rebuild-обновления graphics и
-background используют общие сериализованные latest-task queues. Одновременно
-выполняется не более одной операции каждого канала, промежуточные pending
-значения схлопываются, а конечным состоянием остаётся последнее desired value.
-Проходят 134 Flutter-теста, `flutter analyze`, Windows runtime/recovery и
-runtime smoke gates.
+Stage 39 завершён: `VrmAnimationQueue` владеет event subscriptions на протяжении
+всего lifetime, а её идемпотентный async dispose является единственной точкой их
+закрытия. Быстрый `stop → start` больше не зависит от незавершённой отмены старых
+listeners. Проходят 136 Flutter-тестов, `flutter analyze`, Windows motion/speech
+и runtime/recovery gates.
 
-Stage 37 завершён и зафиксирован коммитом `9453052`: runtime teardown имеет
-единый идемпотентный cleanup Future и отменяемый recovery delay.
+Stage 38 завершён и зафиксирован коммитом `36d4678`: declarative graphics и
+background применяются через сериализованные latest-task queues.
 
-Следующее направление выбирается после нового стабилизационного аудита.
-Публикация и обновление Three.js/three-vrm по-прежнему отложены.
+Следующее направление — Stage 40: сделать controller rebind полностью
+детерминированным. Сейчас старые controller subscriptions отменяются
+fire-and-forget; callbacks защищены identity-проверкой, но session dispose не
+обязан ждать незавершённую rebind-отмену. Публикация и обновление
+Three.js/three-vrm по-прежнему отложены.
 
 Сейчас не следует:
 
@@ -874,6 +885,43 @@ Flutter-теста и `flutter analyze`; Windows runtime/recovery и runtime smo
 - controller rebind не оставляет конфигурацию предыдущего controller последней;
 - dispose отклоняет queued/future submit и позволяет in-flight cleanup;
 - unit/analyze и Windows recovery/smoke gates проходят.
+
+### Stage 39 — детерминированный lifecycle animation queue
+
+Статус: выполнено.
+
+Цель: устранить race между fire-and-forget отменой event subscriptions и
+повторным запуском либо уничтожением `VrmAnimationQueue`.
+
+Работы:
+
+1. Сделать subscriptions ресурсом всего lifetime очереди; `stop()`, завершение
+   non-loop очереди и restore stopped snapshot меняют playback state, но не
+   пересоздают listeners.
+2. Заменить синхронный `dispose()` на идемпотентный `Future<void> dispose()`.
+3. При dispose сначала запретить новые операции, затем дождаться отмены входящих
+   subscriptions и только после этого закрыть `onStateChanged`/`onError`.
+4. Обновить публичную документацию и все тестовые владельцы очереди на
+   `await queue.dispose()`.
+5. Зафиксировать unit-тестами единственную lifetime-подписку и terminal cleanup
+   Future с асинхронной отменой.
+
+Этап завершён. Быстрый `stop → start` использует существующие listeners, а
+повторные dispose-вызовы возвращают один cleanup Future. Если отмена подписки
+асинхронна, dispose не завершается преждевременно; публичные event streams
+закрываются после входящих источников. Всего проходят 136 Flutter-тестов и
+`flutter analyze`; Windows motion/speech и runtime/recovery gates повторно
+прошли 2026-10-01. Protocol v3 не изменён; публичный dispose-контракт усилен до
+ожидаемого `Future<void>`. Реализация зафиксирована коммитом `f51e9ac`.
+
+Критерии готовности:
+
+- `stop → start` не создаёт дополнительную подписку;
+- stopped state не означает преждевременное освобождение event infrastructure;
+- повторные dispose-вызовы разделяют один cleanup Future;
+- dispose ожидает отмену subscriptions и закрытие event streams;
+- после начала dispose новые queue-команды синхронно отклоняются;
+- unit/analyze и Windows motion/speech/recovery gates проходят.
 
 ## 7. Правила обновления roadmap
 

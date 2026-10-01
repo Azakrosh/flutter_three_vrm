@@ -16,7 +16,8 @@ replay и полный список владельцев состояния на
   transport, controller/WebView subscriptions и loopback content host. Приложение
   владеет controller, своими subscriptions, animation queue и speech handles.
 - После `VrmController.dispose()` новые mutating-команды завершаются
-  `StateError`. Каждый `VrmAnimationQueue` тоже необходимо `dispose()`.
+  `StateError`. Каждый `VrmAnimationQueue` тоже необходимо завершить через
+  `await dispose()`.
 - Быстрые изменения `VrmView.graphicsPreset`, adaptive policy и базового
   background сериализуются по каналам: промежуточное ожидающее состояние может
   быть пропущено, но последним применяется самое новое значение.
@@ -109,6 +110,8 @@ await controller.setPose(pose, fadeDuration: 0.5);
 `onAnimationFinished`. Одиночный playback принадлежит текущей runtime-сессии и
 не replay-ится после reload. `VrmAnimationQueue` сохраняет позицию и повторно
 запускает текущий элемент после следующего `onModelLoaded`.
+Её event subscriptions живут до `await queue.dispose()`: `stop()` меняет только
+playback state и допускает безопасный последующий `start()`.
 
 ## Realtime speech
 

@@ -3,7 +3,8 @@
 Этот документ фиксирует контракт восстановления между Flutter-приложением,
 пакетом и WebView runtime. Он создан в Stage 27 и актуализирован после изоляции
 runtime-сессии в Stage 34, декомпозиции controller responsibilities в Stage 35,
-детерминированного teardown в Stage 37 и declarative serialization в Stage 38.
+детерминированного teardown в Stage 37, declarative serialization в Stage 38
+и lifecycle очереди в Stage 39.
 
 ## Владельцы состояния
 
@@ -18,7 +19,7 @@ runtime-сессии в Stage 34, декомпозиции controller responsibi
 | Camera pan/zoom | последний user-initiated transform в controller; snapshot хранит `VrmRuntimeSessionCoordinator` | Web runtime | Snapshot восстанавливается после загрузки модели, если пользователь не успел изменить камеру |
 | Speech session и direct lip-sync input | текущая runtime-сессия | Web runtime | Отменяются; сервер/аудиоплеер начинает следующее сообщение как новую сессию |
 | Одиночная VRMA/glTF/Pose операция | текущая runtime-сессия | Web runtime | Не replay-ится; незавершённый Future завершается ошибкой потери runtime |
-| `VrmAnimationQueue` | приложение/объект очереди | Web runtime | `runtimeUnavailable` отменяет stale transition без ошибки; очередь сохраняет позицию и запускает текущий элемент после нового `modelLoaded` |
+| `VrmAnimationQueue` | приложение/объект очереди; subscriptions живут до async dispose | Web runtime | `runtimeUnavailable` отменяет stale transition без ошибки; очередь сохраняет позицию и запускает текущий элемент после нового `modelLoaded` |
 | Expressions, mood, wind, physics, lights | приложение | Web runtime | Неявно не сохраняются; при необходимости приложение повторяет их в `onCreated` после загрузки модели |
 
 Transient model transfer state имеет одного внутреннего владельца:
@@ -103,7 +104,7 @@ runtime уже загружена.
 | `setLighting`, `setEnvironmentColor`, `setShadows`, `setPhysics`, `setWind`, `stopWind` | Session/App | Не replay-ится | Сохраняется | `StateError` |
 | `setBackground*` | Session/App | Direct background не replay-ится; параметры `VrmView` replay-ятся | Сохраняется | `StateError` |
 | `setRenderQuality`, `setGraphicsPreset`, `setAdaptiveQuality`, `setGraphicsSettings` | Session/App | Direct настройки не replay-ятся; declarative параметры `VrmView` replay-ятся | Сохраняются | `StateError` |
-| `VrmAnimationQueue.start/pause/resume/stop/interrupt` | App object | Stale transition отменяется; active position запускается после `modelLoaded` | Queue state сохраняется | После `queue.dispose` синхронный `StateError` |
+| `VrmAnimationQueue.start/pause/resume/stop/interrupt` | App object | Stale transition отменяется; active position запускается после `modelLoaded` | Queue state сохраняется | `await queue.dispose()` закрывает subscriptions/streams; новые команды дают синхронный `StateError` |
 
 Проверки контракта распределены между:
 
@@ -117,7 +118,8 @@ runtime уже загружена.
   stale handle, finishing, cancel и replacement command failure;
 - `vrm_avatar_control_dispatcher_test.dart` — pose serialization, mouth
   ownership/revisions, face validation и latest-value gaze transport;
-- `vrm_animation_queue_snapshot_test.dart` — transition race и resume после model;
+- `vrm_animation_queue_snapshot_test.dart` — transition race, resume после model,
+  lifetime subscriptions и async dispose;
 - `vrm_runtime_session_coordinator_test.dart` — generation, ordered replay, bounded recovery, cancelable teardown и camera snapshot;
 - `vrm_runtime_controller_binding_test.dart` — rebind, transport/content-host ownership и teardown;
 - `vrm_render_lifecycle_coordinator_test.dart` — Android/Windows pause policy;
