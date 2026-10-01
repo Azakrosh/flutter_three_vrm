@@ -40,7 +40,7 @@ final class VrmAnimationQueueError {
 /// queue.start();
 /// // Later: queue.interrupt(folderPath: 'assets/vrma/', fileName: 'happy.vrma');
 /// // Later: queue.stop();
-/// queue.dispose();
+/// await queue.dispose();
 /// ```
 class VrmAnimationQueue {
   final VrmController _controller;
@@ -71,6 +71,7 @@ class VrmAnimationQueue {
   bool _playbackStartPending = false;
   final Set<String> _finishedWhileStarting = <String>{};
   bool _disposed = false;
+  Future<void>? _disposeFuture;
 
   final StreamController<VrmAnimationQueueState> _stateController =
       StreamController<VrmAnimationQueueState>.broadcast();
@@ -199,9 +200,7 @@ class VrmAnimationQueue {
     _interruptFileName = snapshot.interruptFileName;
     _interruptSpeed = snapshot.interruptSpeed;
 
-    if (snapshot.state == VrmAnimationQueueState.stopped) {
-      _cancelSubscription();
-    } else {
+    if (snapshot.state != VrmAnimationQueueState.stopped) {
       _ensureSubscription();
     }
     _setState(snapshot.state);
@@ -262,7 +261,6 @@ class VrmAnimationQueue {
     _ensureNotDisposed();
     _operationGeneration += 1;
     _resetPlaybackTracking();
-    _cancelSubscription();
     _currentIndex = 0;
     _pauseAfterInterrupt = false;
     _clearInterrupt();
@@ -309,17 +307,37 @@ class VrmAnimationQueue {
     _playInterrupt();
   }
 
-  /// Releases resources. Must be called when the queue is no longer needed.
-  void dispose() {
-    if (_disposed) return;
+  /// Releases subscriptions and event streams.
+  ///
+  /// Repeated calls return the same cleanup future.
+  Future<void> dispose() => _disposeFuture ??= _dispose();
+
+  Future<void> _dispose() async {
     _disposed = true;
     _operationGeneration += 1;
     _resetPlaybackTracking();
-    _cancelSubscription();
-    unawaited(_stateController.close());
-    unawaited(_errorController.close());
+    final cancellations = <Future<void>>[];
+    if (_subscription != null) {
+      cancellations.add(_subscription!.cancel());
+      _subscription = null;
+    }
+    if (_modelLoadedSubscription != null) {
+      cancellations.add(_modelLoadedSubscription!.cancel());
+      _modelLoadedSubscription = null;
+    }
+    if (_runtimeUnavailableSubscription != null) {
+      cancellations.add(_runtimeUnavailableSubscription!.cancel());
+      _runtimeUnavailableSubscription = null;
+    }
+    try {
+      await Future.wait<void>(cancellations);
+    } finally {
+      await Future.wait<void>([
+        _stateController.close(),
+        _errorController.close(),
+      ]);
+    }
   }
-
   // ---------------------------------------------------------------------------
   // Internal
   // ---------------------------------------------------------------------------
@@ -364,7 +382,6 @@ class VrmAnimationQueue {
         _generatePlayOrder();
         _currentIndex = 0;
       } else {
-        _cancelSubscription();
         _setState(VrmAnimationQueueState.stopped);
         _runOperation('stop', null, _controller.stopAnimation);
         return;
@@ -460,15 +477,6 @@ class VrmAnimationQueue {
         _resetPlaybackTracking();
       },
     );
-  }
-
-  void _cancelSubscription() {
-    unawaited(_subscription?.cancel());
-    _subscription = null;
-    unawaited(_modelLoadedSubscription?.cancel());
-    _modelLoadedSubscription = null;
-    unawaited(_runtimeUnavailableSubscription?.cancel());
-    _runtimeUnavailableSubscription = null;
   }
 
   void _setState(VrmAnimationQueueState newState) {

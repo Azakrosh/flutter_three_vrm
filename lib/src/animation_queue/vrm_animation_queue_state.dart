@@ -1,6 +1,6 @@
 /// Possible states of a [VrmAnimationQueue].
 enum VrmAnimationQueueState {
-  /// Queue is idle — no animations are playing and no subscription is active.
+  /// Queue is idle — no queue-managed animation is playing.
   stopped,
 
   /// Queue is actively playing animations in sequence.

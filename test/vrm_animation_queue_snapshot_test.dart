@@ -66,7 +66,7 @@ void main() {
         fileNames: const <String>['a.vrma', 'b.vrma', 'c.vrma'],
       );
       addTearDown(() async {
-        queue.dispose();
+        await queue.dispose();
         await controller.dispose();
       });
 
@@ -93,7 +93,7 @@ void main() {
         fileNames: const <String>['a.vrma'],
       );
       addTearDown(() async {
-        queue.dispose();
+        await queue.dispose();
         await controller.dispose();
       });
 
@@ -121,7 +121,7 @@ void main() {
           fileNames: const <String>['idle.vrma'],
         );
         addTearDown(() async {
-          queue.dispose();
+          await queue.dispose();
           await controller.dispose();
         });
 
@@ -155,7 +155,7 @@ void main() {
         final errorSubscription = queue.onError.listen(errors.add);
         addTearDown(() async {
           await errorSubscription.cancel();
-          queue.dispose();
+          await queue.dispose();
           await controller.dispose();
         });
 
@@ -182,7 +182,7 @@ void main() {
         fileNames: const <String>['idle.vrma', 'talk.vrma'],
       );
       addTearDown(() async {
-        queue.dispose();
+        await queue.dispose();
         await controller.dispose();
       });
 
@@ -207,7 +207,7 @@ void main() {
         fileNames: const <String>['first.vrma', 'second.vrma'],
       );
       addTearDown(() async {
-        queue.dispose();
+        await queue.dispose();
         await controller.dispose();
       });
 
@@ -231,7 +231,7 @@ void main() {
         fileNames: const <String>['idle.vrma'],
       );
       addTearDown(() async {
-        queue.dispose();
+        await queue.dispose();
         await controller.dispose();
       });
 
@@ -241,6 +241,62 @@ void main() {
 
       expect(queue.currentFile, 'happy.vrma');
     });
+
+    test('stop and restart reuse one lifetime event subscription', () async {
+      final controller = _FakeVrmController();
+      final queue = VrmAnimationQueue(
+        controller: controller,
+        folderPath: 'assets/vrma/',
+        fileNames: const <String>['idle.vrma'],
+      );
+      addTearDown(() async {
+        await queue.dispose();
+        await controller.dispose();
+      });
+
+      queue.start();
+      await pumpEventQueue();
+      queue.stop();
+      queue.start();
+      await pumpEventQueue();
+
+      expect(controller.animationListenCount, 1);
+    });
+
+    test(
+      'dispose waits for subscription cancellation and is idempotent',
+      () async {
+        final cancellationBarrier = Completer<void>();
+        final controller = _FakeVrmController(
+          cancellationBarrier: cancellationBarrier.future,
+        );
+        final queue = VrmAnimationQueue(
+          controller: controller,
+          folderPath: 'assets/vrma/',
+          fileNames: const <String>['idle.vrma'],
+        );
+        addTearDown(() async {
+          if (!cancellationBarrier.isCompleted) cancellationBarrier.complete();
+          await queue.dispose();
+          await controller.dispose();
+        });
+
+        queue.start();
+        await pumpEventQueue();
+        final first = queue.dispose();
+        final second = queue.dispose();
+        var completed = false;
+        unawaited(first.then<void>((_) => completed = true));
+        await Future<void>.delayed(Duration.zero);
+
+        expect(identical(first, second), isTrue);
+        expect(completed, isFalse);
+
+        cancellationBarrier.complete();
+        await first;
+        expect(completed, isTrue);
+      },
+    );
 
     test('validates queue and interrupt playback inputs', () async {
       final controller = _FakeVrmController();
@@ -295,18 +351,39 @@ void main() {
 }
 
 final class _FakeVrmController extends VrmController {
-  final StreamController<VrmModelLoadedEvent> _modelLoaded =
-      StreamController<VrmModelLoadedEvent>.broadcast();
-  final StreamController<VrmAnimationFinishedEvent> _animationFinished =
-      StreamController<VrmAnimationFinishedEvent>.broadcast();
-  final StreamController<VrmRuntimeUnavailableEvent> _runtimeUnavailable =
-      StreamController<VrmRuntimeUnavailableEvent>.broadcast();
+  _FakeVrmController({this.cancellationBarrier}) {
+    if (cancellationBarrier == null) {
+      _modelLoaded = StreamController<VrmModelLoadedEvent>.broadcast();
+      _animationFinished =
+          StreamController<VrmAnimationFinishedEvent>.broadcast(
+            onListen: () => animationListenCount += 1,
+          );
+      _runtimeUnavailable =
+          StreamController<VrmRuntimeUnavailableEvent>.broadcast();
+      return;
+    }
+    _modelLoaded = StreamController<VrmModelLoadedEvent>(
+      onCancel: () => cancellationBarrier,
+    );
+    _animationFinished = StreamController<VrmAnimationFinishedEvent>(
+      onListen: () => animationListenCount += 1,
+      onCancel: () => cancellationBarrier,
+    );
+    _runtimeUnavailable = StreamController<VrmRuntimeUnavailableEvent>(
+      onCancel: () => cancellationBarrier,
+    );
+  }
 
+  final Future<void>? cancellationBarrier;
+  late final StreamController<VrmModelLoadedEvent> _modelLoaded;
+  late final StreamController<VrmAnimationFinishedEvent> _animationFinished;
+  late final StreamController<VrmRuntimeUnavailableEvent> _runtimeUnavailable;
   final List<String> playedFiles = <String>[];
   final List<String> playbackIds = <String>[];
   bool delayNextPlayback = false;
   Completer<VrmAnimationPlayback>? _delayedPlayback;
   int _playbackSequence = 0;
+  int animationListenCount = 0;
 
   @override
   bool get isModelLoaded => false;
