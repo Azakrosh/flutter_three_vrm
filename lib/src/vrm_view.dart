@@ -50,6 +50,7 @@ class VrmView extends StatefulWidget {
 class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
   late final VrmWebViewAdapter _webView;
   late final VrmRuntimeSessionCoordinator _session;
+  late final VrmViewLifecycleCoordinator _viewLifecycle;
   late final VrmLatestTaskDispatcher<_VrmGraphicsConfiguration>
   _graphicsConfigurations;
   late final VrmLatestTaskDispatcher<_VrmBackgroundConfiguration>
@@ -122,7 +123,7 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
       onRuntimeResourceError: _session.handleRuntimeResourceError,
     );
     _session.attachControllerBinding(controllerBinding);
-    unawaited(_initialize());
+    _viewLifecycle = VrmViewLifecycleCoordinator(initialize: _initialize);
   }
 
   @override
@@ -170,10 +171,7 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
   Future<void> _initialize() async {
     try {
       await _webView.initialize();
-      if (_isDisposed) {
-        await _webView.dispose();
-        return;
-      }
+      if (_isDisposed) return;
 
       _session.attachTransport();
       await _loadRuntimePage();
@@ -348,7 +346,11 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
     _backgroundConfigurations.close();
     final sessionDisposal = _session.dispose();
     WidgetsBinding.instance.removeObserver(this);
-    unawaited(_disposeRuntimeAndWebView(shouldDisposeRuntime, sessionDisposal));
+    unawaited(
+      _viewLifecycle.dispose(
+        () => _disposeRuntimeAndWebView(shouldDisposeRuntime, sessionDisposal),
+      ),
+    );
 
     super.dispose();
   }
