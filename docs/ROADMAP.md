@@ -2,7 +2,7 @@
 
 Статус: активный рабочий документ
 Дата аудита: 2026-10-01
-Проверенная база: `5713400 fix: await runtime binding callbacks on teardown`
+Проверенная база: `9c211e8 fix: serialize VRM view initialization teardown`
 Целевые платформы: Android и Windows; приоритет — Android
 
 ## 1. Откуда восстановлен первоначальный план
@@ -79,6 +79,7 @@
 | 39 | Детерминированный lifecycle `VrmAnimationQueue` | Выполнено |
 | 40 | Детерминированная очистка controller rebind | Выполнено |
 | 41 | Terminal cleanup запущенных runtime binding callbacks | Выполнено |
+| 42 | Сериализация initialization/teardown `VrmView` | Выполнено |
 
 ## 3. Состояние реализации
 
@@ -145,11 +146,11 @@ WebView runtime
 
 ### Текущий размер и покрытие
 
-- Flutter library: 49 файлов, примерно 7210 строк;
+- Flutter library: 50 файлов, примерно 7240 строк;
 - web source: 35 файлов, примерно 6860 строк;
 - `runner.ts`: примерно 675 строк;
 - `VrmController`: примерно 910 строк;
-- Flutter unit tests: 140;
+- Flutter unit tests: 142;
 - web unit tests: 167;
 - integration matrix разделена на runtime/scene, motion/speech,
   lifecycle/recovery, model-race, resource-loading и performance soak gates.
@@ -234,6 +235,14 @@ Future после terminal completion. `dispose()` захватывает тек
 старого endpoint может корректно завершиться, но его поздняя ошибка подавляется
 identity/disposed guard и не попадает новому controller.
 
+### Закрыто в Stage 42 — конкурирующие initialization и WebView disposal
+
+`VrmViewLifecycleCoordinator` владеет initialization Future и одним terminal
+cleanup Future. Widget синхронно помечает session disposed, но native cleanup
+начинается только после завершения уже запущенной initialization. Ветка
+initialization больше не вызывает `WebView.dispose()` самостоятельно, поэтому
+adapter освобождается ровно одним владельцем даже при раннем удалении widget.
+
 ### P2 — публикационная готовность отложена
 
 В `pubspec.yaml` установлен `publish_to: none`. Это соответствует принятому
@@ -242,19 +251,18 @@ identity/disposed guard и не попадает новому controller.
 
 ## 5. Текущее направление
 
-Stage 41 завершён: runtime binding отслеживает уже запущенные async callbacks,
-а dispose ждёт их terminal completion перед закрытием content host. Ошибка
-callback старого endpoint после rebind не публикуется новому controller.
-Проходят 140 Flutter-тестов, `flutter analyze`, Windows runtime/recovery и
-runtime smoke gates.
+Stage 42 завершён: initialization `VrmView` и terminal cleanup принадлежат одному
+lifecycle coordinator. Ранний dispose ждёт initialization, а native WebView
+освобождается одной ветвью ровно один раз. Проходят 142 Flutter-теста,
+`flutter analyze`, Windows runtime-race, runtime/recovery и runtime smoke gates.
 
-Stage 40 завершён и зафиксирован коммитом `0cbbf6d`: rebind cancellation входит
-в единый terminal cleanup Future.
+Stage 41 завершён и зафиксирован коммитом `5713400`: binding teardown ждёт уже
+запущенные runtime callbacks.
 
-Следующее направление — Stage 42: сериализовать инициализацию и teardown
-`VrmView`. Сейчас dispose может начаться во время `WebView.initialize()` или
-запуска content host, а две независимые ветви способны вызвать WebView disposal
-повторно. Публикация и обновление Three.js/three-vrm по-прежнему отложены.
+Следующее направление — Stage 43: включить активные declarative graphics и
+background tasks в terminal teardown `VrmView`. Dispatcher уже отклоняет queued
+работу после close, но его in-flight operation пока не ожидается widget cleanup.
+Публикация и обновление Three.js/three-vrm по-прежнему отложены.
 
 Сейчас не следует:
 
@@ -1009,6 +1017,39 @@ runtime/recovery и runtime smoke gates повторно прошли 2026-10-01
 - stale callback error не публикуется replacement controller;
 - content host закрывается после callback/subscription cleanup;
 - unit/analyze и Windows recovery/smoke gates проходят.
+
+### Stage 42 — сериализация initialization/teardown VrmView
+
+Статус: выполнено.
+
+Цель: исключить параллельный native WebView disposal во время незавершённой
+initialization и запуска локального content host.
+
+Работы:
+
+1. Добавить внутренний `VrmViewLifecycleCoordinator`, который немедленно запускает
+   initialization и сохраняет её Future.
+2. Возвращать один идемпотентный terminal Future для повторных dispose-вызовов.
+3. Всегда выполнять cleanup после settlement initialization, включая error path.
+4. Удалить `WebView.dispose()` из initialization-ветви после раннего widget
+   disposal; оставить native adapter одному cleanup owner.
+5. Сохранить синхронную блокировку session callbacks в `State.dispose()`.
+
+Этап завершён. Runtime session начинает teardown сразу, а native cleanup ожидает
+завершения initialization и выполняется единожды. Два unit-теста фиксируют
+порядок initialization → cleanup, idempotence и cleanup после initialization
+error. Всего проходят 142 Flutter-теста и `flutter analyze`; Windows runtime-race,
+runtime/recovery и runtime smoke gates повторно прошли 2026-10-01. Публичный API
+и protocol v3 не изменены. Реализация зафиксирована коммитом `9c211e8`.
+
+Критерии готовности:
+
+- ранний dispose не освобождает adapter во время его initialize;
+- initialization-ветвь не владеет native disposal;
+- cleanup выполняется один раз после success/error initialization;
+- повторные dispose-вызовы разделяют один terminal Future;
+- session callbacks блокируются синхронно в `State.dispose()`;
+- unit/analyze и Windows race/recovery/smoke gates проходят.
 
 ## 7. Правила обновления roadmap
 
