@@ -2,7 +2,7 @@
 
 Статус: активный рабочий документ
 Дата аудита: 2026-10-01
-Проверенная база: `0cbbf6d fix: make controller rebind cleanup deterministic`
+Проверенная база: `5713400 fix: await runtime binding callbacks on teardown`
 Целевые платформы: Android и Windows; приоритет — Android
 
 ## 1. Откуда восстановлен первоначальный план
@@ -78,6 +78,7 @@
 | 38 | Сериализация declarative graphics/background configuration | Выполнено |
 | 39 | Детерминированный lifecycle `VrmAnimationQueue` | Выполнено |
 | 40 | Детерминированная очистка controller rebind | Выполнено |
+| 41 | Terminal cleanup запущенных runtime binding callbacks | Выполнено |
 
 ## 3. Состояние реализации
 
@@ -144,11 +145,11 @@ WebView runtime
 
 ### Текущий размер и покрытие
 
-- Flutter library: 49 файлов, примерно 7200 строк;
+- Flutter library: 49 файлов, примерно 7210 строк;
 - web source: 35 файлов, примерно 6860 строк;
 - `runner.ts`: примерно 675 строк;
 - `VrmController`: примерно 910 строк;
-- Flutter unit tests: 139;
+- Flutter unit tests: 140;
 - web unit tests: 167;
 - integration matrix разделена на runtime/scene, motion/speech,
   lifecycle/recovery, model-race, resource-loading и performance soak gates.
@@ -225,6 +226,14 @@ tracked cleanup Future. Session dispose дожидается всех retired и
 subscriptions. Ошибка retired cleanup публикуется через прежний endpoint;
 `contentHost.close()` выполняется в `finally` даже при ошибке текущей отмены.
 
+### Закрыто в Stage 41 — callback, переживающий binding teardown
+
+Binding хранит набор только активных async callbacks и удаляет каждый
+Future после terminal completion. `dispose()` захватывает текущий набор и ждёт
+его вместе с retired/current subscriptions до закрытия content host. Callback
+старого endpoint может корректно завершиться, но его поздняя ошибка подавляется
+identity/disposed guard и не попадает новому controller.
+
 ### P2 — публикационная готовность отложена
 
 В `pubspec.yaml` установлен `publish_to: none`. Это соответствует принятому
@@ -233,19 +242,19 @@ subscriptions. Ошибка retired cleanup публикуется через п
 
 ## 5. Текущее направление
 
-Stage 40 завершён: controller rebind синхронно передаёт ownership новому endpoint,
-но сохраняет Future отмены retired subscriptions. Session dispose ждёт retired,
-current controller и WebView listeners, а content host закрывается даже при
-ошибке отмены. Проходят 139 Flutter-тестов, `flutter analyze`, Windows
-runtime/recovery, resource-loading и runtime smoke gates.
+Stage 41 завершён: runtime binding отслеживает уже запущенные async callbacks,
+а dispose ждёт их terminal completion перед закрытием content host. Ошибка
+callback старого endpoint после rebind не публикуется новому controller.
+Проходят 140 Flutter-тестов, `flutter analyze`, Windows runtime/recovery и
+runtime smoke gates.
 
-Stage 39 завершён и зафиксирован коммитом `f51e9ac`: animation queue использует
-lifetime subscriptions и ожидаемый идемпотентный dispose.
+Stage 40 завершён и зафиксирован коммитом `0cbbf6d`: rebind cancellation входит
+в единый terminal cleanup Future.
 
-Следующее направление — Stage 41: учесть уже запущенные async callbacks binding.
-Identity guard блокирует новые stale callbacks, но callback, начавшийся до
-`rebind` или `dispose`, пока не входит в terminal cleanup Future. Публикация и
-обновление Three.js/three-vrm по-прежнему отложены.
+Следующее направление — Stage 42: сериализовать инициализацию и teardown
+`VrmView`. Сейчас dispose может начаться во время `WebView.initialize()` или
+запуска content host, а две независимые ветви способны вызвать WebView disposal
+повторно. Публикация и обновление Three.js/three-vrm по-прежнему отложены.
 
 Сейчас не следует:
 
@@ -967,6 +976,39 @@ runtime smoke gates повторно прошли 2026-10-01. Публичный
 - content host закрывается при успешной и ошибочной отмене subscriptions;
 - повторный dispose сохраняет один terminal Future;
 - unit/analyze и Windows recovery/resource/smoke gates проходят.
+
+### Stage 41 — terminal cleanup запущенных runtime binding callbacks
+
+Статус: выполнено.
+
+Цель: включить callbacks, уже запущенные controller event-ом до rebind/dispose,
+в детерминированную границу teardown.
+
+Работы:
+
+1. Хранить только активные callback Futures во внутреннем наборе binding.
+2. Удалять завершённые задачи без необработанных error Futures.
+3. При dispose ждать snapshot активных callbacks вместе с subscription cleanup.
+4. Сохранять identity guard: ошибка callback старого endpoint после rebind не
+   публикуется новому controller.
+5. Не закрывать content host, пока уже начатый callback не завершён.
+
+Этап завершён. Rebind остаётся синхронным и не блокирует Flutter rebuild, но
+последующий dispose имеет terminal Future для всей уже начатой callback-работы.
+Новый regression-тест запускает model callback, выполняет rebind и dispose,
+проверяет удержание content host до callback completion и подавление stale
+ошибки. Всего проходят 140 Flutter-тестов и `flutter analyze`; Windows
+runtime/recovery и runtime smoke gates повторно прошли 2026-10-01. Публичный API
+и protocol v3 не изменены. Реализация зафиксирована коммитом `5713400`.
+
+Критерии готовности:
+
+- callback добавляется в tracking до возможного teardown;
+- завершённый callback удаляется и не накапливается в binding;
+- dispose ждёт callbacks, начатые до rebind или dispose;
+- stale callback error не публикуется replacement controller;
+- content host закрывается после callback/subscription cleanup;
+- unit/analyze и Windows recovery/smoke gates проходят.
 
 ## 7. Правила обновления roadmap
 
