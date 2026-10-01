@@ -113,6 +113,130 @@ void main() {
       },
     );
 
+    test('dispose waits for subscription cleanup started by rebind', () async {
+      final cancellationBarrier = Completer<void>();
+      final webView = _FakeWebViewAdapter();
+      final first = _EndpointHarness(
+        cancellationBarrier: cancellationBarrier.future,
+      );
+      final second = _EndpointHarness();
+      final binding = VrmRuntimeControllerBinding(
+        endpoint: first.endpoint,
+        webView: webView,
+        reloadRuntime: () async {},
+        isRuntimeReady: () => true,
+        onRuntimeInitialized: () async {},
+        onControllerError: (_) {},
+        onModelLoaded: () async {},
+        onModelReport: (_) async {},
+        onModelUnloaded: () async {},
+        onBridgeMessageError: (_, _) {},
+        onRuntimeResourceError: (_) {},
+      );
+      addTearDown(() async {
+        if (!cancellationBarrier.isCompleted) cancellationBarrier.complete();
+        await binding.dispose();
+        await first.close();
+        await second.close();
+        await webView.close();
+      });
+
+      binding.rebind(second.endpoint);
+      final disposal = binding.dispose();
+      var disposalCompleted = false;
+      unawaited(disposal.then<void>((_) => disposalCompleted = true));
+      await Future<void>.delayed(Duration.zero);
+
+      expect(first.cancellationCount, 5);
+      expect(disposalCompleted, isFalse);
+
+      cancellationBarrier.complete();
+      await disposal;
+      expect(disposalCompleted, isTrue);
+    });
+
+    test(
+      'reports retired cancellation failures and still closes the host',
+      () async {
+        final cancellationBarrier = Completer<void>();
+        final failure = StateError('retired cancellation failed');
+        final webView = _FakeWebViewAdapter();
+        final first = _EndpointHarness(
+          cancellationBarrier: cancellationBarrier.future,
+        );
+        final second = _EndpointHarness();
+        final host = _FakeContentHost();
+        final binding = VrmRuntimeControllerBinding(
+          endpoint: first.endpoint,
+          webView: webView,
+          reloadRuntime: () async {},
+          isRuntimeReady: () => true,
+          onRuntimeInitialized: () async {},
+          onControllerError: (_) {},
+          onModelLoaded: () async {},
+          onModelReport: (_) async {},
+          onModelUnloaded: () async {},
+          onBridgeMessageError: (_, _) {},
+          onRuntimeResourceError: (_) {},
+        );
+        binding.attachContentHost(host);
+        addTearDown(() async {
+          if (!cancellationBarrier.isCompleted) cancellationBarrier.complete();
+          await binding.dispose();
+          await first.close();
+          await second.close();
+          await webView.close();
+        });
+
+        binding.rebind(second.endpoint);
+        final disposal = binding.dispose();
+        cancellationBarrier.completeError(failure);
+        await disposal;
+
+        expect(first.reportedErrors, <Object>[failure]);
+        expect(host.closeCount, 1);
+      },
+    );
+
+    test(
+      'closes the host when current subscription cancellation fails',
+      () async {
+        final cancellationBarrier = Completer<void>();
+        final failure = StateError('current cancellation failed');
+        final webView = _FakeWebViewAdapter();
+        final endpoint = _EndpointHarness(
+          cancellationBarrier: cancellationBarrier.future,
+        );
+        final host = _FakeContentHost();
+        final binding = VrmRuntimeControllerBinding(
+          endpoint: endpoint.endpoint,
+          webView: webView,
+          reloadRuntime: () async {},
+          isRuntimeReady: () => true,
+          onRuntimeInitialized: () async {},
+          onControllerError: (_) {},
+          onModelLoaded: () async {},
+          onModelReport: (_) async {},
+          onModelUnloaded: () async {},
+          onBridgeMessageError: (_, _) {},
+          onRuntimeResourceError: (_) {},
+        );
+        binding.attachContentHost(host);
+        addTearDown(() async {
+          if (!cancellationBarrier.isCompleted) cancellationBarrier.complete();
+          await endpoint.close();
+          await webView.close();
+        });
+
+        final disposal = binding.dispose();
+        cancellationBarrier.completeError(failure);
+
+        await expectLater(disposal, throwsA(same(failure)));
+        expect(endpoint.cancellationCount, 5);
+        expect(host.closeCount, 1);
+      },
+    );
+
     test('dispose is idempotent and suppresses later messages', () async {
       final webView = _FakeWebViewAdapter();
       final endpoint = _EndpointHarness();
@@ -166,16 +290,20 @@ void main() {
 }
 
 final class _EndpointHarness {
-  final StreamController<VrmStateChangedEvent> states =
-      StreamController<VrmStateChangedEvent>.broadcast(sync: true);
-  final StreamController<VrmErrorEvent> errors =
-      StreamController<VrmErrorEvent>.broadcast(sync: true);
-  final StreamController<VrmModelLoadedEvent> modelLoadedEvents =
-      StreamController<VrmModelLoadedEvent>.broadcast(sync: true);
-  final StreamController<VrmModelReportEvent> modelReports =
-      StreamController<VrmModelReportEvent>.broadcast(sync: true);
-  final StreamController<VrmModelUnloadedEvent> modelUnloadedEvents =
-      StreamController<VrmModelUnloadedEvent>.broadcast(sync: true);
+  _EndpointHarness({this.cancellationBarrier}) {
+    states = _createController<VrmStateChangedEvent>();
+    errors = _createController<VrmErrorEvent>();
+    modelLoadedEvents = _createController<VrmModelLoadedEvent>();
+    modelReports = _createController<VrmModelReportEvent>();
+    modelUnloadedEvents = _createController<VrmModelUnloadedEvent>();
+  }
+
+  final Future<void>? cancellationBarrier;
+  late final StreamController<VrmStateChangedEvent> states;
+  late final StreamController<VrmErrorEvent> errors;
+  late final StreamController<VrmModelLoadedEvent> modelLoadedEvents;
+  late final StreamController<VrmModelReportEvent> modelReports;
+  late final StreamController<VrmModelUnloadedEvent> modelUnloadedEvents;
 
   bool modelLoaded = false;
   bool? restoredModelLoaded;
@@ -186,6 +314,7 @@ final class _EndpointHarness {
   int contentHostAttachCount = 0;
   int contentHostDetachCount = 0;
   int memoryPressureCount = 0;
+  int cancellationCount = 0;
   final List<String> runtimeMessages = [];
   final List<Object> reportedErrors = [];
 
@@ -220,6 +349,20 @@ final class _EndpointHarness {
         recordHostMemoryPressure: () => memoryPressureCount += 1,
         reportAsyncError: (error, _) => reportedErrors.add(error),
       );
+
+  StreamController<T> _createController<T>() {
+    final barrier = cancellationBarrier;
+    if (barrier == null) {
+      return StreamController<T>.broadcast(sync: true);
+    }
+    return StreamController<T>(
+      sync: true,
+      onCancel: () {
+        cancellationCount += 1;
+        return barrier;
+      },
+    );
+  }
 
   Future<void> close() async {
     await Future.wait<void>([

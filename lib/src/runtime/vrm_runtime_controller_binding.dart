@@ -140,6 +140,7 @@ final class VrmRuntimeControllerBinding {
   VrmRuntimeControllerEndpoint _endpoint;
   VrmContentHost? _contentHost;
   Future<void>? _disposeFuture;
+  Future<void> _retiredControllerSubscriptionCleanup = Future<void>.value();
   bool _transportAttached = false;
   bool _disposed = false;
 
@@ -178,7 +179,7 @@ final class VrmRuntimeControllerBinding {
     if (contentHost != null) {
       previous.detachContentHost(contentHost);
     }
-    _cancelControllerSubscriptions();
+    _retireControllerSubscriptions(previous);
 
     _endpoint = endpoint;
     endpoint.attachHostResourceMonitoring();
@@ -222,10 +223,14 @@ final class VrmRuntimeControllerBinding {
     ];
     _controllerSubscriptions.clear();
     _webViewSubscriptions.clear();
-    await Future.wait<void>(
-      subscriptions.map((subscription) => subscription.cancel()),
-    );
-    await contentHost?.close();
+    try {
+      await Future.wait<void>([
+        _retiredControllerSubscriptionCleanup,
+        ...subscriptions.map((subscription) => subscription.cancel()),
+      ]);
+    } finally {
+      await contentHost?.close();
+    }
   }
 
   void _bindEndpoint(VrmRuntimeControllerEndpoint endpoint) {
@@ -301,11 +306,30 @@ final class VrmRuntimeControllerBinding {
   bool _isCurrent(VrmRuntimeControllerEndpoint endpoint) =>
       !_disposed && identical(_endpoint, endpoint);
 
-  void _cancelControllerSubscriptions() {
-    for (final subscription in _controllerSubscriptions) {
-      unawaited(subscription.cancel());
-    }
+  void _retireControllerSubscriptions(VrmRuntimeControllerEndpoint endpoint) {
+    final subscriptions = <StreamSubscription<dynamic>>[
+      ..._controllerSubscriptions,
+    ];
     _controllerSubscriptions.clear();
+    if (subscriptions.isEmpty) return;
+
+    _retiredControllerSubscriptionCleanup = Future.wait<void>([
+      _retiredControllerSubscriptionCleanup,
+      _cancelRetiredSubscriptions(subscriptions, endpoint),
+    ]);
+  }
+
+  Future<void> _cancelRetiredSubscriptions(
+    List<StreamSubscription<dynamic>> subscriptions,
+    VrmRuntimeControllerEndpoint endpoint,
+  ) async {
+    try {
+      await Future.wait<void>(
+        subscriptions.map((subscription) => subscription.cancel()),
+      );
+    } catch (error, stackTrace) {
+      endpoint.reportAsyncError(error, stackTrace);
+    }
   }
 
   void _ensureActive() {
