@@ -17,6 +17,7 @@ class VrmController {
   VrmTransform? _lastKnownCameraTransform;
   int _cameraTransformRevision = 0;
   int _hostResourceMonitoringClients = 0;
+  Future<void>? _disposeFuture;
 
   VrmController() {
     _hostedResources = VrmHostedResourceDispatcher(
@@ -295,15 +296,20 @@ class VrmController {
   }
 
   /// Disposes this controller and its event streams.
-  Future<void> dispose() async {
-    if (_isDisposed) return;
+  Future<void> dispose() => _disposeFuture ??= _dispose();
+
+  Future<void> _dispose() async {
     _isDisposed = true;
     _hostResourceMonitoringClients = 0;
     _invalidateTransientRuntimeState();
-    await _platformThermalMonitor.stop();
-    await _stateSubscription.cancel();
-    await _bridge.dispose();
+    await runVrmCleanupPhases([
+      _platformThermalMonitor.stop,
+      _cancelStateSubscription,
+      _bridge.dispose,
+    ]);
   }
+
+  Future<void> _cancelStateSubscription() => _stateSubscription.cancel();
 
   Future<void> _setRenderingPaused(bool paused) => _bridge.sendCommand(
     paused

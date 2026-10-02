@@ -5,8 +5,42 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_three_vrm/flutter_three_vrm.dart';
+import 'package:flutter_three_vrm/src/runtime/vrm_cleanup.dart';
 
 void main() {
+  test('dispose shares one terminal future', () async {
+    final controller = VrmController();
+
+    final first = controller.dispose();
+    final second = controller.dispose();
+
+    expect(identical(first, second), isTrue);
+    await first;
+  });
+
+  test(
+    'cleanup runner executes every phase and preserves first error',
+    () async {
+      final firstError = StateError('thermal cleanup failed');
+      final secondError = StateError('subscription cleanup failed');
+      final phases = <String>[];
+
+      final cleanup = runVrmCleanupPhases([
+        () async {
+          phases.add('thermal');
+          throw firstError;
+        },
+        () async {
+          phases.add('subscription');
+          throw secondError;
+        },
+        () async => phases.add('bridge'),
+      ]);
+
+      await expectLater(cleanup, throwsA(same(firstError)));
+      expect(phases, <String>['thermal', 'subscription', 'bridge']);
+    },
+  );
   test('every public controller mutation rejects work after dispose', () async {
     final controller = VrmController();
     await controller.dispose();

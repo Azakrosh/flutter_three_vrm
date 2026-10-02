@@ -43,6 +43,7 @@ import 'runtime/vrm_runtime_session_coordinator.dart';
 import 'runtime/vrm_view_lifecycle_coordinator.dart';
 import 'runtime/vrm_runtime_controller_binding.dart';
 import 'runtime/vrm_latest_task_dispatcher.dart';
+import 'runtime/vrm_cleanup.dart';
 
 part 'vrm_controller.dart';
 part 'vrm_view.dart';
