@@ -125,7 +125,14 @@ class VrmController {
     if (_hostResourceMonitoringClients == 0) return;
     _hostResourceMonitoringClients -= 1;
     if (_hostResourceMonitoringClients == 0) {
-      unawaited(_platformThermalMonitor.stop());
+      unawaited(
+        _platformThermalMonitor.stop().catchError((
+          Object error,
+          StackTrace stackTrace,
+        ) {
+          if (!_isDisposed) _bridge.reportAsyncError(error, stackTrace);
+        }),
+      );
     }
   }
 

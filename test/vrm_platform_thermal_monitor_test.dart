@@ -62,4 +62,53 @@ void main() {
     expect(monitor.status, VrmThermalStatus.unavailable);
     await monitor.stop();
   });
+
+  test('serializes stop and restart without stale status updates', () async {
+    final cancellationStarted = Completer<void>();
+    final releaseCancellation = Completer<void>();
+    final firstEvents = StreamController<Object?>.broadcast();
+    final secondEvents = StreamController<Object?>.broadcast();
+    final streams = [firstEvents.stream, secondEvents.stream];
+    var opened = 0;
+    var cancellations = 0;
+    final changes = <VrmThermalStatus>[];
+    final monitor = VrmPlatformThermalMonitor(
+      isAndroid: true,
+      eventStreamFactory: () => streams[opened++],
+      cancelSubscription: (subscription) async {
+        if (cancellations++ == 0) {
+          cancellationStarted.complete();
+          await releaseCancellation.future;
+        }
+        await subscription.cancel();
+      },
+      onStatusChanged: changes.add,
+    );
+
+    monitor.start();
+    firstEvents.add(3);
+    await Future<void>.delayed(Duration.zero);
+    expect(monitor.status, VrmThermalStatus.severe);
+
+    final stopping = monitor.stop();
+    await cancellationStarted.future;
+    monitor.start();
+    firstEvents.add(0);
+    await Future<void>.delayed(Duration.zero);
+    expect(opened, 1);
+    expect(monitor.status, VrmThermalStatus.severe);
+
+    releaseCancellation.complete();
+    await stopping;
+    expect(opened, 2);
+
+    secondEvents.add(1);
+    await Future<void>.delayed(Duration.zero);
+    expect(monitor.status, VrmThermalStatus.light);
+    expect(changes, [VrmThermalStatus.severe, VrmThermalStatus.light]);
+
+    await monitor.stop();
+    await firstEvents.close();
+    await secondEvents.close();
+  });
 }
