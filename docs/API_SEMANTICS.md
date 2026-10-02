@@ -16,9 +16,11 @@ replay и полный список владельцев состояния на
   native cleanup; активные graphics/background-задачи достигают terminal state до
   этого cleanup, а adapter освобождается ровно один раз. Внутренний
   runtime-session owner владеет transport, render lifecycle dispatch,
-  controller/WebView subscriptions и loopback content host. Приложение владеет controller, своими subscriptions,
+  controller/WebView subscriptions и loopback content host. Приложение владеет
+  controller, своими subscriptions,
   animation queue и speech handles.
-- После `VrmController.dispose()` новые mutating-команды завершаются
+- `VrmController.dispose()` синхронно блокирует новые операции, а повторные
+  вызовы разделяют один terminal Future. Новые mutating-команды завершаются
   `StateError`. Каждый `VrmAnimationQueue` тоже необходимо завершить через
   `await dispose()`.
 - Быстрые изменения `VrmView.graphicsPreset`, adaptive policy и базового

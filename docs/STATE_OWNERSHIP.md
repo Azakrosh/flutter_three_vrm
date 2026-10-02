@@ -6,7 +6,8 @@ runtime-сессии в Stage 34, декомпозиции controller responsibi
 детерминированного teardown в Stage 37, declarative serialization в Stage 38,
 lifecycle очереди в Stage 39, rebind cleanup в Stage 40, callback cleanup
 в Stage 41, view lifecycle serialization в Stage 42 и declarative task
-settlement в Stage 43 и render lifecycle teardown в Stage 44.
+settlement в Stage 43, render lifecycle teardown в Stage 44 и controller
+teardown в Stage 45.
 
 ## Владельцы состояния
 
@@ -76,6 +77,11 @@ content host закрывается в `finally`. `VrmViewLifecycleCoordinator` 
 graphics/background задач, session cleanup и освобождает native
 WebView ровно одной ветвью, включая initialization/teardown error paths.
 
+`VrmController.dispose()` синхронно блокирует новые операции и возвращает один
+terminal Future. Thermal monitor, controller state subscription и bridge
+закрываются последовательно и error-safe: ошибка одной фазы не пропускает
+следующие, а первая ошибка возвращается после полного cleanup.
+
 ## Lifecycle pause
 
 Lifecycle pause останавливает только frame loop. Он не уничтожает desired state и
@@ -136,7 +142,8 @@ runtime уже загружена.
   in-flight callbacks, transport/content-host ownership и teardown error paths;
 - `vrm_render_lifecycle_coordinator_test.dart` — Android/Windows pause policy и
   async teardown;
-- `vrm_controller_dispose_test.dart` — все публичные controller mutations;
+- `vrm_controller_dispose_test.dart` — idempotent/error-safe teardown и все
+  публичные controller mutations;
 - `vrm_view_lifecycle_coordinator_test.dart` — initialization/cleanup ordering,
   idempotence, active task settlement и error paths.
 

@@ -1,8 +1,8 @@
 # План рефакторинга и развития flutter_three_vrm
 
 Статус: активный рабочий документ
-Дата аудита: 2026-10-01
-Проверенная база: `3e6b793 fix: await render lifecycle teardown`
+Дата аудита: 2026-10-02
+Проверенная база: `8fe0273 fix: make controller teardown deterministic`
 Целевые платформы: Android и Windows; приоритет — Android
 
 ## 1. Откуда восстановлен первоначальный план
@@ -82,6 +82,7 @@
 | 42 | Сериализация initialization/teardown `VrmView` | Выполнено |
 | 43 | Terminal settlement declarative-задач `VrmView` | Выполнено |
 | 44 | Детерминированный teardown render lifecycle | Выполнено |
+| 45 | Идемпотентный и error-safe teardown `VrmController` | Выполнено |
 
 ## 3. Состояние реализации
 
@@ -148,11 +149,11 @@ WebView runtime
 
 ### Текущий размер и покрытие
 
-- Flutter library: 50 файлов, примерно 7270 строк;
+- Flutter library: 51 файл, примерно 7290 строк;
 - web source: 35 файлов, примерно 6860 строк;
 - `runner.ts`: примерно 675 строк;
 - `VrmController`: примерно 910 строк;
-- Flutter unit tests: 146;
+- Flutter unit tests: 148;
 - web unit tests: 167;
 - integration matrix разделена на runtime/scene, motion/speech,
   lifecycle/recovery, model-race, resource-loading и performance soak gates.
@@ -261,6 +262,14 @@ Future в общий cleanup barrier вместе с binding и recovery. Акт
 pause/resume-команда теперь достигает terminal state до session и native WebView
 cleanup, а её stale error после close не публикуется приложению.
 
+### Закрыто в Stage 45 — преждевременный и частичный controller teardown
+
+`VrmController.dispose()` синхронно запрещает новые операции и сохраняет один
+terminal Future для всех повторных вызовов. Внутренний cleanup runner выполняет
+thermal stop, отмену state subscription и bridge dispose независимо от ошибок
+предыдущих фаз, после чего повторно выбрасывает первую ошибку с исходным stack
+trace. Bridge cleanup больше не пропускается при ошибке platform/subscription.
+
 ### P2 — публикационная готовность отложена
 
 В `pubspec.yaml` установлен `publish_to: none`. Это соответствует принятому
@@ -269,18 +278,17 @@ cleanup, а её stale error после close не публикуется при
 
 ## 5. Текущее направление
 
-Stage 44 завершён: render lifecycle dispose стал асинхронным, идемпотентным и
-входит в terminal Future runtime-сессии. Проходят 146 Flutter-тестов,
+Stage 45 завершён: controller dispose возвращает один terminal Future и выполняет
+все cleanup-фазы даже при ошибке одной из них. Проходят 148 Flutter-тестов,
 `flutter analyze`, Windows runtime-race, runtime/recovery и runtime smoke gates.
 
-Stage 43 завершён и зафиксирован коммитом `26dfc26`: активные declarative
-graphics/background tasks ожидаются до native cleanup.
+Stage 44 завершён и зафиксирован коммитом `3e6b793`: активная render lifecycle
+команда входит в session teardown.
 
-Следующее направление — Stage 45: сделать `VrmController.dispose()` единым
-идемпотентным и error-safe terminal Future. Сейчас конкурентный повторный вызов
-может завершиться до первого, а ошибка thermal/subscription cleanup способна
-пропустить последующие шаги. Публикация и обновление Three.js/three-vrm
-по-прежнему отложены.
+Следующее направление — Stage 46: сериализовать Android thermal monitor
+start/stop при быстром detach/rebind и включить незавершённый stop в controller
+terminal Future. Сейчас позднее завершение старого stop может сбросить status уже
+новой подписки. Публикация и обновление Three.js/three-vrm по-прежнему отложены.
 
 Сейчас не следует:
 
@@ -1135,6 +1143,39 @@ Future до своего завершения, повторный dispose раз
 - повторные dispose-вызовы возвращают один Future;
 - runtime session ожидает lifecycle, binding и recovery cleanup;
 - stale lifecycle error после close не публикуется;
+- unit/analyze и Windows race/recovery/smoke gates проходят.
+
+### Stage 45 — идемпотентный и error-safe teardown VrmController
+
+Статус: выполнено.
+
+Цель: исключить преждевременное завершение повторного `dispose()` и гарантировать
+освобождение bridge после ошибки любого более раннего cleanup-шагa.
+
+Работы:
+
+1. Сохранять один `_disposeFuture` и возвращать его всем повторным вызовам.
+2. Синхронно помечать controller disposed до первого асинхронного ожидания.
+3. Выполнять thermal monitor stop, state subscription cancellation и bridge
+   dispose через общий последовательный cleanup runner.
+4. Не прекращать teardown после ошибки фазы; после всех фаз повторно выбрасывать
+   первую ошибку с исходным stack trace.
+5. Покрыть idempotence и multi-error cleanup regression-тестами.
+
+Этап завершён. Все повторные dispose-вызовы разделяют один terminal Future,
+новые mutating-команды блокируются сразу, а каждая cleanup-фаза выполняется
+ровно один раз даже после предыдущей ошибки. Всего проходят 148 Flutter-тестов и
+`flutter analyze`; Windows runtime-race, runtime/recovery и runtime smoke gates
+повторно прошли 2026-10-02. Публичные сигнатуры и protocol v3 не изменены.
+Реализация зафиксирована коммитом `8fe0273`.
+
+Критерии готовности:
+
+- первый dispose синхронно блокирует новые controller operations;
+- повторные dispose-вызовы возвращают идентичный Future;
+- ошибка thermal stop не пропускает subscription и bridge cleanup;
+- ошибка subscription cancellation не пропускает bridge cleanup;
+- после всех фаз повторно выбрасывается первая ошибка;
 - unit/analyze и Windows race/recovery/smoke gates проходят.
 
 ## 7. Правила обновления roadmap
