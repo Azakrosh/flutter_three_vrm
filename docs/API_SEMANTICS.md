@@ -218,7 +218,8 @@ soak-прогонов, а не для жёсткого ограничения м
 `onHostMemoryPressure` публикуется после системного callback Flutter. Событие
 само по себе не выгружает модель, не останавливает анимацию и не меняет graphics
 preset. Приложение может журналировать его и самостоятельно выбрать продуктовую
-реакцию. На Android API 29+ thermal status поступает из `PowerManager`; Windows и
+реакцию. На Android API 29+ thermal status поступает из `PowerManager`; его
+subscription lifecycle сериализован при detach/rebind. Windows и
 более старый Android возвращают `VrmThermalStatus.unavailable`. Это означает
 отсутствие достоверного сигнала, а не нормальную температуру.
 

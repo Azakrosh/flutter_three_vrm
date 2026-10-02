@@ -7,7 +7,7 @@ runtime-сессии в Stage 34, декомпозиции controller responsibi
 lifecycle очереди в Stage 39, rebind cleanup в Stage 40, callback cleanup
 в Stage 41, view lifecycle serialization в Stage 42 и declarative task
 settlement в Stage 43, render lifecycle teardown в Stage 44 и controller
-teardown в Stage 45.
+teardown в Stage 45 и thermal lifecycle serialization в Stage 46.
 
 ## Владельцы состояния
 
@@ -90,6 +90,10 @@ Lifecycle pause останавливает только frame loop. Он не у
 Dispose закрывает очередь lifecycle-команд и ожидает активный dispatch в общем
 session cleanup Future.
 
+Android thermal monitor хранит desired running state. Detach/rebind сериализует
+subscription cancellation и restart; generation guard запрещает старому listener
+менять snapshot, а текущий transition входит в controller terminal cleanup.
+
 ## Правило для публичного API
 
 - Declarative параметры `VrmView` принадлежат пакету и replay-ятся.
@@ -142,6 +146,8 @@ runtime уже загружена.
   in-flight callbacks, transport/content-host ownership и teardown error paths;
 - `vrm_render_lifecycle_coordinator_test.dart` — Android/Windows pause policy и
   async teardown;
+- `vrm_platform_thermal_monitor_test.dart` — status mapping, deduplication и
+  stop/restart race;
 - `vrm_controller_dispose_test.dart` — idempotent/error-safe teardown и все
   публичные controller mutations;
 - `vrm_view_lifecycle_coordinator_test.dart` — initialization/cleanup ordering,

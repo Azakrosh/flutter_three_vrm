@@ -2,7 +2,7 @@
 
 Статус: активный рабочий документ
 Дата аудита: 2026-10-02
-Проверенная база: `8fe0273 fix: make controller teardown deterministic`
+Проверенная база: `331d000 fix: serialize thermal monitor lifecycle`
 Целевые платформы: Android и Windows; приоритет — Android
 
 ## 1. Откуда восстановлен первоначальный план
@@ -83,6 +83,7 @@
 | 43 | Terminal settlement declarative-задач `VrmView` | Выполнено |
 | 44 | Детерминированный teardown render lifecycle | Выполнено |
 | 45 | Идемпотентный и error-safe teardown `VrmController` | Выполнено |
+| 46 | Сериализация lifecycle Android thermal monitor | Выполнено |
 
 ## 3. Состояние реализации
 
@@ -149,11 +150,11 @@ WebView runtime
 
 ### Текущий размер и покрытие
 
-- Flutter library: 51 файл, примерно 7290 строк;
+- Flutter library: 51 файл, примерно 7370 строк;
 - web source: 35 файлов, примерно 6860 строк;
 - `runner.ts`: примерно 675 строк;
 - `VrmController`: примерно 910 строк;
-- Flutter unit tests: 148;
+- Flutter unit tests: 149;
 - web unit tests: 167;
 - integration matrix разделена на runtime/scene, motion/speech,
   lifecycle/recovery, model-race, resource-loading и performance soak gates.
@@ -270,6 +271,14 @@ thermal stop, отмену state subscription и bridge dispose независи
 предыдущих фаз, после чего повторно выбрасывает первую ошибку с исходным stack
 trace. Bridge cleanup больше не пропускается при ошибке platform/subscription.
 
+### Закрыто в Stage 46 — конкурирующие thermal stop и restart
+
+Android thermal monitor теперь хранит desired running state и сериализует
+subscription transitions. `start()` во время незавершённого `stop()` не создаёт
+параллельного listener: новая generation открывается после cancellation старой.
+События старой generation игнорируются, поздний stop не сбрасывает новый status,
+а controller dispose получает актуальный terminal Future monitor.
+
 ### P2 — публикационная готовность отложена
 
 В `pubspec.yaml` установлен `publish_to: none`. Это соответствует принятому
@@ -278,17 +287,18 @@ trace. Bridge cleanup больше не пропускается при ошиб
 
 ## 5. Текущее направление
 
-Stage 45 завершён: controller dispose возвращает один terminal Future и выполняет
-все cleanup-фазы даже при ошибке одной из них. Проходят 148 Flutter-тестов,
+Stage 46 завершён: thermal monitor start/stop сериализованы desired-state
+координатором, stale generations не меняют status. Проходят 149 Flutter-тестов,
 `flutter analyze`, Windows runtime-race, runtime/recovery и runtime smoke gates.
 
-Stage 44 завершён и зафиксирован коммитом `3e6b793`: активная render lifecycle
-команда входит в session teardown.
+Stage 45 завершён и зафиксирован коммитом `8fe0273`: controller dispose стал
+идемпотентным и error-safe.
 
-Следующее направление — Stage 46: сериализовать Android thermal monitor
-start/stop при быстром detach/rebind и включить незавершённый stop в controller
-terminal Future. Сейчас позднее завершение старого stop может сбросить status уже
-новой подписки. Публикация и обновление Three.js/three-vrm по-прежнему отложены.
+Следующее направление — Stage 47: включить уже принятые HTTP request handlers
+`LocalAssetsServer` в terminal `close()` и возвращать один cleanup Future. Сейчас
+server listener запускает handlers fire-and-forget, а close очищает resources и
+завершается без явного ожидания активных запросов. Публикация и обновление
+Three.js/three-vrm по-прежнему отложены.
 
 Сейчас не следует:
 
@@ -1176,6 +1186,40 @@ Future до своего завершения, повторный dispose раз
 - ошибка thermal stop не пропускает subscription и bridge cleanup;
 - ошибка subscription cancellation не пропускает bridge cleanup;
 - после всех фаз повторно выбрасывается первая ошибка;
+- unit/analyze и Windows race/recovery/smoke gates проходят.
+
+### Stage 46 — сериализация lifecycle Android thermal monitor
+
+Статус: выполнено.
+
+Цель: исключить перекрытие старой и новой thermal subscriptions при быстром
+controller detach/rebind и включить текущий transition в controller teardown.
+
+Работы:
+
+1. Хранить desired running state независимо от текущей subscription.
+2. Сериализовать cancellation и последующий restart через один reconciliation
+   Future.
+3. Маркировать subscription generation и игнорировать события stale listener.
+4. Не сбрасывать status поздним stop, если во время cancellation уже запрошен
+   restart.
+5. Публиковать ошибки fire-and-forget detach stop через controller error stream.
+6. Добавить race-тест с управляемым незавершённым cancellation.
+
+Этап завершён. Быстрый detach → rebind больше не создаёт перекрывающиеся
+listeners, stale event не меняет snapshot, а stop Future завершается только после
+достижения последнего desired state. Всего проходят 149 Flutter-тестов и
+`flutter analyze`; Windows runtime-race, runtime/recovery и runtime smoke gates
+повторно прошли 2026-10-02. Публичный API и protocol v3 не изменены. Реализация
+зафиксирована коммитом `331d000`.
+
+Критерии готовности:
+
+- stop и restart одной monitor instance не выполняются параллельно;
+- stale subscription events игнорируются generation guard;
+- поздний stop не сбрасывает status новой subscription;
+- controller dispose ожидает текущий monitor transition;
+- detach cancellation error не становится необработанным Future;
 - unit/analyze и Windows race/recovery/smoke gates проходят.
 
 ## 7. Правила обновления roadmap
