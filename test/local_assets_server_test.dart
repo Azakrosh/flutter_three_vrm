@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -167,5 +168,47 @@ void main() {
       expect(response.contentLength, utf8.encode('test-vrm-content').length);
       expect(body, isEmpty);
     });
+    test('close waits for accepted requests and shares one future', () async {
+      final requestStarted = Completer<void>();
+      final releaseRequest = Completer<void>();
+      final closingServer = LocalAssetsServer(
+        runtimeAssetRoot: 'assets/web',
+        requestGate: (_) async {
+          requestStarted.complete();
+          await releaseRequest.future;
+        },
+      );
+      await closingServer.start();
+      addTearDown(closingServer.close);
+
+      final resourceUri = closingServer.exposeBytes(
+        Uint8List.fromList(<int>[1, 2, 3]),
+        fileName: 'pending.vrm',
+      );
+      final client = HttpClient();
+      addTearDown(client.close);
+      final responseFuture = (await client.getUrl(resourceUri)).close();
+      final responseCompletion = responseFuture.then<void>(
+        (response) => response.drain<void>(),
+        onError: (Object _, StackTrace _) {},
+      );
+      await requestStarted.future;
+
+      final first = closingServer.close();
+      final second = closingServer.close();
+      expect(identical(first, second), isTrue);
+      expect(await _isCompleted(first), isFalse);
+
+      releaseRequest.complete();
+      await first;
+      await responseCompletion;
+    });
   });
+}
+
+Future<bool> _isCompleted(Future<void> future) async {
+  var completed = false;
+  unawaited(future.then<void>((_) => completed = true, onError: (_) {}));
+  await Future<void>.delayed(Duration.zero);
+  return completed;
 }

@@ -8,6 +8,9 @@ import 'package:flutter/services.dart';
 import 'package:path/path.dart' as path;
 
 import '../content/vrm_content_host.dart';
+import '../runtime/vrm_cleanup.dart';
+
+typedef LocalAssetsRequestGate = Future<void> Function(HttpRequest request);
 
 /// Session-scoped loopback content host used by Android and Windows.
 ///
@@ -15,15 +18,23 @@ import '../content/vrm_content_host.dart';
 /// registered by this instance. Raw filesystem paths are never accepted over
 /// HTTP.
 final class LocalAssetsServer implements VrmContentHost {
-  LocalAssetsServer({required this.runtimeAssetRoot})
-    : _sessionToken = _randomToken(24);
+  LocalAssetsServer({
+    required this.runtimeAssetRoot,
+    LocalAssetsRequestGate? requestGate,
+    // The public test seam intentionally initializes a private implementation field.
+    // ignore: prefer_initializing_formals
+  }) : _requestGate = requestGate,
+       _sessionToken = _randomToken(24);
 
   final String runtimeAssetRoot;
+  final LocalAssetsRequestGate? _requestGate;
   final String _sessionToken;
   final Map<String, _HostedResource> _resources = <String, _HostedResource>{};
+  final Set<Future<void>> _requestTasks = <Future<void>>{};
 
   HttpServer? _server;
   Future<void>? _startFuture;
+  Future<void>? _closeFuture;
   bool _isClosed = false;
 
   @override
@@ -73,7 +84,7 @@ final class LocalAssetsServer implements VrmContentHost {
 
     _server = server;
     server.listen(
-      (HttpRequest request) => unawaited(_handleRequest(request)),
+      _trackRequest,
       onError: (Object error, StackTrace stackTrace) {
         if (kDebugMode) {
           debugPrint('VRM content host error: $error');
@@ -221,6 +232,27 @@ final class LocalAssetsServer implements VrmContentHost {
     return segments.join('/');
   }
 
+  void _trackRequest(HttpRequest request) {
+    final requestTask = Future<void>.sync(() => _handleRequest(request));
+    late final Future<void> trackedTask;
+    trackedTask = requestTask.then<void>(
+      (_) => _requestTasks.remove(trackedTask),
+      onError: (Object error, StackTrace stackTrace) {
+        _requestTasks.remove(trackedTask);
+        if (kDebugMode) {
+          debugPrint('VRM content request task failed: $error\n$stackTrace');
+        }
+      },
+    );
+    _requestTasks.add(trackedTask);
+  }
+
+  Future<void> _waitForRequestTasks() async {
+    while (_requestTasks.isNotEmpty) {
+      await Future.wait<void>(List<Future<void>>.of(_requestTasks));
+    }
+  }
+
   Future<void> _handleRequest(HttpRequest request) async {
     final response = request.response;
     response.headers
@@ -240,6 +272,7 @@ final class LocalAssetsServer implements VrmContentHost {
       ..set(HttpHeaders.cacheControlHeader, 'no-store');
 
     try {
+      await _requestGate?.call(request);
       if (request.method != 'GET' && request.method != 'HEAD') {
         response.statusCode = HttpStatus.methodNotAllowed;
         response.headers.set(HttpHeaders.allowHeader, 'GET, HEAD');
@@ -247,8 +280,9 @@ final class LocalAssetsServer implements VrmContentHost {
       }
 
       final host = request.headers.value(HttpHeaders.hostHeader);
-      final expectedHost = '127.0.0.1:${_requireServer().port}';
-      if (host != expectedHost) {
+      final localPort = request.connectionInfo?.localPort;
+      final expectedHost = localPort == null ? null : '127.0.0.1:$localPort';
+      if (expectedHost == null || host != expectedHost) {
         response.statusCode = HttpStatus.forbidden;
         return;
       }
@@ -424,10 +458,9 @@ final class LocalAssetsServer implements VrmContentHost {
   }
 
   @override
-  Future<void> close() async {
-    if (_isClosed) {
-      return;
-    }
+  Future<void> close() => _closeFuture ??= _close();
+
+  Future<void> _close() async {
     _isClosed = true;
 
     final start = _startFuture;
@@ -441,10 +474,11 @@ final class LocalAssetsServer implements VrmContentHost {
 
     final server = _server;
     _server = null;
-    _resources.clear();
-    if (server != null) {
-      await server.close(force: true);
-    }
+    await runVrmCleanupPhases([
+      if (server != null) () => server.close(force: true),
+      _waitForRequestTasks,
+      () async => _resources.clear(),
+    ]);
   }
 
   static String _randomToken(int byteCount) {
