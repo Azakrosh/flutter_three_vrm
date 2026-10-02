@@ -292,6 +292,45 @@ void main() {
       },
     );
 
+    test(
+      'attempts every cancellation and closes the host after sync failure',
+      () async {
+        final cancellationFailure = StateError('synchronous cancel failed');
+        final closeFailure = StateError('content host close failed');
+        final webView = _FakeWebViewAdapter();
+        final endpoint = _EndpointHarness(
+          synchronousCancellationFailure: cancellationFailure,
+        );
+        final host = _FakeContentHost(closeFailure: closeFailure);
+        final binding = VrmRuntimeControllerBinding(
+          endpoint: endpoint.endpoint,
+          webView: webView,
+          reloadRuntime: () async {},
+          isRuntimeReady: () => true,
+          onRuntimeInitialized: () async {},
+          onControllerError: (_) {},
+          onModelLoaded: () async {},
+          onModelReport: (_) async {},
+          onModelUnloaded: () async {},
+          onBridgeMessageError: (_, _) {},
+          onRuntimeResourceError: (_) {},
+        );
+        binding.attachContentHost(host);
+        addTearDown(() async {
+          await endpoint.close();
+          await webView.close();
+        });
+
+        await expectLater(
+          binding.dispose(),
+          throwsA(same(cancellationFailure)),
+        );
+
+        expect(endpoint.synchronousCancellationAttempts, 5);
+        expect(host.closeCount, 1);
+      },
+    );
+
     test('dispose waits for transport cleanup retired by rebind', () async {
       final transportBarrier = Completer<void>();
       final webView = _FakeWebViewAdapter();
@@ -389,7 +428,11 @@ void main() {
 }
 
 final class _EndpointHarness {
-  _EndpointHarness({this.cancellationBarrier, this.transportDetachBarrier}) {
+  _EndpointHarness({
+    this.cancellationBarrier,
+    this.transportDetachBarrier,
+    this.synchronousCancellationFailure,
+  }) {
     states = _createController<VrmStateChangedEvent>();
     errors = _createController<VrmErrorEvent>();
     modelLoadedEvents = _createController<VrmModelLoadedEvent>();
@@ -399,6 +442,7 @@ final class _EndpointHarness {
 
   final Future<void>? cancellationBarrier;
   final Future<void>? transportDetachBarrier;
+  final Object? synchronousCancellationFailure;
   late final StreamController<VrmStateChangedEvent> states;
   late final StreamController<VrmErrorEvent> errors;
   late final StreamController<VrmModelLoadedEvent> modelLoadedEvents;
@@ -415,17 +459,18 @@ final class _EndpointHarness {
   int contentHostDetachCount = 0;
   int memoryPressureCount = 0;
   int cancellationCount = 0;
+  int synchronousCancellationAttempts = 0;
   final List<String> runtimeMessages = [];
   final List<Object> reportedErrors = [];
 
   late final VrmRuntimeControllerEndpoint endpoint =
       VrmRuntimeControllerEndpoint(
         identity: this,
-        states: states.stream,
-        errors: errors.stream,
-        modelLoadedEvents: modelLoadedEvents.stream,
-        modelReports: modelReports.stream,
-        modelUnloadedEvents: modelUnloadedEvents.stream,
+        states: _stream(states),
+        errors: _stream(errors),
+        modelLoadedEvents: _stream(modelLoadedEvents),
+        modelReports: _stream(modelReports),
+        modelUnloadedEvents: _stream(modelUnloadedEvents),
         readModelLoaded: () => modelLoaded,
         restoreModelLoaded: (loaded) {
           restoredModelLoaded = loaded;
@@ -453,6 +498,15 @@ final class _EndpointHarness {
         reportAsyncError: (error, _) => reportedErrors.add(error),
       );
 
+  Stream<T> _stream<T>(StreamController<T> controller) {
+    final failure = synchronousCancellationFailure;
+    if (failure == null) return controller.stream;
+    return _CancelTrackingStream<T>(controller.stream, () {
+      synchronousCancellationAttempts += 1;
+      if (synchronousCancellationAttempts == 1) throw failure;
+    });
+  }
+
   StreamController<T> _createController<T>() {
     final barrier = cancellationBarrier;
     if (barrier == null) {
@@ -476,6 +530,64 @@ final class _EndpointHarness {
       modelUnloadedEvents.close(),
     ]);
   }
+}
+
+final class _CancelTrackingStream<T> extends Stream<T> {
+  const _CancelTrackingStream(this._source, this._onCancel);
+
+  final Stream<T> _source;
+  final void Function() _onCancel;
+
+  @override
+  StreamSubscription<T> listen(
+    void Function(T event)? onData, {
+    Function? onError,
+    void Function()? onDone,
+    bool? cancelOnError,
+  }) => _CancelTrackingSubscription<T>(
+    _source.listen(
+      onData,
+      onError: onError,
+      onDone: onDone,
+      cancelOnError: cancelOnError,
+    ),
+    _onCancel,
+  );
+}
+
+final class _CancelTrackingSubscription<T> implements StreamSubscription<T> {
+  const _CancelTrackingSubscription(this._delegate, this._onCancel);
+
+  final StreamSubscription<T> _delegate;
+  final void Function() _onCancel;
+
+  @override
+  Future<void> cancel() {
+    _onCancel();
+    return _delegate.cancel();
+  }
+
+  @override
+  void onData(void Function(T data)? handleData) =>
+      _delegate.onData(handleData);
+
+  @override
+  void onError(Function? handleError) => _delegate.onError(handleError);
+
+  @override
+  void onDone(void Function()? handleDone) => _delegate.onDone(handleDone);
+
+  @override
+  void pause([Future<void>? resumeSignal]) => _delegate.pause(resumeSignal);
+
+  @override
+  void resume() => _delegate.resume();
+
+  @override
+  bool get isPaused => _delegate.isPaused;
+
+  @override
+  Future<E> asFuture<E>([E? futureValue]) => _delegate.asFuture<E>(futureValue);
 }
 
 final class _FakeWebViewAdapter implements VrmWebViewAdapter {
@@ -515,9 +627,10 @@ final class _FakeWebViewAdapter implements VrmWebViewAdapter {
 }
 
 final class _FakeContentHost implements VrmContentHost {
-  _FakeContentHost({this.closeBarrier});
+  _FakeContentHost({this.closeBarrier, this.closeFailure});
 
   final Future<void>? closeBarrier;
+  final Object? closeFailure;
   int closeCount = 0;
 
   @override
@@ -533,6 +646,7 @@ final class _FakeContentHost implements VrmContentHost {
   Future<void> close() async {
     closeCount += 1;
     await closeBarrier;
+    if (closeFailure case final failure?) throw failure;
   }
 
   @override
