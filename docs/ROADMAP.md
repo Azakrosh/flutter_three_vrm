@@ -2,7 +2,7 @@
 
 Статус: активный рабочий документ
 Дата аудита: 2026-10-02
-Проверенная база: `888065b refactor: unify WebView adapter lifecycle`
+Проверенная база: `51b8264 fix: await animation queue operations on dispose`
 Целевые платформы: Android и Windows; приоритет — Android
 
 ## 1. Откуда восстановлен первоначальный план
@@ -87,6 +87,7 @@
 | 47 | Детерминированный teardown loopback content host | Выполнено |
 | 48 | Terminal settlement transport dispatch bridge | Выполнено |
 | 49 | Унифицированный lifecycle платформенных WebView-адаптеров | Выполнено |
+| 50 | Terminal settlement операций `VrmAnimationQueue` | Выполнено |
 
 ## 3. Состояние реализации
 
@@ -310,6 +311,14 @@ initialization и уже принятые операции, выполняет �
 первую ошибку. Windows native controller освобождается ровно один раз, Android
 закрывает оба event stream независимо от ошибки соседней фазы.
 
+### Закрыто в Stage 50 — queue callbacks вне terminal dispose
+
+`VrmAnimationQueue` теперь отслеживает terminal Futures уже принятых playback и
+control operations. Dispose синхронно запрещает новые команды, инвалидирует
+generation, запускает cancellation всех subscriptions и ожидает операции до
+закрытия state/error streams. Cleanup выполняется по error-safe фазам и сохраняет
+первую ошибку, не пропуская закрытие остальных ресурсов.
+
 ### P2 — публикационная готовность отложена
 
 В `pubspec.yaml` установлен `publish_to: none`. Это соответствует принятому
@@ -318,16 +327,16 @@ initialization и уже принятые операции, выполняет �
 
 ## 5. Текущее направление
 
-Stage 49 завершён и зафиксирован коммитом `888065b`: Android и Windows adapters
-разделяют один lifecycle coordinator для initialization, active operations и
-terminal dispose. Проходят 157 Flutter-тестов и `flutter analyze`; Windows
-runtime-race, runtime/recovery и runtime smoke gates.
+Stage 50 завершён и зафиксирован коммитом `51b8264`: `VrmAnimationQueue.dispose()`
+ожидает уже запущенные playback/control callbacks, cancellation всех subscriptions
+и закрытие output streams через общий error-safe cleanup. Проходят 159
+Flutter-тестов и `flutter analyze`; Windows runtime-race, runtime/recovery и
+runtime smoke gates.
 
-Следующее направление — Stage 50: включить уже запущенные playback/control
-callbacks `VrmAnimationQueue` в terminal dispose и сделать cancellation/stream
-cleanup error-safe. Сейчас generation guard подавляет поздний результат, но
-queue dispose может завершиться раньше самого callback. Публикация и обновление
-Three.js/three-vrm по-прежнему отложены.
+Следующее направление — Stage 51: сделать teardown `VrmRuntimeControllerBinding`
+устойчивым к синхронной ошибке отдельного `StreamSubscription.cancel()` и
+гарантировать попытку отмены всех subscriptions до закрытия content host.
+Публикация и обновление Three.js/three-vrm по-прежнему отложены.
 
 Сейчас не следует:
 
@@ -1357,7 +1366,7 @@ Windows runtime-race, runtime/recovery и runtime smoke gates повторно �
 
 ### Stage 50 — terminal settlement операций VrmAnimationQueue
 
-Статус: запланировано.
+Статус: выполнено.
 
 Цель: не завершать `VrmAnimationQueue.dispose()`, пока уже запущенный playback
 или control callback ещё выполняется через controller.
@@ -1378,6 +1387,39 @@ Windows runtime-race, runtime/recovery и runtime smoke gates повторно �
 - все subscriptions и streams освобождаются после settlement операций;
 - повторный dispose возвращает один Future;
 - ошибка одной cleanup-фазы не пропускает остальные;
+- unit/analyze и Windows race/recovery/smoke gates проходят.
+
+Этап завершён. Active playback/control operations входят в terminal boundary
+очереди, все subscription cancellation запускаются до ожидания, а state/error
+streams закрываются независимо от ошибки предыдущей cleanup-фазы. Добавлены
+регрессии для delayed operations и cancellation failure. Всего проходят 159
+Flutter-тестов и `flutter analyze`; Windows runtime-race, runtime/recovery и
+runtime smoke gates повторно прошли 2026-10-02. Реализация зафиксирована коммитом
+`51b8264`.
+
+### Stage 51 — error-safe teardown subscriptions runtime binding
+
+Статус: запланировано.
+
+Цель: исключить частично выполненный teardown `VrmRuntimeControllerBinding`, если
+один из `StreamSubscription.cancel()` синхронно выбрасывает исключение.
+
+Работы:
+
+1. Сначала создать защищённые terminal Futures для cancellation всех controller и
+   WebView subscriptions, не прерывая обход коллекции синхронной ошибкой.
+2. Выполнить transport, retired cleanup, active callback settlement и закрытие
+   content host как error-safe фазы с сохранением первой ошибки.
+3. Применить ту же гарантию к retired controller subscriptions при rebind.
+4. Добавить регрессии для synchronous cancellation failure, нескольких ошибок и
+   обязательного закрытия content host.
+
+Критерии готовности:
+
+- попытка cancellation выполняется для каждой subscription;
+- content host закрывается даже после ошибки cancellation/transport/callback;
+- первая ошибка сохраняется, остальные cleanup-фазы не пропускаются;
+- повторный dispose возвращает один terminal Future;
 - unit/analyze и Windows race/recovery/smoke gates проходят.
 
 ## 7. Правила обновления roadmap

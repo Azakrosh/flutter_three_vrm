@@ -8,8 +8,8 @@ lifecycle очереди в Stage 39, rebind cleanup в Stage 40, callback clean
 в Stage 41, view lifecycle serialization в Stage 42 и declarative task
 settlement в Stage 43, render lifecycle teardown в Stage 44 и controller
 teardown в Stage 45, thermal lifecycle serialization в Stage 46 и terminal
-content-host teardown в Stage 47, transport settlement в Stage 48 и platform
-adapter lifecycle в Stage 49.
+content-host teardown в Stage 47, transport settlement в Stage 48, platform
+adapter lifecycle в Stage 49 и terminal settlement очереди в Stage 50.
 
 ## Владельцы состояния
 
@@ -133,7 +133,7 @@ runtime уже загружена.
 | `setLighting`, `setEnvironmentColor`, `setShadows`, `setPhysics`, `setWind`, `stopWind` | Session/App | Не replay-ится | Сохраняется | `StateError` |
 | `setBackground*` | Session/App | Direct background не replay-ится; параметры `VrmView` replay-ятся | Сохраняется | `StateError` |
 | `setRenderQuality`, `setGraphicsPreset`, `setAdaptiveQuality`, `setGraphicsSettings` | Session/App | Direct настройки не replay-ятся; declarative параметры `VrmView` replay-ятся | Сохраняются | `StateError` |
-| `VrmAnimationQueue.start/pause/resume/stop/interrupt` | App object | Stale transition отменяется; active position запускается после `modelLoaded` | Queue state сохраняется | `await queue.dispose()` закрывает subscriptions/streams; новые команды дают синхронный `StateError` |
+| `VrmAnimationQueue.start/pause/resume/stop/interrupt` | App object | Stale transition отменяется; active position запускается после `modelLoaded` | Queue state сохраняется | `await queue.dispose()` запрещает новые команды, ожидает active playback/control callbacks и закрывает subscriptions/streams; новые команды дают синхронный `StateError` |
 
 Проверки контракта распределены между:
 
