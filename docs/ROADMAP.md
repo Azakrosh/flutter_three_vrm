@@ -2,7 +2,7 @@
 
 Статус: активный рабочий документ
 Дата аудита: 2026-10-02
-Проверенная база: `331d000 fix: serialize thermal monitor lifecycle`
+Проверенная база: `4e48af5 fix: await content host request teardown`
 Целевые платформы: Android и Windows; приоритет — Android
 
 ## 1. Откуда восстановлен первоначальный план
@@ -84,6 +84,7 @@
 | 44 | Детерминированный teardown render lifecycle | Выполнено |
 | 45 | Идемпотентный и error-safe teardown `VrmController` | Выполнено |
 | 46 | Сериализация lifecycle Android thermal monitor | Выполнено |
+| 47 | Детерминированный teardown loopback content host | Выполнено |
 
 ## 3. Состояние реализации
 
@@ -279,6 +280,15 @@ subscription transitions. `start()` во время незавершённого
 События старой generation игнорируются, поздний stop не сбрасывает новый status,
 а controller dispose получает актуальный terminal Future monitor.
 
+### Закрыто в Stage 47 — HTTP handlers вне terminal content-host teardown
+
+`LocalAssetsServer.close()` теперь синхронно запрещает новую работу и возвращает
+один cleanup Future. Listener отслеживает каждый принятый request handler;
+закрытие listener принудительно завершает клиентские соединения, ожидает
+terminal state обработчиков и только затем очищает opaque resources. Проверка
+`Host` использует локальный порт уже принятого соединения и не зависит от
+публичного started-state закрывающегося host.
+
 ### P2 — публикационная готовность отложена
 
 В `pubspec.yaml` установлен `publish_to: none`. Это соответствует принятому
@@ -287,18 +297,16 @@ subscription transitions. `start()` во время незавершённого
 
 ## 5. Текущее направление
 
-Stage 46 завершён: thermal monitor start/stop сериализованы desired-state
-координатором, stale generations не меняют status. Проходят 149 Flutter-тестов,
-`flutter analyze`, Windows runtime-race, runtime/recovery и runtime smoke gates.
+Stage 47 завершён и зафиксирован коммитом `4e48af5`: loopback content host
+возвращает один terminal close Future, ждёт все принятые HTTP handlers и очищает
+ресурсы только после их завершения. Проходят 150 Flutter-тестов и
+`flutter analyze`; Windows runtime-race, runtime/recovery и runtime smoke gates.
 
-Stage 45 завершён и зафиксирован коммитом `8fe0273`: controller dispose стал
-идемпотентным и error-safe.
-
-Следующее направление — Stage 47: включить уже принятые HTTP request handlers
-`LocalAssetsServer` в terminal `close()` и возвращать один cleanup Future. Сейчас
-server listener запускает handlers fire-and-forget, а close очищает resources и
-завершается без явного ожидания активных запросов. Публикация и обновление
-Three.js/three-vrm по-прежнему отложены.
+Следующее направление — Stage 48: включить уже запущенные transport dispatch
+Futures `VrmBridge` в terminal detach/dispose barrier. Сейчас pending command
+завершается при detach, но underlying `runJavaScript` запускается
+fire-and-forget и может достичь terminal state уже после начала native WebView
+cleanup. Публикация и обновление Three.js/three-vrm по-прежнему отложены.
 
 Сейчас не следует:
 
@@ -1220,6 +1228,67 @@ listeners, stale event не меняет snapshot, а stop Future заверша
 - поздний stop не сбрасывает status новой subscription;
 - controller dispose ожидает текущий monitor transition;
 - detach cancellation error не становится необработанным Future;
+- unit/analyze и Windows race/recovery/smoke gates проходят.
+
+### Stage 47 — детерминированный teardown loopback content host
+
+Статус: выполнено.
+
+Цель: не завершать `LocalAssetsServer.close()`, пока принятый HTTP handler ещё
+читает package/file/memory resource или закрывает response.
+
+Работы:
+
+1. Отслеживать terminal Future каждого принятого request handler.
+2. Синхронно блокировать новые операции и возвращать один `_closeFuture`.
+3. Сначала закрывать listener/соединения, затем ожидать handlers и только после
+   этого очищать registry opaque resources.
+4. Выполнять все cleanup-фазы даже после ошибки и повторно выбрасывать первую.
+5. Не обращаться к public started-state host из уже принятого handler.
+6. Добавить управляемый race-тест незавершённого запроса и повторного close.
+
+Этап завершён. `close()` идемпотентен, принятые handlers входят в terminal
+barrier, а resource registry живёт до их завершения. Всего проходят 150
+Flutter-тестов и `flutter analyze`; Windows runtime-race, runtime/recovery и
+runtime smoke gates повторно прошли 2026-10-02. Публичный API и protocol v3 не
+изменены. Реализация зафиксирована коммитом `4e48af5`.
+
+Критерии готовности:
+
+- первый close синхронно запрещает новую работу;
+- повторные close-вызовы возвращают идентичный Future;
+- listener больше не принимает соединения после начала close;
+- terminal Future ждёт уже принятые request handlers;
+- resources очищаются после settlement handlers даже при ошибке ранней фазы;
+- unit/analyze и Windows race/recovery/smoke gates проходят.
+
+### Stage 48 — terminal settlement transport dispatch VrmBridge
+
+Статус: запланировано.
+
+Цель: не освобождать native WebView, пока уже вызванный `runJavaScript` ещё не
+достиг terminal state, даже если response Future команды уже завершён detach,
+timeout или runtime reload.
+
+Работы:
+
+1. Отслеживать Futures всех transport dispatch операций отдельно от protocol
+   response Futures.
+2. Привязать dispatch к transport owner/generation и исключить влияние stale
+   completion на новый binding.
+3. Возвращать terminal detach Future через внутренний endpoint contract и
+   включить retired/current transport settlement в binding cleanup.
+4. Сделать bridge dispose идемпотентным и error-safe относительно active
+   dispatch, latest-value channels и event stream.
+5. Покрыть delayed dispatch, detach/rebind и dispose race-тестами.
+
+Критерии готовности:
+
+- protocol response и transport dispatch имеют независимые terminal состояния;
+- detach немедленно запрещает новые команды старому owner;
+- native WebView cleanup ждёт active transport dispatch;
+- stale dispatch error не публикуется новому endpoint;
+- повторный bridge dispose возвращает один Future;
 - unit/analyze и Windows race/recovery/smoke gates проходят.
 
 ## 7. Правила обновления roadmap

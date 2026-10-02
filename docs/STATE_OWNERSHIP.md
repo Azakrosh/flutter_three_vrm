@@ -7,7 +7,8 @@ runtime-сессии в Stage 34, декомпозиции controller responsibi
 lifecycle очереди в Stage 39, rebind cleanup в Stage 40, callback cleanup
 в Stage 41, view lifecycle serialization в Stage 42 и declarative task
 settlement в Stage 43, render lifecycle teardown в Stage 44 и controller
-teardown в Stage 45 и thermal lifecycle serialization в Stage 46.
+teardown в Stage 45, thermal lifecycle serialization в Stage 46 и terminal
+content-host teardown в Stage 47.
 
 ## Владельцы состояния
 
@@ -72,8 +73,10 @@ binding дожидается отмены retired rebind, текущих control
 subscriptions, terminal completion уже запущенных callbacks и
 `contentHost.close()`. Ошибка retired cancellation публикуется через
 соответствующий endpoint, stale callback error подавляется identity guard, а
-content host закрывается в `finally`. `VrmViewLifecycleCoordinator` сначала ждёт
-уже запущенную initialization, затем terminal state активных
+content host закрывается в `finally`. Его terminal close Future сначала
+останавливает listener, затем ждёт все уже принятые HTTP handlers и только после
+этого очищает registry временных ресурсов. `VrmViewLifecycleCoordinator` сначала
+ждёт уже запущенную initialization, затем terminal state активных
 graphics/background задач, session cleanup и освобождает native
 WebView ровно одной ветвью, включая initialization/teardown error paths.
 
