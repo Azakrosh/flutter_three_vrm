@@ -4,6 +4,7 @@ import 'dart:math';
 import '../vrm_runtime.dart';
 import '../models/vrm_animation_options.dart';
 import '../models/vrm_events.dart';
+import '../runtime/vrm_cleanup.dart';
 import 'vrm_animation_queue_snapshot.dart';
 import 'vrm_animation_queue_state.dart';
 
@@ -67,6 +68,7 @@ class VrmAnimationQueue {
   String? _interruptFileName;
   double? _interruptSpeed;
   int _operationGeneration = 0;
+  final Set<Future<void>> _inFlightOperations = <Future<void>>{};
   String? _activePlaybackId;
   bool _playbackStartPending = false;
   final Set<String> _finishedWhileStarting = <String>{};
@@ -318,25 +320,28 @@ class VrmAnimationQueue {
     _resetPlaybackTracking();
     final cancellations = <Future<void>>[];
     if (_subscription != null) {
-      cancellations.add(_subscription!.cancel());
+      cancellations.add(Future<void>.sync(() => _subscription!.cancel()));
       _subscription = null;
     }
     if (_modelLoadedSubscription != null) {
-      cancellations.add(_modelLoadedSubscription!.cancel());
+      cancellations.add(
+        Future<void>.sync(() => _modelLoadedSubscription!.cancel()),
+      );
       _modelLoadedSubscription = null;
     }
     if (_runtimeUnavailableSubscription != null) {
-      cancellations.add(_runtimeUnavailableSubscription!.cancel());
+      cancellations.add(
+        Future<void>.sync(() => _runtimeUnavailableSubscription!.cancel()),
+      );
       _runtimeUnavailableSubscription = null;
     }
-    try {
-      await Future.wait<void>(cancellations);
-    } finally {
-      await Future.wait<void>([
-        _stateController.close(),
-        _errorController.close(),
-      ]);
-    }
+
+    await runVrmCleanupPhases([
+      () => Future.wait<void>(cancellations),
+      _waitForOperations,
+      _stateController.close,
+      _errorController.close,
+    ]);
   }
   // ---------------------------------------------------------------------------
   // Internal
@@ -517,7 +522,7 @@ class VrmAnimationQueue {
     final generation = ++_operationGeneration;
     _resetPlaybackTracking();
     _playbackStartPending = true;
-    unawaited(() async {
+    _trackOperation(() async {
       try {
         final playback = await callback();
         if (_disposed || generation != _operationGeneration) return;
@@ -551,7 +556,7 @@ class VrmAnimationQueue {
     Future<void> Function() callback,
   ) {
     final generation = ++_operationGeneration;
-    unawaited(() async {
+    _trackOperation(() async {
       try {
         await callback();
       } on Object catch (error, stackTrace) {
@@ -567,6 +572,19 @@ class VrmAnimationQueue {
         }
       }
     }());
+  }
+
+  void _trackOperation(Future<void> operation) {
+    late final Future<void> tracked;
+    tracked = operation.whenComplete(() => _inFlightOperations.remove(tracked));
+    _inFlightOperations.add(tracked);
+    unawaited(tracked);
+  }
+
+  Future<void> _waitForOperations() async {
+    while (_inFlightOperations.isNotEmpty) {
+      await Future.wait<void>(List<Future<void>>.of(_inFlightOperations));
+    }
   }
 
   void _ensureNotDisposed() {

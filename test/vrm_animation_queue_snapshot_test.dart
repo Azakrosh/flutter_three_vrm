@@ -298,6 +298,67 @@ void main() {
       },
     );
 
+    test('dispose closes output streams after cancellation failure', () async {
+      final cancellationBarrier = Completer<void>();
+      final failure = StateError('subscription cancellation failed');
+      final controller = _FakeVrmController(
+        cancellationBarrier: cancellationBarrier.future,
+      );
+      final queue = VrmAnimationQueue(
+        controller: controller,
+        folderPath: 'assets/vrma/',
+        fileNames: const <String>['idle.vrma'],
+      );
+      final stateDone = queue.onStateChanged.drain<void>();
+      final errorDone = queue.onError.drain<void>();
+      addTearDown(() async {
+        await controller.dispose();
+      });
+
+      queue.start();
+      await pumpEventQueue();
+      final disposal = queue.dispose();
+      cancellationBarrier.completeError(failure);
+
+      await expectLater(disposal, throwsA(same(failure)));
+      await Future.wait<void>([stateDone, errorDone]);
+    });
+
+    test('dispose waits for active playback and control operations', () async {
+      final controller = _FakeVrmController()
+        ..delayNextPlayback = true
+        ..delayNextStop = true;
+      final queue = VrmAnimationQueue(
+        controller: controller,
+        folderPath: 'assets/vrma/',
+        fileNames: const <String>['idle.vrma'],
+      );
+      addTearDown(() async {
+        controller.completeDelayedPlaybackIfNeeded();
+        controller.completeDelayedStopIfNeeded();
+        await queue.dispose();
+        await controller.dispose();
+      });
+
+      queue.start();
+      await pumpEventQueue();
+      queue.stop();
+      await pumpEventQueue();
+      final disposal = queue.dispose();
+      var completed = false;
+      unawaited(disposal.then<void>((_) => completed = true));
+      await Future<void>.delayed(Duration.zero);
+      expect(completed, isFalse);
+
+      controller.completeDelayedPlaybackIfNeeded();
+      await Future<void>.delayed(Duration.zero);
+      expect(completed, isFalse);
+
+      controller.completeDelayedStopIfNeeded();
+      await disposal;
+      expect(completed, isTrue);
+    });
+
     test('validates queue and interrupt playback inputs', () async {
       final controller = _FakeVrmController();
       addTearDown(controller.dispose);
@@ -381,7 +442,9 @@ final class _FakeVrmController extends VrmController {
   final List<String> playedFiles = <String>[];
   final List<String> playbackIds = <String>[];
   bool delayNextPlayback = false;
+  bool delayNextStop = false;
   Completer<VrmAnimationPlayback>? _delayedPlayback;
+  Completer<void>? _delayedStop;
   int _playbackSequence = 0;
   int animationListenCount = 0;
 
@@ -427,6 +490,24 @@ final class _FakeVrmController extends VrmController {
     } else {
       completer.complete(VrmAnimationPlayback(id: playbackIds.last));
     }
+  }
+
+  void completeDelayedPlaybackIfNeeded() {
+    if (_delayedPlayback != null) completeDelayedPlayback();
+  }
+
+  void completeDelayedStopIfNeeded() {
+    final completer = _delayedStop;
+    if (completer == null) return;
+    _delayedStop = null;
+    delayNextStop = false;
+    completer.complete();
+  }
+
+  @override
+  Future<void> stopAnimation({double fadeDuration = 0.5}) {
+    if (!delayNextStop) return Future<void>.value();
+    return (_delayedStop ??= Completer<void>()).future;
   }
 
   @override
