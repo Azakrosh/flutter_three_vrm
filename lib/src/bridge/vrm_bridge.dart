@@ -1,10 +1,12 @@
-﻿import 'dart:async';
+import 'dart:async';
+import 'dart:collection';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 
 import '../models/vrm_events.dart';
 import '../models/vrm_exception.dart';
+import '../runtime/vrm_cleanup.dart';
 import 'latest_value_dispatcher.dart';
 import 'vrm_event_decoder.dart';
 import 'vrm_protocol_contract.dart';
@@ -36,6 +38,8 @@ final class VrmBridge {
   final Set<String> _ignoredResponseIds = <String>{};
   final Map<String, LatestValueDispatcher<Map<String, dynamic>>>
   _latestDispatchers = <String, LatestValueDispatcher<Map<String, dynamic>>>{};
+  final Map<Object, Set<Future<void>>> _transportDispatches =
+      HashMap<Object, Set<Future<void>>>.identity();
 
   Object? _transportOwner;
   VrmJavaScriptRunner? _runJavaScript;
@@ -43,6 +47,7 @@ final class VrmBridge {
   int _nextCommandId = 0;
   bool _disposed = false;
   bool _runtimeReady = false;
+  Future<void>? _disposeFuture;
 
   Stream<VrmEvent> get eventStream => _eventController.stream;
   bool get isRuntimeReady => _runtimeReady;
@@ -74,18 +79,18 @@ final class VrmBridge {
     _runtimeReady = runtimeReady;
   }
 
-  void detachTransport(Object owner) {
-    if (!identical(_transportOwner, owner)) {
-      return;
+  Future<void> detachTransport(Object owner) {
+    if (identical(_transportOwner, owner)) {
+      _transportOwner = null;
+      _runJavaScript = null;
+      _reloadRuntime = null;
+      _runtimeReady = false;
+      _clearLatestCommands();
+      _failPending(
+        StateError('VrmView was detached before a command completed.'),
+      );
     }
-    _transportOwner = null;
-    _runJavaScript = null;
-    _reloadRuntime = null;
-    _runtimeReady = false;
-    _clearLatestCommands();
-    _failPending(
-      StateError('VrmView was detached before a command completed.'),
-    );
+    return _waitForTransportDispatches(owner);
   }
 
   void handleJsMessage(String message) {
@@ -205,11 +210,13 @@ final class VrmBridge {
 
   Future<void> reloadRuntime() async {
     final reload = _reloadRuntime;
-    if (reload == null) {
+    final transportOwner = _transportOwner;
+    if (reload == null || transportOwner == null) {
       throw StateError('VrmView is not attached to this controller.');
     }
     markRuntimeUnavailable(StateError('VRM runtime is reloading.'));
-    await reload();
+    final dispatch = Future<void>.sync(reload);
+    await _trackTransportDispatch(transportOwner, dispatch);
   }
 
   void markRuntimeUnavailable(Object error) {
@@ -226,7 +233,8 @@ final class VrmBridge {
     Map<String, dynamic>? payload,
   ]) {
     final runner = _runJavaScript;
-    if (runner == null) {
+    final transportOwner = _transportOwner;
+    if (runner == null || transportOwner == null) {
       throw StateError('VrmView is not attached to this controller.');
     }
     if (!_runtimeReady) {
@@ -266,21 +274,16 @@ final class VrmBridge {
       pending.completer.completeError(error, stackTrace);
     }
 
-    try {
-      final dispatch = runner(
-        'window.flutterVrmDispatch(${jsonEncode(command)});',
-      );
-      unawaited(
-        dispatch.then<void>(
+    final dispatch =
+        Future<void>.sync(
+          () => runner('window.flutterVrmDispatch(${jsonEncode(command)});'),
+        ).then<void>(
           (_) {},
           onError: (Object error, StackTrace stackTrace) {
             failDispatch(error, stackTrace);
           },
-        ),
-      );
-    } on Object catch (error, stackTrace) {
-      failDispatch(error, stackTrace);
-    }
+        );
+    unawaited(_trackTransportDispatch(transportOwner, dispatch));
 
     return completer.future;
   }
@@ -315,10 +318,43 @@ final class VrmBridge {
     }
   }
 
-  Future<void> dispose() async {
-    if (_disposed) {
-      return;
+  Future<void> _trackTransportDispatch(Object owner, Future<void> dispatch) {
+    final tasks = _transportDispatches.putIfAbsent(
+      owner,
+      () => <Future<void>>{},
+    );
+    late final Future<void> tracked;
+    tracked = dispatch.whenComplete(() {
+      tasks.remove(tracked);
+      if (tasks.isEmpty) {
+        _transportDispatches.remove(owner);
+      }
+    });
+    tasks.add(tracked);
+    return tracked;
+  }
+
+  Future<void> _waitForTransportDispatches(Object owner) async {
+    while (true) {
+      final tasks = _transportDispatches[owner];
+      if (tasks == null || tasks.isEmpty) return;
+      await Future.wait<void>(List<Future<void>>.of(tasks));
     }
+  }
+
+  Future<void> _waitForAllTransportDispatches() async {
+    while (_transportDispatches.isNotEmpty) {
+      final tasks = _transportDispatches.values
+          .expand((ownerTasks) => ownerTasks)
+          .toList(growable: false);
+      if (tasks.isEmpty) return;
+      await Future.wait<void>(tasks);
+    }
+  }
+
+  Future<void> dispose() => _disposeFuture ??= _dispose();
+
+  Future<void> _dispose() async {
     _disposed = true;
     _transportOwner = null;
     _runJavaScript = null;
@@ -329,7 +365,10 @@ final class VrmBridge {
     }
     _latestDispatchers.clear();
     _failPending(StateError('VrmController was disposed.'));
-    await _eventController.close();
+    await runVrmCleanupPhases([
+      _waitForAllTransportDispatches,
+      _eventController.close,
+    ]);
   }
 }
 

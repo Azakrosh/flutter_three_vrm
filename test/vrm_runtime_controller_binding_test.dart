@@ -292,6 +292,50 @@ void main() {
       },
     );
 
+    test('dispose waits for transport cleanup retired by rebind', () async {
+      final transportBarrier = Completer<void>();
+      final webView = _FakeWebViewAdapter();
+      final first = _EndpointHarness(
+        transportDetachBarrier: transportBarrier.future,
+      );
+      final second = _EndpointHarness();
+      final host = _FakeContentHost();
+      final binding = VrmRuntimeControllerBinding(
+        endpoint: first.endpoint,
+        webView: webView,
+        reloadRuntime: () async {},
+        isRuntimeReady: () => true,
+        onRuntimeInitialized: () async {},
+        onControllerError: (_) {},
+        onModelLoaded: () async {},
+        onModelReport: (_) async {},
+        onModelUnloaded: () async {},
+        onBridgeMessageError: (_, _) {},
+        onRuntimeResourceError: (_) {},
+      );
+      binding.attachTransport();
+      binding.attachContentHost(host);
+      addTearDown(() async {
+        if (!transportBarrier.isCompleted) transportBarrier.complete();
+        await binding.dispose();
+        await first.close();
+        await second.close();
+        await webView.close();
+      });
+
+      binding.rebind(second.endpoint);
+      final disposal = binding.dispose();
+      var disposalCompleted = false;
+      unawaited(disposal.then<void>((_) => disposalCompleted = true));
+      await Future<void>.delayed(Duration.zero);
+      expect(disposalCompleted, isFalse);
+      expect(host.closeCount, 0);
+
+      transportBarrier.complete();
+      await disposal;
+      expect(host.closeCount, 1);
+    });
+
     test('dispose is idempotent and suppresses later messages', () async {
       final webView = _FakeWebViewAdapter();
       final endpoint = _EndpointHarness();
@@ -345,7 +389,7 @@ void main() {
 }
 
 final class _EndpointHarness {
-  _EndpointHarness({this.cancellationBarrier}) {
+  _EndpointHarness({this.cancellationBarrier, this.transportDetachBarrier}) {
     states = _createController<VrmStateChangedEvent>();
     errors = _createController<VrmErrorEvent>();
     modelLoadedEvents = _createController<VrmModelLoadedEvent>();
@@ -354,6 +398,7 @@ final class _EndpointHarness {
   }
 
   final Future<void>? cancellationBarrier;
+  final Future<void>? transportDetachBarrier;
   late final StreamController<VrmStateChangedEvent> states;
   late final StreamController<VrmErrorEvent> errors;
   late final StreamController<VrmModelLoadedEvent> modelLoadedEvents;
@@ -396,7 +441,10 @@ final class _EndpointHarness {
             }) {
               transportAttachCount += 1;
             },
-        detachTransport: (_) => transportDetachCount += 1,
+        detachTransport: (_) async {
+          transportDetachCount += 1;
+          await transportDetachBarrier;
+        },
         attachContentHost: (_) => contentHostAttachCount += 1,
         detachContentHost: (_) => contentHostDetachCount += 1,
         attachHostResourceMonitoring: () => monitorAttachCount += 1,

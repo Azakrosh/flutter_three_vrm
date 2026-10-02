@@ -135,7 +135,7 @@ void main() {
 
         final pending = bridge.requestCommand(VrmProtocolCommand.getPose);
         final expectation = expectLater(pending, throwsA(isA<StateError>()));
-        bridge.detachTransport(owner);
+        await bridge.detachTransport(owner);
         await expectation;
 
         expect(scripts, hasLength(1));
@@ -185,7 +185,84 @@ void main() {
         expect(asyncErrors, isEmpty);
       },
     );
+
+    test('detach waits for the active native dispatch', () async {
+      final owner = Object();
+      final dispatch = Completer<void>();
+      final bridge = VrmBridge(commandTimeout: const Duration(seconds: 1));
+      bridge.attachTransport(
+        owner: owner,
+        runJavaScript: (_) => dispatch.future,
+        reloadRuntime: () async {},
+        runtimeReady: true,
+      );
+      addTearDown(bridge.dispose);
+
+      final response = bridge.requestCommand(VrmProtocolCommand.getPose);
+      final responseExpectation = expectLater(
+        response,
+        throwsA(isA<StateError>()),
+      );
+      final detach = bridge.detachTransport(owner);
+      expect(await _isCompleted(detach), isFalse);
+
+      dispatch.complete();
+      await detach;
+      await responseExpectation;
+    });
+
+    test('detach waits for an active runtime reload', () async {
+      final owner = Object();
+      final reload = Completer<void>();
+      final bridge = VrmBridge(commandTimeout: const Duration(seconds: 1));
+      bridge.attachTransport(
+        owner: owner,
+        runJavaScript: (_) async {},
+        reloadRuntime: () => reload.future,
+        runtimeReady: true,
+      );
+      addTearDown(bridge.dispose);
+
+      final reloadOperation = bridge.reloadRuntime();
+      final detach = bridge.detachTransport(owner);
+      expect(await _isCompleted(detach), isFalse);
+
+      reload.complete();
+      await Future.wait<void>([reloadOperation, detach]);
+    });
+
+    test('dispose shares one future and waits for native dispatch', () async {
+      final dispatch = Completer<void>();
+      final bridge = VrmBridge(commandTimeout: const Duration(seconds: 1));
+      bridge.attachTransport(
+        owner: Object(),
+        runJavaScript: (_) => dispatch.future,
+        reloadRuntime: () async {},
+        runtimeReady: true,
+      );
+
+      final response = bridge.requestCommand(VrmProtocolCommand.getPose);
+      final responseExpectation = expectLater(
+        response,
+        throwsA(isA<StateError>()),
+      );
+      final first = bridge.dispose();
+      final second = bridge.dispose();
+      expect(identical(first, second), isTrue);
+      expect(await _isCompleted(first), isFalse);
+
+      dispatch.complete();
+      await first;
+      await responseExpectation;
+    });
   });
+}
+
+Future<bool> _isCompleted(Future<void> future) async {
+  var completed = false;
+  unawaited(future.then<void>((_) => completed = true, onError: (_) {}));
+  await Future<void>.delayed(Duration.zero);
+  return completed;
 }
 
 VrmBridge _attachedBridge(

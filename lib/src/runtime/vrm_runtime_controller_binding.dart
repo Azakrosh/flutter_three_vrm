@@ -49,7 +49,7 @@ final class VrmRuntimeControllerEndpoint {
   final void Function(bool loaded) restoreModelLoaded;
   final void Function(String message) handleRuntimeMessage;
   final VrmRuntimeTransportAttach attachTransport;
-  final void Function(Object owner) detachTransport;
+  final Future<void> Function(Object owner) detachTransport;
   final void Function(VrmContentHost contentHost) attachContentHost;
   final void Function(VrmContentHost contentHost) detachContentHost;
   final void Function() attachHostResourceMonitoring;
@@ -142,6 +142,7 @@ final class VrmRuntimeControllerBinding {
   VrmContentHost? _contentHost;
   Future<void>? _disposeFuture;
   Future<void> _retiredControllerSubscriptionCleanup = Future<void>.value();
+  Future<void> _retiredTransportCleanup = Future<void>.value();
   bool _transportAttached = false;
   bool _disposed = false;
 
@@ -174,7 +175,10 @@ final class VrmRuntimeControllerBinding {
     final hadModel = previous.readModelLoaded();
     previous.detachHostResourceMonitoring();
     if (_transportAttached) {
-      previous.detachTransport(_webView);
+      _retiredTransportCleanup = Future.wait<void>([
+        _retiredTransportCleanup,
+        previous.detachTransport(_webView),
+      ]);
     }
     final contentHost = _contentHost;
     if (contentHost != null) {
@@ -207,9 +211,10 @@ final class VrmRuntimeControllerBinding {
 
     final endpoint = _endpoint;
     endpoint.detachHostResourceMonitoring();
+    var transportCleanup = Future<void>.value();
     if (_transportAttached) {
       _transportAttached = false;
-      endpoint.detachTransport(_webView);
+      transportCleanup = endpoint.detachTransport(_webView);
     }
 
     final contentHost = _contentHost;
@@ -227,6 +232,8 @@ final class VrmRuntimeControllerBinding {
     try {
       await Future.wait<void>([
         _retiredControllerSubscriptionCleanup,
+        _retiredTransportCleanup,
+        transportCleanup,
         ...subscriptions.map((subscription) => subscription.cancel()),
         ..._inFlightCallbacks,
       ]);
