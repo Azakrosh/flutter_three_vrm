@@ -2,7 +2,7 @@
 
 Статус: активный рабочий документ
 Дата аудита: 2026-10-02
-Проверенная база: `4e48af5 fix: await content host request teardown`
+Проверенная база: `90ce974 fix: await bridge transport dispatch teardown`
 Целевые платформы: Android и Windows; приоритет — Android
 
 ## 1. Откуда восстановлен первоначальный план
@@ -85,6 +85,7 @@
 | 45 | Идемпотентный и error-safe teardown `VrmController` | Выполнено |
 | 46 | Сериализация lifecycle Android thermal monitor | Выполнено |
 | 47 | Детерминированный teardown loopback content host | Выполнено |
+| 48 | Terminal settlement transport dispatch bridge | Выполнено |
 
 ## 3. Состояние реализации
 
@@ -289,6 +290,16 @@ terminal state обработчиков и только затем очищае�
 `Host` использует локальный порт уже принятого соединения и не зависит от
 публичного started-state закрывающегося host.
 
+### Закрыто в Stage 48 — native transport operations вне binding teardown
+
+`VrmBridge` отдельно отслеживает protocol response и terminal Future вызова
+native transport. `detachTransport()` немедленно запрещает новые команды owner,
+но завершается только после уже начатых `runJavaScript` и runtime reload.
+Binding агрегирует current и retired transport cleanup, поэтому native WebView
+не уничтожается во время старой dispatch-операции после controller rebind.
+Bridge dispose теперь идемпотентен и выполняет event-stream cleanup даже после
+ошибки transport settlement.
+
 ### P2 — публикационная готовность отложена
 
 В `pubspec.yaml` установлен `publish_to: none`. Это соответствует принятому
@@ -297,16 +308,16 @@ terminal state обработчиков и только затем очищае�
 
 ## 5. Текущее направление
 
-Stage 47 завершён и зафиксирован коммитом `4e48af5`: loopback content host
-возвращает один terminal close Future, ждёт все принятые HTTP handlers и очищает
-ресурсы только после их завершения. Проходят 150 Flutter-тестов и
-`flutter analyze`; Windows runtime-race, runtime/recovery и runtime smoke gates.
+Stage 48 завершён и зафиксирован коммитом `90ce974`: bridge и binding ожидают
+terminal state всех native transport operations текущего и retired owner.
+Проходят 154 Flutter-теста и `flutter analyze`; Windows runtime-race,
+runtime/recovery и runtime smoke gates.
 
-Следующее направление — Stage 48: включить уже запущенные transport dispatch
-Futures `VrmBridge` в terminal detach/dispose barrier. Сейчас pending command
-завершается при detach, но underlying `runJavaScript` запускается
-fire-and-forget и может достичь terminal state уже после начала native WebView
-cleanup. Публикация и обновление Three.js/three-vrm по-прежнему отложены.
+Следующее направление — Stage 49: унифицировать lifecycle Android/Windows
+`VrmWebViewAdapter`: один initialization Future, один dispose Future, немедленный
+запрет новых load/script операций после dispose и гарантированное выполнение
+всех доступных platform cleanup-фаз. Публикация и обновление
+Three.js/three-vrm по-прежнему отложены.
 
 Сейчас не следует:
 
@@ -1264,7 +1275,7 @@ runtime smoke gates повторно прошли 2026-10-02. Публичный
 
 ### Stage 48 — terminal settlement transport dispatch VrmBridge
 
-Статус: запланировано.
+Статус: выполнено.
 
 Цель: не освобождать native WebView, пока уже вызванный `runJavaScript` ещё не
 достиг terminal state, даже если response Future команды уже завершён detach,
@@ -1280,7 +1291,15 @@ timeout или runtime reload.
    включить retired/current transport settlement в binding cleanup.
 4. Сделать bridge dispose идемпотентным и error-safe относительно active
    dispatch, latest-value channels и event stream.
-5. Покрыть delayed dispatch, detach/rebind и dispose race-тестами.
+5. Покрыть delayed dispatch, reload, detach/rebind и dispose race-тестами.
+
+Этап завершён. Bridge отслеживает native command dispatch и runtime reload по
+identity transport owner. Detach немедленно завершает pending protocol responses,
+но его Future ждёт transport terminal state; binding включает current и retired
+cleanup в общий barrier. Всего проходят 154 Flutter-теста и `flutter analyze`;
+Windows runtime-race, runtime/recovery и runtime smoke gates повторно прошли
+2026-10-02. Публичный API и protocol v3 не изменены. Реализация зафиксирована
+коммитом `90ce974`.
 
 Критерии готовности:
 
@@ -1289,6 +1308,34 @@ timeout или runtime reload.
 - native WebView cleanup ждёт active transport dispatch;
 - stale dispatch error не публикуется новому endpoint;
 - повторный bridge dispose возвращает один Future;
+- unit/analyze и Windows race/recovery/smoke gates проходят.
+
+### Stage 49 — унифицированный lifecycle платформенных WebView-адаптеров
+
+Статус: запланировано.
+
+Цель: дать Android и Windows adapters одинаковую terminal-семантику и исключить
+повторный native dispose либо новую platform operation после начала cleanup.
+
+Работы:
+
+1. Вынести внутреннюю lifecycle-state machine adapters без расширения публичного
+   API пакета.
+2. Разделять один initialization Future и один dispose Future между повторными
+   вызовами.
+3. Синхронно запрещать `load`/`runJavaScript` после начала dispose.
+4. Дождаться initialization и выполнить все доступные stream/native cleanup-фазы
+   error-safe, сохраняя первую ошибку.
+5. Покрыть initialize/dispose, repeated dispose и post-dispose operation races
+   платформенно-независимыми unit-тестами и Windows gates.
+
+Критерии готовности:
+
+- обе платформы используют одинаковый lifecycle contract;
+- native controller освобождается ровно один раз;
+- повторный dispose возвращает один terminal Future;
+- initialization и disposal не выполняются параллельно;
+- после начала dispose новые platform operations дают `StateError`;
 - unit/analyze и Windows race/recovery/smoke gates проходят.
 
 ## 7. Правила обновления roadmap

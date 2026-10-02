@@ -8,7 +8,7 @@ lifecycle очереди в Stage 39, rebind cleanup в Stage 40, callback clean
 в Stage 41, view lifecycle serialization в Stage 42 и declarative task
 settlement в Stage 43, render lifecycle teardown в Stage 44 и controller
 teardown в Stage 45, thermal lifecycle serialization в Stage 46 и terminal
-content-host teardown в Stage 47.
+content-host teardown в Stage 47 и transport settlement в Stage 48.
 
 ## Владельцы состояния
 
@@ -75,8 +75,11 @@ subscriptions, terminal completion уже запущенных callbacks и
 соответствующий endpoint, stale callback error подавляется identity guard, а
 content host закрывается в `finally`. Его terminal close Future сначала
 останавливает listener, затем ждёт все уже принятые HTTP handlers и только после
-этого очищает registry временных ресурсов. `VrmViewLifecycleCoordinator` сначала
-ждёт уже запущенную initialization, затем terminal state активных
+этого очищает registry временных ресурсов. Bridge detach отдельно завершает
+pending protocol responses и ждёт terminal state уже начатых `runJavaScript` и
+runtime reload. Binding агрегирует current и retired transport cleanup после
+rebind. `VrmViewLifecycleCoordinator` сначала ждёт уже запущенную initialization,
+затем terminal state активных
 graphics/background задач, session cleanup и освобождает native
 WebView ровно одной ветвью, включая initialization/teardown error paths.
 
