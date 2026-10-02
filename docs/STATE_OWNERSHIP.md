@@ -9,7 +9,8 @@ lifecycle очереди в Stage 39, rebind cleanup в Stage 40, callback clean
 settlement в Stage 43, render lifecycle teardown в Stage 44 и controller
 teardown в Stage 45, thermal lifecycle serialization в Stage 46 и terminal
 content-host teardown в Stage 47, transport settlement в Stage 48, platform
-adapter lifecycle в Stage 49 и terminal settlement очереди в Stage 50.
+adapter lifecycle в Stage 49, terminal settlement очереди в Stage 50 и
+error-safe runtime binding teardown в Stage 51.
 
 ## Владельцы состояния
 
@@ -72,9 +73,11 @@ Dispose runtime-сессии синхронно запрещает новые ca
 затем session ожидает terminal state активной render lifecycle команды, а
 binding дожидается отмены retired rebind, текущих controller/WebView
 subscriptions, terminal completion уже запущенных callbacks и
-`contentHost.close()`. Ошибка retired cancellation публикуется через
-соответствующий endpoint, stale callback error подавляется identity guard, а
-content host закрывается в `finally`. Его terminal close Future сначала
+`contentHost.close()`. Каждая cancellation защищена от синхронной ошибки;
+settlement пытается завершить все subscriptions, transport и callbacks, а content
+host закрывается следующей error-safe фазой с сохранением первой ошибки. Ошибка
+retired cancellation публикуется через соответствующий endpoint, stale callback
+error подавляется identity guard. Terminal close Future content host сначала
 останавливает listener, затем ждёт все уже принятые HTTP handlers и только после
 этого очищает registry временных ресурсов. Bridge detach отдельно завершает
 pending protocol responses и ждёт terminal state уже начатых `runJavaScript` и

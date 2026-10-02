@@ -2,7 +2,7 @@
 
 Статус: активный рабочий документ
 Дата аудита: 2026-10-02
-Проверенная база: `51b8264 fix: await animation queue operations on dispose`
+Проверенная база: `1dd3f45 fix: complete runtime binding teardown phases`
 Целевые платформы: Android и Windows; приоритет — Android
 
 ## 1. Откуда восстановлен первоначальный план
@@ -88,6 +88,7 @@
 | 48 | Terminal settlement transport dispatch bridge | Выполнено |
 | 49 | Унифицированный lifecycle платформенных WebView-адаптеров | Выполнено |
 | 50 | Terminal settlement операций `VrmAnimationQueue` | Выполнено |
+| 51 | Error-safe teardown subscriptions runtime binding | Выполнено |
 
 ## 3. Состояние реализации
 
@@ -319,6 +320,14 @@ generation, запускает cancellation всех subscriptions и ожида
 закрытия state/error streams. Cleanup выполняется по error-safe фазам и сохраняет
 первую ошибку, не пропуская закрытие остальных ресурсов.
 
+### Закрыто в Stage 51 — частичный teardown runtime binding
+
+`VrmRuntimeControllerBinding` создаёт защищённый Future для cancellation каждой
+controller/WebView subscription, поэтому синхронная ошибка не прерывает обход.
+Current/retired transport cleanup, callback settlement и detachment объединены в
+terminal settlement; content host закрывается отдельной error-safe фазой с
+сохранением первой ошибки. Та же cancellation-гарантия действует при rebind.
+
 ### P2 — публикационная готовность отложена
 
 В `pubspec.yaml` установлен `publish_to: none`. Это соответствует принятому
@@ -327,16 +336,16 @@ generation, запускает cancellation всех subscriptions и ожида
 
 ## 5. Текущее направление
 
-Stage 50 завершён и зафиксирован коммитом `51b8264`: `VrmAnimationQueue.dispose()`
-ожидает уже запущенные playback/control callbacks, cancellation всех subscriptions
-и закрытие output streams через общий error-safe cleanup. Проходят 159
+Stage 51 завершён и зафиксирован коммитом `1dd3f45`: runtime binding пытается
+отменить каждую subscription даже при синхронной ошибке, ожидает transport и
+callback settlement и всегда выполняет фазу закрытия content host. Проходят 160
 Flutter-тестов и `flutter analyze`; Windows runtime-race, runtime/recovery и
 runtime smoke gates.
 
-Следующее направление — Stage 51: сделать teardown `VrmRuntimeControllerBinding`
-устойчивым к синхронной ошибке отдельного `StreamSubscription.cancel()` и
-гарантировать попытку отмены всех subscriptions до закрытия content host.
-Публикация и обновление Three.js/three-vrm по-прежнему отложены.
+Следующее направление — Stage 52: сделать fire-and-forget teardown `VrmView`
+наблюдаемым. `State.dispose()` не может ожидать Future, поэтому terminal cleanup
+ошибки нужно детерминированно передавать в Flutter error reporting без unhandled
+async error. Публикация и обновление Three.js/three-vrm по-прежнему отложены.
 
 Сейчас не следует:
 
@@ -1399,7 +1408,7 @@ runtime smoke gates повторно прошли 2026-10-02. Реализаци
 
 ### Stage 51 — error-safe teardown subscriptions runtime binding
 
-Статус: запланировано.
+Статус: выполнено.
 
 Цель: исключить частично выполненный teardown `VrmRuntimeControllerBinding`, если
 один из `StreamSubscription.cancel()` синхронно выбрасывает исключение.
@@ -1420,6 +1429,39 @@ runtime smoke gates повторно прошли 2026-10-02. Реализаци
 - content host закрывается даже после ошибки cancellation/transport/callback;
 - первая ошибка сохраняется, остальные cleanup-фазы не пропускаются;
 - повторный dispose возвращает один terminal Future;
+- unit/analyze и Windows race/recovery/smoke gates проходят.
+
+Этап завершён. Каждая cancellation обёрнута в отдельный `Future.sync`, все
+операции входят в общий settlement, а content host закрывается следующей
+error-safe фазой. Регрессия одновременно проверяет синхронную cancellation
+failure, попытку отмены остальных subscriptions, ошибку close и сохранение первой
+ошибки. Всего проходят 160 Flutter-тестов и `flutter analyze`; Windows gates
+повторно прошли 2026-10-02. Реализация зафиксирована коммитом `1dd3f45`.
+
+### Stage 52 — наблюдаемый asynchronous teardown VrmView
+
+Статус: запланировано.
+
+Цель: исключить необработанную async-ошибку из fire-and-forget lifecycle Future,
+который запускается синхронным Flutter `State.dispose()`.
+
+Работы:
+
+1. Добавить внутренний terminal error handler к Future
+   `VrmViewLifecycleCoordinator.dispose()` в widget teardown.
+2. Передавать ошибку и исходный stack trace через стандартный
+   `FlutterError.reportError` с контекстом cleanup `VrmView`.
+3. Не менять порядок settlement declarative tasks, session, runtime и native
+   WebView и не расширять публичный API.
+4. Добавить widget/unit-регрессию для cleanup failure и отсутствия unhandled
+   asynchronous error.
+
+Критерии готовности:
+
+- каждая ошибка terminal teardown наблюдаема через Flutter diagnostics;
+- исходные error и stack trace не теряются;
+- native/session cleanup по-прежнему выполняется один раз;
+- успешный dispose не создаёт диагностик;
 - unit/analyze и Windows race/recovery/smoke gates проходят.
 
 ## 7. Правила обновления roadmap
