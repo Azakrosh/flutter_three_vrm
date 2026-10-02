@@ -8,7 +8,8 @@ lifecycle очереди в Stage 39, rebind cleanup в Stage 40, callback clean
 в Stage 41, view lifecycle serialization в Stage 42 и declarative task
 settlement в Stage 43, render lifecycle teardown в Stage 44 и controller
 teardown в Stage 45, thermal lifecycle serialization в Stage 46 и terminal
-content-host teardown в Stage 47 и transport settlement в Stage 48.
+content-host teardown в Stage 47, transport settlement в Stage 48 и platform
+adapter lifecycle в Stage 49.
 
 ## Владельцы состояния
 
@@ -78,8 +79,10 @@ content host закрывается в `finally`. Его terminal close Future �
 этого очищает registry временных ресурсов. Bridge detach отдельно завершает
 pending protocol responses и ждёт terminal state уже начатых `runJavaScript` и
 runtime reload. Binding агрегирует current и retired transport cleanup после
-rebind. `VrmViewLifecycleCoordinator` сначала ждёт уже запущенную initialization,
-затем terminal state активных
+rebind. Оба platform adapters используют общий terminal lifecycle: dispose ждёт
+initialization и active load/script operations, затем ровно один раз выполняет
+доступный native/stream cleanup. `VrmViewLifecycleCoordinator` сначала ждёт уже
+запущенную initialization, затем terminal state активных
 graphics/background задач, session cleanup и освобождает native
 WebView ровно одной ветвью, включая initialization/teardown error paths.
 

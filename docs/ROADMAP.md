@@ -2,7 +2,7 @@
 
 Статус: активный рабочий документ
 Дата аудита: 2026-10-02
-Проверенная база: `90ce974 fix: await bridge transport dispatch teardown`
+Проверенная база: `888065b refactor: unify WebView adapter lifecycle`
 Целевые платформы: Android и Windows; приоритет — Android
 
 ## 1. Откуда восстановлен первоначальный план
@@ -86,6 +86,7 @@
 | 46 | Сериализация lifecycle Android thermal monitor | Выполнено |
 | 47 | Детерминированный teardown loopback content host | Выполнено |
 | 48 | Terminal settlement transport dispatch bridge | Выполнено |
+| 49 | Унифицированный lifecycle платформенных WebView-адаптеров | Выполнено |
 
 ## 3. Состояние реализации
 
@@ -300,6 +301,15 @@ Binding агрегирует current и retired transport cleanup, поэтом�
 Bridge dispose теперь идемпотентен и выполняет event-stream cleanup даже после
 ошибки transport settlement.
 
+### Закрыто в Stage 49 — различающийся lifecycle platform adapters
+
+Android и Windows adapters используют общий `VrmWebViewAdapterLifecycle`.
+Initialization, active load/script operations и dispose имеют единую terminal
+границу; начало dispose синхронно запрещает новую работу. Cleanup ждёт
+initialization и уже принятые операции, выполняет все platform-фазы и сохраняет
+первую ошибку. Windows native controller освобождается ровно один раз, Android
+закрывает оба event stream независимо от ошибки соседней фазы.
+
 ### P2 — публикационная готовность отложена
 
 В `pubspec.yaml` установлен `publish_to: none`. Это соответствует принятому
@@ -308,15 +318,15 @@ Bridge dispose теперь идемпотентен и выполняет event
 
 ## 5. Текущее направление
 
-Stage 48 завершён и зафиксирован коммитом `90ce974`: bridge и binding ожидают
-terminal state всех native transport operations текущего и retired owner.
-Проходят 154 Flutter-теста и `flutter analyze`; Windows runtime-race,
-runtime/recovery и runtime smoke gates.
+Stage 49 завершён и зафиксирован коммитом `888065b`: Android и Windows adapters
+разделяют один lifecycle coordinator для initialization, active operations и
+terminal dispose. Проходят 157 Flutter-тестов и `flutter analyze`; Windows
+runtime-race, runtime/recovery и runtime smoke gates.
 
-Следующее направление — Stage 49: унифицировать lifecycle Android/Windows
-`VrmWebViewAdapter`: один initialization Future, один dispose Future, немедленный
-запрет новых load/script операций после dispose и гарантированное выполнение
-всех доступных platform cleanup-фаз. Публикация и обновление
+Следующее направление — Stage 50: включить уже запущенные playback/control
+callbacks `VrmAnimationQueue` в terminal dispose и сделать cancellation/stream
+cleanup error-safe. Сейчас generation guard подавляет поздний результат, но
+queue dispose может завершиться раньше самого callback. Публикация и обновление
 Three.js/three-vrm по-прежнему отложены.
 
 Сейчас не следует:
@@ -1312,7 +1322,7 @@ Windows runtime-race, runtime/recovery и runtime smoke gates повторно �
 
 ### Stage 49 — унифицированный lifecycle платформенных WebView-адаптеров
 
-Статус: запланировано.
+Статус: выполнено.
 
 Цель: дать Android и Windows adapters одинаковую terminal-семантику и исключить
 повторный native dispose либо новую platform operation после начала cleanup.
@@ -1329,6 +1339,13 @@ Windows runtime-race, runtime/recovery и runtime smoke gates повторно �
 5. Покрыть initialize/dispose, repeated dispose и post-dispose operation races
    платформенно-независимыми unit-тестами и Windows gates.
 
+Этап завершён. Общий lifecycle coordinator разделяет initialization/dispose
+Futures, отслеживает active platform operations и выполняет cleanup-фазы через
+error-safe runner. Всего проходят 157 Flutter-тестов и `flutter analyze`;
+Windows runtime-race, runtime/recovery и runtime smoke gates повторно прошли
+2026-10-02. Публичный API и protocol v3 не изменены. Реализация зафиксирована
+коммитом `888065b`.
+
 Критерии готовности:
 
 - обе платформы используют одинаковый lifecycle contract;
@@ -1336,6 +1353,31 @@ Windows runtime-race, runtime/recovery и runtime smoke gates повторно �
 - повторный dispose возвращает один terminal Future;
 - initialization и disposal не выполняются параллельно;
 - после начала dispose новые platform operations дают `StateError`;
+- unit/analyze и Windows race/recovery/smoke gates проходят.
+
+### Stage 50 — terminal settlement операций VrmAnimationQueue
+
+Статус: запланировано.
+
+Цель: не завершать `VrmAnimationQueue.dispose()`, пока уже запущенный playback
+или control callback ещё выполняется через controller.
+
+Работы:
+
+1. Отслеживать terminal Futures `_runPlaybackOperation` и `_runOperation`.
+2. Синхронно инвалидировать generation и запрещать новые queue-команды.
+3. Дождаться active operations вместе с cancellation всех subscriptions.
+4. Закрывать state/error streams даже после ошибки operation или cancellation и
+   повторно выбрасывать первую ошибку.
+5. Добавить delayed playback/control и multi-error cleanup regression-тесты.
+
+Критерии готовности:
+
+- queue dispose ждёт active playback и control callbacks;
+- позднее завершение не меняет state и не публикует ошибку после dispose;
+- все subscriptions и streams освобождаются после settlement операций;
+- повторный dispose возвращает один Future;
+- ошибка одной cleanup-фазы не пропускает остальные;
 - unit/analyze и Windows race/recovery/smoke gates проходят.
 
 ## 7. Правила обновления roadmap
