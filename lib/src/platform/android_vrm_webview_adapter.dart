@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import 'vrm_webview_adapter.dart';
+import 'vrm_webview_adapter_lifecycle.dart';
 
 final class AndroidVrmWebViewAdapter implements VrmWebViewAdapter {
   AndroidVrmWebViewAdapter({required this.backgroundColor});
@@ -18,7 +19,7 @@ final class AndroidVrmWebViewAdapter implements VrmWebViewAdapter {
   final StreamController<String> _messages =
       StreamController<String>.broadcast();
   final StreamController<String> _errors = StreamController<String>.broadcast();
-  bool _disposed = false;
+  final VrmWebViewAdapterLifecycle _lifecycle = VrmWebViewAdapterLifecycle();
 
   @override
   Stream<String> get messages => _messages.stream;
@@ -27,14 +28,19 @@ final class AndroidVrmWebViewAdapter implements VrmWebViewAdapter {
   Stream<String> get errors => _errors.stream;
 
   @override
-  Future<void> initialize() async {
+  Future<void> initialize() => _lifecycle.initialize(_initialize);
+
+  Future<void> _initialize() async {
     await _controller.setJavaScriptMode(JavaScriptMode.unrestricted);
     await _controller.setBackgroundColor(backgroundColor);
     await _controller.addJavaScriptChannel(
       'FlutterBridge',
       onMessageReceived: (message) {
-        if (!_disposed) {
+        try {
+          _lifecycle.ensureActive();
           _messages.add(message.message);
+        } on StateError {
+          // Ignore callbacks delivered after terminal adapter disposal.
         }
       },
     );
@@ -44,8 +50,13 @@ final class AndroidVrmWebViewAdapter implements VrmWebViewAdapter {
     await _controller.setNavigationDelegate(
       NavigationDelegate(
         onWebResourceError: (error) {
-          if (!_disposed && error.isForMainFrame == true) {
-            _errors.add(error.description);
+          if (error.isForMainFrame == true) {
+            try {
+              _lifecycle.ensureActive();
+              _errors.add(error.description);
+            } on StateError {
+              // Ignore callbacks delivered after terminal adapter disposal.
+            }
           }
         },
       ),
@@ -53,31 +64,29 @@ final class AndroidVrmWebViewAdapter implements VrmWebViewAdapter {
   }
 
   @override
-  Widget buildWidget() => WebViewWidget(
-    controller: _controller,
-    gestureRecognizers: {
-      Factory<OneSequenceGestureRecognizer>(EagerGestureRecognizer.new),
-    },
-  );
+  Widget buildWidget() {
+    _lifecycle.ensureActive();
+    return WebViewWidget(
+      controller: _controller,
+      gestureRecognizers: {
+        Factory<OneSequenceGestureRecognizer>(EagerGestureRecognizer.new),
+      },
+    );
+  }
 
   @override
-  Future<void> load(Uri uri) => _controller.loadRequest(uri);
+  Future<void> load(Uri uri) =>
+      _lifecycle.runOperation(() => _controller.loadRequest(uri));
 
   @override
   Future<void> runJavaScript(String source) =>
-      _controller.runJavaScript(source);
+      _lifecycle.runOperation(() => _controller.runJavaScript(source));
 
   @override
-  Future<Object?> runJavaScriptReturningResult(String source) =>
-      _controller.runJavaScriptReturningResult(source);
+  Future<Object?> runJavaScriptReturningResult(String source) => _lifecycle
+      .runOperation(() => _controller.runJavaScriptReturningResult(source));
 
   @override
-  Future<void> dispose() async {
-    if (_disposed) {
-      return;
-    }
-    _disposed = true;
-    await _messages.close();
-    await _errors.close();
-  }
+  Future<void> dispose() =>
+      _lifecycle.dispose([_messages.close, _errors.close]);
 }
