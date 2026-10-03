@@ -96,6 +96,9 @@ assertContains(
 );
 
 for (const documentPath of [
+  'CONTRIBUTING.md',
+  'SECURITY.md',
+  'docs/REPOSITORY_PUBLICATION.md',
   'docs/ROADMAP.md',
   'docs/API_SEMANTICS.md',
   'docs/STATE_OWNERSHIP.md',
@@ -104,6 +107,9 @@ for (const documentPath of [
   await access(resolve(repositoryDirectory, documentPath));
 }
 for (const link of [
+  '[`CONTRIBUTING.md`](CONTRIBUTING.md)',
+  '[`SECURITY.md`](SECURITY.md)',
+  '[`docs/REPOSITORY_PUBLICATION.md`](docs/REPOSITORY_PUBLICATION.md)',
   '[`docs/ROADMAP.md`](docs/ROADMAP.md)',
   '[`docs/API_SEMANTICS.md`](docs/API_SEMANTICS.md)',
   '[`docs/TEST_MATRIX.md`](docs/TEST_MATRIX.md)',

@@ -378,23 +378,26 @@ Stage 55 завершён: ownership и terminal outcomes проверены н�
 архитектурных рисков не обнаружено. `flutter analyze`, все 169 Flutter-тестов и
 полная Windows integration matrix из пяти gates прошли 2026-10-03.
 
-Текущее направление — Stage 56: восстановить проверяемую достоверность публичной
-документации. Аудит обнаружил устаревшие метрики Roadmap и Windows-сбой
-`dartdoc 9.0.6` в `_stripDocImports`. Это подтверждённый upstream-дефект dartdoc
-для non-ASCII documentation и CRLF
-([dart-lang/dartdoc#4289](https://github.com/dart-lang/dartdoc/pull/4289);
-исправление подготовлено для 9.0.10), а не ошибка публичного API пакета. Linux CI получает обязательный
-dartdoc gate; локальный Windows gate нужно повторить после обновления Flutter SDK.
-Публикация остаётся отложенной.
+Текущее направление — возобновлённый Stage 30: подготовить существующую историю и
+metadata к первому публичному push на GitHub, не публикуя пакет на pub.dev.
+Достижимая история уже проверена на секреты, закрытые VRM/VRMA и GitHub size
+limits. Добавляются contribution/security policy, GitHub templates и
+воспроизводимый release checklist. Перед первым push владелец должен подтвердить
+финальный URL, политику email в commit metadata и имя основной ветки.
+
+Stage 56 продолжается параллельно: Ubuntu CI получает обязательный dartdoc gate,
+а локальный Windows `dartdoc 9.0.6` воспроизводимо падает в `_stripDocImports`
+из-за подтверждённого upstream-дефекта для non-ASCII documentation и CRLF
+([dart-lang/dartdoc#4289](https://github.com/dart-lang/dartdoc/pull/4289)).
+Локальный Windows gate нужно повторить после SDK с dartdoc 9.0.10.
 
 Сейчас не следует:
 
 - обновлять Three.js/three-vrm без отдельной причины;
 - добавлять новые эффекты или ещё один способ управления моделью;
-- начинать публикацию;
+- выполнять первый push до подтверждения URL и commit-email policy;
 - менять protocol v3 только ради рефакторинга;
 - одновременно менять motion или speech semantics.
-
 ## 6. Следующие этапы
 
 ### Stage 26 — contract tests и TypeScript migration
@@ -617,11 +620,19 @@ realtime speech, а также минимальные рецепты всех в
 
 ### Stage 30 — подготовка публикации
 
-Статус: отложено до отдельного решения.
+Статус: в работе; scope ограничен публичным GitHub-репозиторием. Публикация на
+pub.dev остаётся отложенной, `publish_to: none` сохраняется.
 
 Включает GitHub metadata, package metadata, API docs, versioning policy,
 release checklist, clean-clone verification и окончательный аудит лицензий.
 
+Текущий прогресс: достижимая история и reflog-only commits проверены на секреты и
+закрытые модели; в истории остаются только разрешённые sample VRM/VRMA. Самый
+большой достижимый blob — sample VRM около 10.3 MiB, объектов около лимита GitHub
+100 MiB нет. Добавлены `CONTRIBUTING.md`, `SECURITY.md`, issue/PR templates и
+`docs/REPOSITORY_PUBLICATION.md`. До первого push остаются решения владельца о
+GitHub URL, публикации существующего commit email и переименовании `master` в
+`main`, затем clean-clone verification и проверка реального GitHub Actions run.
 ### Stage 31 — Android performance observability и управление нагрузкой
 
 Статус: выполнено.
@@ -1662,4 +1673,4 @@ dartdoc 9.0.10.
 - Generated runtime не редактируется вручную.
 - Изменения поведения проверяются минимум unit/contract тестом; lifecycle,
   loading, rendering и disposal — также smoke-тестом на затронутой платформе.
-- Публикационные задачи остаются отложенными, пока это явно не изменено.
+- Публикация на pub.dev остаётся отложенной; GitHub-подготовка ведётся по Stage 30.

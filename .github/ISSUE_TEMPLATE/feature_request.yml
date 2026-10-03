@@ -1,0 +1,41 @@
+name: Feature request
+description: Предложить изменение высокоуровневого API или поведения
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Проблема
+      description: Какой пользовательский сценарий сейчас невозможно или трудно реализовать?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Предлагаемое поведение
+      description: Опишите результат, не привязываясь к низкоуровневому JavaScript API.
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Платформа
+      options:
+        - Android и Windows
+        - Android
+        - Windows
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Рассмотренные альтернативы
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Проверки
+      options:
+        - label: Я проверил roadmap и существующие issues.
+          required: true

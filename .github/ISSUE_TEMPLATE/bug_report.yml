@@ -1,0 +1,67 @@
+name: Bug report
+description: Сообщить о воспроизводимой ошибке flutter_three_vrm
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Не публикуйте секреты или сведения об уязвимостях. Для уязвимостей используйте приватный отчёт из SECURITY.md.
+  - type: input
+    id: version
+    attributes:
+      label: Версия пакета или commit
+      placeholder: 0.2.0-dev.1 или commit SHA
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Платформа
+      options:
+        - Android
+        - Windows
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Среда
+      description: ОС, устройство, Flutter/Dart и версия Android System WebView или WebView2.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Шаги воспроизведения
+      placeholder: Минимальный последовательный сценарий
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Ожидаемое поведение
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Фактическое поведение и логи
+      description: Удалите токены, cookie, персональные данные и закрытые URL.
+    validations:
+      required: true
+  - type: textarea
+    id: sample
+    attributes:
+      label: Минимальный пример
+      description: Ссылка на публичный код или небольшой фрагмент без защищённых VRM/VRMA.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Проверки
+      options:
+        - label: Я проверил существующие issues и не нашёл дубликат.
+          required: true
+        - label: Отчёт не содержит секретов или VRM/VRMA без права на распространение.
+          required: true

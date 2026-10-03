@@ -491,6 +491,14 @@ node tool/verify_public_docs.mjs
 и право на перераспространение sample-модели, чтобы в публичный пакет случайно
 не попал avatar с `allowRedistribution: false`.
 
+## Участие в разработке и безопасность
+
+Настройка среды, обязательные проверки и правила для assets описаны в
+[`CONTRIBUTING.md`](CONTRIBUTING.md). Уязвимости следует сообщать приватно по
+[`SECURITY.md`](SECURITY.md), не создавая публичный issue. Пошаговая подготовка
+первого GitHub push и prerelease находится в
+[`docs/REPOSITORY_PUBLICATION.md`](docs/REPOSITORY_PUBLICATION.md).
+
 ## Статус roadmap
 
 Канонический план, аудит текущей архитектуры и следующие этапы находятся в
