@@ -350,12 +350,22 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
     ]);
     final sessionDisposal = _session.dispose();
     WidgetsBinding.instance.removeObserver(this);
-    unawaited(
+    observeVrmViewLifecycleDisposal(
       _viewLifecycle.dispose(
         settleBeforeCleanup: () => declarativeTaskSettlement,
         cleanup: () =>
             _disposeRuntimeAndWebView(shouldDisposeRuntime, sessionDisposal),
       ),
+      reportError: (error, stackTrace) {
+        FlutterError.reportError(
+          FlutterErrorDetails(
+            exception: error,
+            stack: stackTrace,
+            library: 'flutter_three_vrm',
+            context: ErrorDescription('while disposing a VrmView'),
+          ),
+        );
+      },
     );
 
     super.dispose();

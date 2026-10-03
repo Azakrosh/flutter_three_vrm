@@ -1,5 +1,27 @@
 import 'dart:async';
 
+typedef VrmViewLifecycleErrorReporter =
+    void Function(Object error, StackTrace stackTrace);
+
+/// Observes the terminal Future started by synchronous Flutter State.dispose.
+///
+/// The reporter receives the original error and stack trace. Its successful
+/// return handles the failed Future so the error is not also emitted to the
+/// current Zone as an unhandled asynchronous error.
+void observeVrmViewLifecycleDisposal(
+  Future<void> disposal, {
+  required VrmViewLifecycleErrorReporter reportError,
+}) {
+  unawaited(
+    disposal.then<void>(
+      (_) {},
+      onError: (Object error, StackTrace stackTrace) {
+        reportError(error, stackTrace);
+      },
+    ),
+  );
+}
+
 /// Serializes one VrmView initialization with its terminal resource cleanup.
 ///
 /// Flutter State.dispose cannot await asynchronous work. This owner lets the

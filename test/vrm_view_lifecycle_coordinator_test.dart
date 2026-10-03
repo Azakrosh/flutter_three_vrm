@@ -4,6 +4,46 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_three_vrm/src/runtime/vrm_view_lifecycle_coordinator.dart';
 
 void main() {
+  group('observeVrmViewLifecycleDisposal', () {
+    test(
+      'reports the original failure without an unhandled zone error',
+      () async {
+        final failure = StateError('dispose failed');
+        final failureStack = StackTrace.current;
+        final reportedErrors = <Object>[];
+        final reportedStacks = <StackTrace>[];
+        final unhandledErrors = <Object>[];
+
+        await runZonedGuarded(() async {
+          observeVrmViewLifecycleDisposal(
+            Future<void>.error(failure, failureStack),
+            reportError: (error, stackTrace) {
+              reportedErrors.add(error);
+              reportedStacks.add(stackTrace);
+            },
+          );
+          await Future<void>.delayed(Duration.zero);
+        }, (error, _) => unhandledErrors.add(error));
+
+        expect(reportedErrors, <Object>[failure]);
+        expect(reportedStacks, <StackTrace>[failureStack]);
+        expect(unhandledErrors, isEmpty);
+      },
+    );
+
+    test('does not report a successful disposal', () async {
+      final reportedErrors = <Object>[];
+
+      observeVrmViewLifecycleDisposal(
+        Future<void>.value(),
+        reportError: (error, _) => reportedErrors.add(error),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(reportedErrors, isEmpty);
+    });
+  });
+
   group('VrmViewLifecycleCoordinator', () {
     test('waits for initialization and runs one cleanup', () async {
       final initializationBarrier = Completer<void>();
