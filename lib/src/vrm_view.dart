@@ -221,17 +221,12 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
 
   void _queueGraphicsConfiguration() {
     final configuration = _captureGraphicsConfiguration();
-    unawaited(
-      _graphicsConfigurations.submit(configuration).catchError((
-        Object error,
-        StackTrace stackTrace,
-      ) {
-        if (_isCurrentConfiguration(configuration.controller)) {
-          debugPrint('Failed to configure VRM graphics: $error');
-          debugPrintStack(stackTrace: stackTrace);
-          _session.showError('Failed to configure VRM graphics: $error');
-        }
-      }),
+    observeVrmViewConfigurationTask(
+      _graphicsConfigurations.submit(configuration),
+      kind: VrmViewConfigurationTask.graphics,
+      isCurrent: () => _isCurrentConfiguration(configuration.controller),
+      reportDiagnostic: configuration.controller._bridge.reportAsyncError,
+      showUserError: _session.showError,
     );
   }
 
@@ -265,16 +260,12 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
 
   void _queueBackgroundConfiguration() {
     final configuration = _captureBackgroundConfiguration();
-    unawaited(
-      _backgroundConfigurations.submit(configuration).catchError((
-        Object error,
-        StackTrace stackTrace,
-      ) {
-        if (error is VrmRuntimeException && error.code == 'canceled') return;
-        if (_isCurrentConfiguration(configuration.controller)) {
-          configuration.controller._bridge.reportAsyncError(error, stackTrace);
-        }
-      }),
+    observeVrmViewConfigurationTask(
+      _backgroundConfigurations.submit(configuration),
+      kind: VrmViewConfigurationTask.background,
+      isCurrent: () => _isCurrentConfiguration(configuration.controller),
+      reportDiagnostic: configuration.controller._bridge.reportAsyncError,
+      showUserError: _session.showError,
     );
   }
 
