@@ -41,6 +41,8 @@ jobs:
           pnpm verify:build
       - name: Verify redistributable example assets
         run: node tool/verify_example_assets.mjs
+      - name: Verify public documentation contract
+        run: node tool/verify_public_docs.mjs
       - name: Verify generated runtime is committed
         run: git diff --exit-code -- assets/web/dist
       - name: Install Flutter dependencies

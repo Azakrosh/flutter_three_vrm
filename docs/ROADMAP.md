@@ -1625,8 +1625,10 @@ Flutter-тестов прошли; Windows matrix подтвердила `runtim
 2. Проверять `dart doc --dry-run .` в Linux CI; зафиксировать upstream Windows
    crash dartdoc 9.0.6 и повторить локальный gate после SDK с dartdoc 9.0.10.
 3. Добавить dry-run dartdoc в CI как обязательный quality gate.
-4. Обновить устаревшие количественные ориентиры и список завершённых этапов.
-5. Повторно выполнить dartdoc, analyzer, Flutter и web test suites.
+4. Добавить локальный verifier версий, удалённого API, typed cancellation и
+   обязательных публичных документов.
+5. Обновить устаревшие количественные ориентиры и список завершённых этапов.
+6. Повторно выполнить dartdoc, analyzer, Flutter и web test suites.
 
 Критерии готовности:
 
@@ -1634,12 +1636,16 @@ Flutter-тестов прошли; Windows matrix подтвердила `runtim
   отложен только до SDK с upstream fix dartdoc 9.0.10;
 - README не представляет удалённые API как доступные и согласован с reload/cancellation semantics;
 - CI автоматически проверяет генерацию API documentation;
+- локальный verifier защищает version/dependency/documentation contract;
 - Roadmap содержит Stage 54–56 и актуальные ориентиры размера/покрытия;
 - Flutter и web quality gates проходят.
 
 Текущий прогресс: экспортируемая библиотека получила overview, README приведён к
 typed reload-cancellation и полной integration matrix, а Ubuntu quality job
-проверяет `dart doc --dry-run .`. `flutter analyze`, 169 Flutter-тестов,
+проверяет `dart doc --dry-run .` и `node tool/verify_public_docs.mjs`. Verifier
+сверяет package/runtime versions, закреплённые Three.js-зависимости, отсутствие
+удалённого camera-preset API, cancellation semantics и обязательные документы.
+`flutter analyze`, 169 Flutter-тестов,
 TypeScript typecheck, 173 web-теста, protocol contract и runtime bundle checksum
 прошли 2026-10-03. Локальный Windows dartdoc 9.0.6 воспроизводимо падает в
 `_stripDocImports`; даже LF-экспорт пакета не устраняет CRLF из Windows SDK.

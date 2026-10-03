@@ -477,7 +477,19 @@ corepack pnpm build
 corepack pnpm verify:build
 ```
 
-Собранные `assets/web/dist/vrm-runtime.js` и `manifest.json` входят в репозиторий и проверяются CI. Полные уведомления о лицензиях встроенных библиотек и example-assets находятся в [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). CI также проверяет checksum и право на перераспространение sample-модели, чтобы в публичный пакет случайно не попал avatar с `allowRedistribution: false`.
+Собранные `assets/web/dist/vrm-runtime.js` и `manifest.json` входят в репозиторий
+и проверяются CI. Контракт публичной документации — версии пакета и web-runtime,
+закреплённые Three.js-зависимости, удалённый camera-preset API, typed
+reload-cancellation и обязательные ссылки — проверяется отдельно:
+
+```bash
+node tool/verify_public_docs.mjs
+```
+
+Полные уведомления о лицензиях встроенных библиотек и example-assets находятся в
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). CI также проверяет checksum
+и право на перераспространение sample-модели, чтобы в публичный пакет случайно
+не попал avatar с `allowRedistribution: false`.
 
 ## Статус roadmap
 
