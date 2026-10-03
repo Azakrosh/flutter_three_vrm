@@ -2,7 +2,7 @@
 
 Статус: активный рабочий документ
 Дата аудита: 2026-10-03
-Проверенная база: `e639509 docs: record Stage 55 audit commit`
+Проверенная база: `92590ae docs: add public API documentation gate`
 Целевые платформы: Android и Windows; приоритет — Android
 
 ## 1. Откуда восстановлен первоначальный план
@@ -1636,6 +1636,15 @@ Flutter-тестов прошли; Windows matrix подтвердила `runtim
 - CI автоматически проверяет генерацию API documentation;
 - Roadmap содержит Stage 54–56 и актуальные ориентиры размера/покрытия;
 - Flutter и web quality gates проходят.
+
+Текущий прогресс: экспортируемая библиотека получила overview, README приведён к
+typed reload-cancellation и полной integration matrix, а Ubuntu quality job
+проверяет `dart doc --dry-run .`. `flutter analyze`, 169 Flutter-тестов,
+TypeScript typecheck, 173 web-теста, protocol contract и runtime bundle checksum
+прошли 2026-10-03. Локальный Windows dartdoc 9.0.6 воспроизводимо падает в
+`_stripDocImports`; даже LF-экспорт пакета не устраняет CRLF из Windows SDK.
+Первый срез зафиксирован коммитом `92590ae`. Этап остаётся в работе до
+фактического Linux CI результата либо повторного Windows gate на dartdoc 9.0.10.
 
 ## 7. Правила обновления roadmap
 
