@@ -2,7 +2,7 @@
 
 Статус: активный рабочий документ
 Дата аудита: 2026-10-03
-Проверенная база: `92590ae docs: add public API documentation gate`
+Проверенная база: `c7cc70c ci: verify public documentation contract`
 Целевые платформы: Android и Windows; приоритет — Android
 
 ## 1. Откуда восстановлен первоначальный план
@@ -1649,8 +1649,10 @@ typed reload-cancellation и полной integration matrix, а Ubuntu quality 
 TypeScript typecheck, 173 web-теста, protocol contract и runtime bundle checksum
 прошли 2026-10-03. Локальный Windows dartdoc 9.0.6 воспроизводимо падает в
 `_stripDocImports`; даже LF-экспорт пакета не устраняет CRLF из Windows SDK.
-Первый срез зафиксирован коммитом `92590ae`. Этап остаётся в работе до
-фактического Linux CI результата либо повторного Windows gate на dartdoc 9.0.10.
+Первый срез зафиксирован коммитом `92590ae`. Cross-platform verifier добавлен
+коммитом `c7cc70c` и локально проходит вместе с `flutter analyze`. Этап остаётся
+в работе до фактического Linux CI результата либо повторного Windows gate на
+dartdoc 9.0.10.
 
 ## 7. Правила обновления roadmap
 
