@@ -1,8 +1,8 @@
 # План рефакторинга и развития flutter_three_vrm
 
 Статус: активный рабочий документ
-Дата аудита: 2026-10-02
-Проверенная база: `1dd3f45 fix: complete runtime binding teardown phases`
+Дата аудита: 2026-10-03
+Проверенная база: `2a3a4df fix: propagate VrmView cleanup errors`
 Целевые платформы: Android и Windows; приоритет — Android
 
 ## 1. Откуда восстановлен первоначальный план
@@ -89,6 +89,7 @@
 | 49 | Унифицированный lifecycle платформенных WebView-адаптеров | Выполнено |
 | 50 | Terminal settlement операций `VrmAnimationQueue` | Выполнено |
 | 51 | Error-safe teardown subscriptions runtime binding | Выполнено |
+| 52 | Наблюдаемый asynchronous teardown `VrmView` | Выполнено |
 
 ## 3. Состояние реализации
 
@@ -328,6 +329,14 @@ Current/retired transport cleanup, callback settlement и detachment объед�
 terminal settlement; content host закрывается отдельной error-safe фазой с
 сохранением первой ошибки. Та же cancellation-гарантия действует при rebind.
 
+### Закрыто в Stage 52 — необработанная ошибка teardown VrmView
+
+Terminal Future, который запускает синхронный `State.dispose()`, теперь имеет
+явный observer. Ошибка с исходным stack trace передаётся в
+`FlutterError.reportError` с контекстом пакета и не дублируется как unhandled Zone
+error. Session и native WebView cleanup выполняются error-safe; первая ошибка
+поднимается только после попытки завершить обе фазы.
+
 ### P2 — публикационная готовность отложена
 
 В `pubspec.yaml` установлен `publish_to: none`. Это соответствует принятому
@@ -336,16 +345,16 @@ terminal settlement; content host закрывается отдельной erro
 
 ## 5. Текущее направление
 
-Stage 51 завершён и зафиксирован коммитом `1dd3f45`: runtime binding пытается
-отменить каждую subscription даже при синхронной ошибке, ожидает transport и
-callback settlement и всегда выполняет фазу закрытия content host. Проходят 160
-Flutter-тестов и `flutter analyze`; Windows runtime-race, runtime/recovery и
-runtime smoke gates.
+Stage 52 завершён коммитами `cfce87d` и `2a3a4df`: terminal teardown `VrmView`
+передаёт первую ошибку и исходный stack trace в Flutter diagnostics после
+error-safe cleanup session и native WebView. Проходят 162 Flutter-теста и
+`flutter analyze`; Windows runtime-race, runtime/recovery и runtime smoke gates.
 
-Следующее направление — Stage 52: сделать fire-and-forget teardown `VrmView`
-наблюдаемым. `State.dispose()` не может ожидать Future, поэтому terminal cleanup
-ошибки нужно детерминированно передавать в Flutter error reporting без unhandled
-async error. Публикация и обновление Three.js/three-vrm по-прежнему отложены.
+Следующее направление — Stage 53: унифицировать внутреннюю маршрутизацию ошибок
+declarative graphics/background задач `VrmView`. Сейчас graphics использует
+`debugPrint` и UI error, а background — bridge diagnostics; stale и canceled
+результаты должны сохранять текущую семантику. Публикация и обновление
+Three.js/three-vrm по-прежнему отложены.
 
 Сейчас не следует:
 
@@ -1440,7 +1449,7 @@ failure, попытку отмены остальных subscriptions, ошиб�
 
 ### Stage 52 — наблюдаемый asynchronous teardown VrmView
 
-Статус: запланировано.
+Статус: выполнено.
 
 Цель: исключить необработанную async-ошибку из fire-and-forget lifecycle Future,
 который запускается синхронным Flutter `State.dispose()`.
@@ -1462,6 +1471,37 @@ failure, попытку отмены остальных subscriptions, ошиб�
 - исходные error и stack trace не теряются;
 - native/session cleanup по-прежнему выполняется один раз;
 - успешный dispose не создаёт диагностик;
+- unit/analyze и Windows race/recovery/smoke gates проходят.
+
+Этап завершён. Lifecycle observer передаёт исходные error/stack trace в
+`FlutterError.reportError`, успешный teardown не создаёт диагностик, а
+session/WebView cleanup использует общий error-safe runner. Всего проходят 162
+Flutter-теста и `flutter analyze`; Windows gates повторно прошли 2026-10-03.
+Реализация зафиксирована коммитами `cfce87d` и `2a3a4df`.
+
+### Stage 53 — единая диагностика declarative-задач VrmView
+
+Статус: запланировано.
+
+Цель: дать graphics/background configuration failures единый наблюдаемый
+внутренний contract без изменения публичного API и recovery semantics.
+
+Работы:
+
+1. Вынести внутреннюю policy маршрутизации ошибок declarative-задач.
+2. Сохранять подавление stale controller results и ожидаемого runtime
+   cancellation.
+3. Активные graphics failures направлять в runtime diagnostics и user-visible
+   session error; background failures — в runtime diagnostics без лишнего UI.
+4. Всегда сохранять исходный stack trace и добавить unit-регрессии для active,
+   stale и canceled случаев.
+
+Критерии готовности:
+
+- одинаковые ошибки используют один внутренний routing contract;
+- stale/canceled результаты не создают ложных диагностик;
+- активный graphics failure остаётся видимым пользователю;
+- fire-and-forget Futures не дают unhandled Zone error;
 - unit/analyze и Windows race/recovery/smoke gates проходят.
 
 ## 7. Правила обновления roadmap

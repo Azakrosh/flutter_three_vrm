@@ -10,7 +10,8 @@ settlement в Stage 43, render lifecycle teardown в Stage 44 и controller
 teardown в Stage 45, thermal lifecycle serialization в Stage 46 и terminal
 content-host teardown в Stage 47, transport settlement в Stage 48, platform
 adapter lifecycle в Stage 49, terminal settlement очереди в Stage 50 и
-error-safe runtime binding teardown в Stage 51.
+error-safe runtime binding teardown в Stage 51 и наблюдаемый view teardown в
+Stage 52.
 
 ## Владельцы состояния
 
@@ -87,7 +88,10 @@ initialization и active load/script operations, затем ровно один 
 доступный native/stream cleanup. `VrmViewLifecycleCoordinator` сначала ждёт уже
 запущенную initialization, затем terminal state активных
 graphics/background задач, session cleanup и освобождает native
-WebView ровно одной ветвью, включая initialization/teardown error paths.
+WebView ровно одной ветвью, включая initialization/teardown error paths. Так как
+Flutter `State.dispose()` синхронный, terminal Future наблюдается отдельно:
+первая session/WebView cleanup failure передаётся с исходным stack trace в
+`FlutterError.reportError`, а успешный teardown не создаёт диагностику.
 
 `VrmController.dispose()` синхронно блокирует новые операции и возвращает один
 terminal Future. Thermal monitor, controller state subscription и bridge
