@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import '../models/vrm_exception.dart';
+import 'vrm_runtime_transition.dart';
 
 enum VrmViewConfigurationTask { graphics, background }
 
@@ -21,7 +21,7 @@ void observeVrmViewConfigurationTask(
 }) {
   unawaited(
     task.catchError((Object error, StackTrace stackTrace) {
-      if (!isCurrent() || _isExpectedCancellation(error)) return;
+      if (!isCurrent() || isExpectedVrmRuntimeCancellation(error)) return;
 
       reportDiagnostic(error, stackTrace);
       if (kind == VrmViewConfigurationTask.graphics) {
@@ -30,6 +30,3 @@ void observeVrmViewConfigurationTask(
     }),
   );
 }
-
-bool _isExpectedCancellation(Object error) =>
-    error is VrmRuntimeException && error.code == 'canceled';

@@ -173,6 +173,14 @@ void main() {
       );
 
       await harness.coordinator.reloadRuntime();
+      expect(
+        harness.unavailableReasons.single,
+        isA<VrmRuntimeException>().having(
+          (error) => error.code,
+          'code',
+          'canceled',
+        ),
+      );
       await harness.coordinator.activateRuntime(
         VrmRuntimeSessionReplayPlan(
           applyGraphics: () async {},

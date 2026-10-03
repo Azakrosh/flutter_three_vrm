@@ -80,6 +80,84 @@ void main() {
       await expectation;
     });
 
+    test(
+      'reload fails awaited pending commands with typed cancellation',
+      () async {
+        final scripts = <String>[];
+        final bridge = _attachedBridge(scripts.add);
+        addTearDown(bridge.dispose);
+
+        final pending = bridge.requestCommand(VrmProtocolCommand.getPose);
+        final pendingExpectation = expectLater(
+          pending,
+          throwsA(
+            isA<VrmRuntimeException>().having(
+              (error) => error.code,
+              'code',
+              'canceled',
+            ),
+          ),
+        );
+
+        await bridge.reloadRuntime();
+        await pendingExpectation;
+      },
+    );
+
+    test('reload cancellation is silent for latest-value commands', () async {
+      final scripts = <String>[];
+      final bridge = _attachedBridge(scripts.add);
+      addTearDown(bridge.dispose);
+      final asyncErrors = <VrmErrorEvent>[];
+      final subscription = bridge.eventStream
+          .where((event) => event is VrmErrorEvent)
+          .cast<VrmErrorEvent>()
+          .listen(asyncErrors.add);
+      addTearDown(subscription.cancel);
+
+      bridge.sendLatestCommand(
+        channel: 'gaze',
+        action: VrmProtocolCommand.setLookAtTarget,
+        payload: const <String, dynamic>{'x': 0.5, 'y': 0.5},
+      );
+      await bridge.reloadRuntime();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(scripts, hasLength(1));
+      expect(asyncErrors, isEmpty);
+    });
+
+    test('latest-value runtime failures remain diagnostic', () async {
+      final scripts = <String>[];
+      final bridge = _attachedBridge(scripts.add);
+      addTearDown(bridge.dispose);
+      final asyncError = bridge.eventStream
+          .where((event) => event is VrmErrorEvent)
+          .cast<VrmErrorEvent>()
+          .first;
+
+      bridge.sendLatestCommand(
+        channel: 'gaze',
+        action: VrmProtocolCommand.setLookAtTarget,
+        payload: const <String, dynamic>{'x': 0.5, 'y': 0.5},
+      );
+      final command = _decodeCommand(scripts.single);
+      bridge.handleJsMessage(
+        jsonEncode(<String, Object?>{
+          'version': vrmProtocolVersion,
+          'id': command['id'],
+          'type': 'response',
+          'ok': false,
+          'error': const <String, Object>{
+            'code': 'runtimeFailure',
+            'message': 'Renderer failed.',
+          },
+        }),
+      );
+
+      expect((await asyncError).message, contains('runtimeFailure'));
+    });
+
     test('times out once and consumes a predictable late response', () async {
       final scripts = <String>[];
       final bridge = _attachedBridge(

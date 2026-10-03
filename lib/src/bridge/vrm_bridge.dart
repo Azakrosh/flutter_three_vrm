@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import '../models/vrm_events.dart';
 import '../models/vrm_exception.dart';
 import '../runtime/vrm_cleanup.dart';
+import '../runtime/vrm_runtime_transition.dart';
 import 'latest_value_dispatcher.dart';
 import 'vrm_event_decoder.dart';
 import 'vrm_protocol_contract.dart';
@@ -214,7 +215,7 @@ final class VrmBridge {
     if (reload == null || transportOwner == null) {
       throw StateError('VrmView is not attached to this controller.');
     }
-    markRuntimeUnavailable(StateError('VRM runtime is reloading.'));
+    markRuntimeUnavailable(vrmRuntimeTransitionCancellation);
     final dispatch = Future<void>.sync(reload);
     await _trackTransportDispatch(transportOwner, dispatch);
   }
@@ -289,7 +290,7 @@ final class VrmBridge {
   }
 
   void reportAsyncError(Object error, StackTrace stackTrace) {
-    if (!_disposed) {
+    if (!_disposed && !isExpectedVrmRuntimeCancellation(error)) {
       _eventController.add(VrmErrorEvent(message: error.toString()));
       debugPrint('Asynchronous VRM command failed: $error\n$stackTrace');
     }

@@ -9,6 +9,7 @@ import '../models/vrm_runtime_health.dart';
 import '../models/vrm_transform.dart';
 import '../recovery/vrm_runtime_replay_coordinator.dart';
 import 'vrm_runtime_controller_binding.dart';
+import 'vrm_runtime_transition.dart';
 
 typedef VrmRuntimeSessionErrorReporter =
     void Function(Object error, StackTrace stackTrace);
@@ -265,7 +266,7 @@ final class VrmRuntimeSessionCoordinator {
     }
     _replay.captureCamera(_readCameraTransform(), _readCameraRevision());
     _setRuntimeUnavailable(
-      StateError('VRM runtime is reloading.'),
+      vrmRuntimeTransitionCancellation,
       errorMessage: null,
     );
     await _reloadRuntimeDocument();

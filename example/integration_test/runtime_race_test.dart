@@ -43,17 +43,7 @@ void main() {
     await Future<void>.delayed(Duration.zero);
     final reloadOutcome = _captureOutcome(controller.reloadRuntime());
     expect(await reloadOutcome, isNull);
-    expect(
-      await staleRuntimeOutcome,
-      anyOf(
-        _canceledRuntimeCommand,
-        isA<StateError>().having(
-          (error) => error.message,
-          'message',
-          contains('reloading'),
-        ),
-      ),
-    );
+    expect(await staleRuntimeOutcome, _canceledRuntimeCommand);
 
     await controller.waitUntilReady(timeout: const Duration(seconds: 30));
     await harness.waitForModel();
