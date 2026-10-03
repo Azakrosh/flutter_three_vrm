@@ -11,7 +11,8 @@ teardown в Stage 45, thermal lifecycle serialization в Stage 46 и terminal
 content-host teardown в Stage 47, transport settlement в Stage 48, platform
 adapter lifecycle в Stage 49, terminal settlement очереди в Stage 50 и
 error-safe runtime binding teardown в Stage 51 и наблюдаемый view teardown в
-Stage 52 и единая policy declarative diagnostics в Stage 53.
+Stage 52, единая policy declarative diagnostics в Stage 53 и типизированная
+отмена runtime transition в Stage 54.
 
 ## Владельцы состояния
 
@@ -123,12 +124,14 @@ subscription cancellation и restart; generation guard запрещает ста
 
 `Session` в таблице означает состояние только текущего WebView runtime. `App`
 означает, что приложение повторяет команду из `onCreated`, когда модель нового
-runtime уже загружена.
+runtime уже загружена. Runtime reload/recovery завершает уже принятую
+pending-команду `VrmRuntimeException(code: 'canceled')`. Awaited caller получает
+эту ошибку, а bridge не публикует ожидаемую отмену в async diagnostics.
 
 | API | Owner | WebView reload | Lifecycle pause | После dispose |
 |---|---|---|---|---|
 | `loadModel*`, `cancelModelLoad`, `unloadModel` | Session/App | Активная загрузка отменяется; initial asset replay-ит `VrmView`, авторизованную модель повторно загружает App | Загрузка не отменяется | `StateError` |
-| `reloadRuntime` | Package | Запускает новый generation и полный ordered replay | Разрешён | `StateError` |
+| `reloadRuntime` | Package | Отменяет pending-команды с `VrmRuntimeException(code: 'canceled')`, запускает новый generation и полный ordered replay | Разрешён | `StateError` |
 | `playAnimation*`, `pauseAnimation`, `resumeAnimation`, `cancelAnimationLoad`, `stopAnimation`, `setAnimationSpeed` | Session | Pending transition отменяется, direct playback не replay-ится | Состояние сохраняется, время animation mixer не продвигается до resume renderer | `StateError` |
 | `setPose`, `resetPose` | Session/App | Не replay-ится | Pose сохраняется; crossfade продолжится после resume renderer | `StateError` |
 | `setMood`, `clearMood`, `setExpression`, `clearExpressionLayer`, `clearAllExpressions`, `setCustomBlendShape` | Session/App | Не replay-ится | Target state сохраняется | `StateError` |

@@ -26,7 +26,7 @@
 | `runtime_smoke_test.dart` | обязательно | обязательно | Runtime health, model report, background, renderer recreation, camera, wind/physics и pointer contract |
 | `motion_speech_test.dart` | обязательно | обязательно | VRMA → Pose, Pose → Pose, Pose → VRMA, reset, finite playback, viseme/amplitude speech и stale session |
 | `runtime_recovery_test.dart` | обязательно | обязательно | Platform lifecycle, reload во время inactive/hidden, model replay и camera restoration |
-| `runtime_race_test.dart` | обязательно | обязательно | Model replacement, explicit cancel и reload с незавершённой загрузкой |
+| `runtime_race_test.dart` | обязательно | обязательно | Model replacement, explicit cancel и типизированная отмена pending-команды при reload |
 | `resource_loading_test.dart` | обязательно | обязательно | Authenticated VRM bytes и external-resource glTF byte bundle |
 | `performance_soak_test.dart` | обязательно | не применяется | Load/steady FPS, pixel ratio, renderer/RSS baseline, memory pressure, thermal status, context loss и длительный speech/motion soak |
 
@@ -62,6 +62,9 @@ flutter test integration_test/runtime_smoke_test.dart -d <device-id>
   300-секундный performance soak с десятью load/unload циклами;
 - Windows 10 x64, WebView2, WebGL 2.
 
+Полная Windows matrix из пяти cross-platform gates повторно прошла 3 октября
+2026 года после типизации runtime-transition cancellation в Stage 54.
+
 Android integration harness не передаёт синтетический `WidgetTester.tapAt` в
 native PlatformView. Pointer path поэтому проверяется web unit-тестом и Windows
 end-to-end gate; реальные Android gestures передаются WebView через
@@ -69,8 +72,12 @@ end-to-end gate; реальные Android gestures передаются WebView 
 
 Model-race gate проверяет, что при конкурентной замене побеждает последняя
 загрузка, explicit cancel завершает активный запрос с `canceled`, а reload
-инвалидирует старый запрос и восстанавливает модель. Gate также защищает от
-быстрого error-response до подписки вызывающего кода на Future команды.
+инвалидирует старый запрос типизированным
+`VrmRuntimeException(code: 'canceled')` и восстанавливает модель. Ожидаемая
+отмена фоновой команды не должна печатать
+`Asynchronous VRM command failed` или публиковать `VrmErrorEvent`. Gate также
+защищает от быстрого error-response до подписки вызывающего кода на Future
+команды.
 
 Resource-loading gate читает локальный VRM как результат Flutter API-клиента и
 передаёт его через `loadModelFromBytes()`. Затем он создаёт детерминированный

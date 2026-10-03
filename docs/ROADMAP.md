@@ -2,7 +2,7 @@
 
 Статус: активный рабочий документ
 Дата аудита: 2026-10-03
-Проверенная база: `d56c5a4 refactor: unify VrmView configuration diagnostics`
+Проверенная база: `b89a894 fix: type expected runtime transition cancellation`
 Целевые платформы: Android и Windows; приоритет — Android
 
 ## 1. Откуда восстановлен первоначальный план
@@ -346,6 +346,14 @@ Graphics и background configuration Futures теперь проходят че�
 сохраняет stack trace и направляет активный сбой в bridge diagnostics. Только
 ошибка graphics дополнительно становится user-visible session error.
 
+### Закрыто в Stage 54 — ложная диагностика ожидаемого runtime transition
+
+Reload/recovery теперь инвалидирует pending-команды общей типизированной причиной
+`VrmRuntimeException(code: 'canceled')`. Awaited-команда возвращает эту ошибку
+вызывающему коду, а центральный diagnostic sink bridge подавляет её для фоновых
+и latest-value команд. Остальные runtime, transport, timeout и malformed-response
+ошибки по-прежнему публикуются с исходным stack trace.
+
 ### P2 — публикационная готовность отложена
 
 В `pubspec.yaml` установлен `publish_to: none`. Это соответствует принятому
@@ -354,18 +362,23 @@ Graphics и background configuration Futures теперь проходят че�
 
 ## 5. Текущее направление
 
-Stage 53 завершён и зафиксирован коммитом `d56c5a4`: declarative graphics и
-background Futures используют одну policy для active/stale/canceled результатов,
-сохраняют исходный stack trace и не создают unhandled Zone errors. Проходят 166
-Flutter-тестов и `flutter analyze`; Windows runtime-race, runtime/recovery и
-runtime smoke gates.
+Stage 54 завершён и зафиксирован коммитом `b89a894`: runtime reload/recovery
+завершает pending-команды типизированным `VrmRuntimeException(code: 'canceled')`,
+а bridge централизованно исключает эту ожидаемую отмену из async diagnostics.
+Проходят 169 Flutter-тестов и `flutter analyze`; Windows runtime-race,
+runtime/recovery и runtime smoke gates прошли без ложного сообщения
+`Asynchronous VRM command failed`.
 
-Следующее направление — Stage 54: типизировать ожидаемую отмену pending-команд
-при runtime reload/recovery. Сейчас успешный race gate печатает
-`Asynchronous VRM command failed: VRM runtime is reloading`, потому что ожидаемый
-transition представлен общим `StateError`. Реальные runtime failures должны
-оставаться диагностируемыми. Публикация и обновление Three.js/three-vrm
-по-прежнему отложены.
+Stage 55 завершён: ownership и terminal outcomes проверены на границах
+`VrmView` → session coordinator → binding → bridge → adapter, а API, ownership
+и test-matrix документы синхронизированы с реализацией. Новых воспроизводимых
+архитектурных рисков не обнаружено. `flutter analyze`, все 169 Flutter-тестов и
+полная Windows integration matrix из пяти gates прошли 2026-10-03.
+
+Следующий этап не назначен. Архитектура считается стабилизированной; дальнейшая
+работа должна начинаться с продуктового требования, измеримого performance-
+сигнала или воспроизводимого дефекта. Публикация и обновление
+Three.js/three-vrm по-прежнему отложены.
 
 Сейчас не следует:
 
@@ -1524,7 +1537,7 @@ Flutter-теста и `flutter analyze`; Windows gates повторно прош
 
 ### Stage 54 — типизированная отмена runtime transition
 
-Статус: запланировано.
+Статус: выполнено.
 
 Цель: не публиковать ложную async-диагностику, когда pending-команда ожидаемо
 отменяется из-за reload/recovery, сохранив ошибки реальных runtime failures.
@@ -1547,6 +1560,49 @@ Flutter-теста и `flutter analyze`; Windows gates повторно прош
 - реальные runtime/transport failures продолжают публиковаться;
 - recovery/race semantics и protocol v3 не меняются;
 - unit/analyze и Windows race/recovery/smoke gates проходят.
+
+Этап завершён. Одна причина `vrmRuntimeTransitionCancellation` используется при
+invalidation bridge и session coordinator. Центральный `reportAsyncError`
+подавляет только ожидаемый `canceled`, поэтому все владельцы fire-and-forget
+операций получают одинаковую семантику без локальных фильтров. Awaited Future
+сохраняет типизированную ошибку. Добавлены unit-регрессии для обоих путей и для
+реального runtime failure. Всего проходят 169 Flutter-тестов и `flutter analyze`;
+Windows race/recovery/smoke gates повторно прошли 2026-10-03. Реализация
+зафиксирована коммитом `b89a894`.
+
+### Stage 55 — контрольная ревизия контрактов после hardening
+
+Статус: выполнено.
+
+Цель: завершить серию архитектурных hardening-изменений проверкой согласованности
+кода, публичной семантики, ownership-документов и канонических test gates.
+
+Работы:
+
+1. Проверить владельцев lifecycle, pending-команд, teardown и diagnostic state на
+   всех границах `VrmView` → session coordinator → binding → bridge → adapter.
+2. Синхронизировать `API_SEMANTICS.md`, `STATE_OWNERSHIP.md` и `TEST_MATRIX.md` с
+   типизированной отменой runtime transition.
+3. Запустить analyzer, полный Flutter unit/widget suite и канонические Windows
+   integration gates.
+4. Зафиксировать только воспроизводимые остаточные риски; не создавать новый
+   этап декомпозиции без измеримой проблемы.
+
+Критерии готовности:
+
+- документация не противоречит runtime/error semantics реализации;
+- у каждого async и lifecycle transition есть явный owner и terminal outcome;
+- канонические локальные gates проходят;
+- список дальнейших работ основан на продуктовой задаче, измерении или баге;
+- при отсутствии таких задач архитектура считается стабилизированной.
+
+Этап завершён. Read-only аудит подтвердил явных владельцев pending-команд,
+lifecycle transitions, callbacks, transport operations и terminal cleanup.
+Документы `API_SEMANTICS.md`, `STATE_OWNERSHIP.md` и `TEST_MATRIX.md` приведены
+к типизированной reload/recovery cancellation. `flutter analyze` и все 169
+Flutter-тестов прошли; Windows matrix подтвердила `runtime_smoke`,
+`motion_speech`, `runtime_recovery`, `runtime_race` и `resource_loading`.
+Новых воспроизводимых рисков и оснований для Stage 56 не обнаружено.
 
 ## 7. Правила обновления roadmap
 

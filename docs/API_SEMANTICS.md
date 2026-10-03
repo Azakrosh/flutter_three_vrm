@@ -40,8 +40,10 @@ replay и полный список владельцев состояния на
 
 Некорректные аргументы отклоняются во Flutter до отправки в WebView. Обычно это
 `ArgumentError`; повреждённый ответ runtime даёт `FormatException`. Отсутствие
-готового/прикреплённого runtime, reload или dispose дают `StateError`. Команда,
-не ответившая за transport timeout, завершается `TimeoutException`.
+готового/прикреплённого runtime и вызов после dispose дают `StateError`.
+Команда, не ответившая за transport timeout, завершается `TimeoutException`.
+Если reload/recovery инвалидирует уже принятую pending-команду, её Future
+завершается `VrmRuntimeException(code: 'canceled')`.
 
 Получение response с известным correlation ID всегда является terminal:
 повреждённый envelope немедленно завершает ожидающий Future с
@@ -51,10 +53,12 @@ replay и полный список владельцев состояния на
 
 Ошибка, возвращённая самим web runtime, представлена `VrmRuntimeException`.
 Для управления потоком приложение может стабильно распознавать
-`code == 'canceled'`: так завершаются заменённые или явно отменённые загрузки.
-Остальные коды и `message` следует логировать, но не использовать как бизнес-
-состояние. `onError` не заменяет обработку Future: он предназначен прежде всего
-для фоновых fire-and-forget операций.
+`code == 'canceled'`: так завершаются заменённые или явно отменённые загрузки,
+а также pending-команды, инвалидированные reload/recovery. Остальные коды и
+`message` следует логировать, но не использовать как бизнес-состояние. `onError`
+не заменяет обработку Future: он предназначен прежде всего для фоновых
+fire-and-forget операций. Ожидаемая transition-cancellation в этот поток
+диагностики не публикуется.
 
 ```dart
 try {
@@ -230,9 +234,11 @@ Lifecycle pause останавливает WebGL frame loop, но не Flutter-�
 Windows WebView2 продолжает работать в `inactive`. `hidden`, `paused` и
 `detached` приостанавливают обе платформы.
 
-`reloadRuntime()` сразу завершает pending session-команды ошибкой, создаёт новую
-generation и выполняет ordered replay. Приложение может слушать
-`onRuntimeUnavailable`, но новую работу начинает только после следующего
+`reloadRuntime()` сразу завершает pending session-команды ошибкой
+`VrmRuntimeException(code: 'canceled')`, создаёт новую generation и выполняет
+ordered replay. Это ожидаемый transition: awaited caller видит ошибку, но
+fire-and-forget/latest-value path не создаёт `VrmErrorEvent`. Приложение может
+слушать `onRuntimeUnavailable`, но новую работу начинает только после следующего
 `onCreated`/`waitUntilReady()`.
 
 ```dart
