@@ -1,0 +1,7 @@
+# Generated files are rewritten with LF on every platform. Keeping their checkout
+# form stable prevents false dirty worktrees after Flutter or web-runtime builds.
+/assets/web/dist/*.js text eol=lf
+/assets/web/dist/*.json text eol=lf
+/example/windows/flutter/generated_plugin_registrant.cc text eol=lf
+/example/windows/flutter/generated_plugin_registrant.h text eol=lf
+/example/windows/flutter/generated_plugins.cmake text eol=lf
