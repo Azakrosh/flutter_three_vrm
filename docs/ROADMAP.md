@@ -2,7 +2,7 @@
 
 Статус: активный рабочий документ
 Дата аудита: 2026-10-03
-Проверенная база: `b89a894 fix: type expected runtime transition cancellation`
+Проверенная база: `e639509 docs: record Stage 55 audit commit`
 Целевые платформы: Android и Windows; приоритет — Android
 
 ## 1. Откуда восстановлен первоначальный план
@@ -91,6 +91,9 @@
 | 51 | Error-safe teardown subscriptions runtime binding | Выполнено |
 | 52 | Наблюдаемый asynchronous teardown `VrmView` | Выполнено |
 | 53 | Единая диагностика declarative-задач `VrmView` | Выполнено |
+| 54 | Типизированная отмена pending-команд при runtime transition | Выполнено |
+| 55 | Контрольная ревизия ownership, contracts и canonical gates | Выполнено |
+| 56 | Достоверность публичной документации и автоматический dartdoc gate | В работе |
 
 ## 3. Состояние реализации
 
@@ -157,12 +160,12 @@ WebView runtime
 
 ### Текущий размер и покрытие
 
-- Flutter library: 51 файл, примерно 7370 строк;
-- web source: 35 файлов, примерно 6860 строк;
-- `runner.ts`: примерно 675 строк;
-- `VrmController`: примерно 910 строк;
-- Flutter unit tests: 149;
-- web unit tests: 167;
+- Flutter library: 54 файла, примерно 8500 строк;
+- web source: 35 файлов, примерно 7530 строк;
+- `runner.ts`: примерно 710 строк;
+- `VrmController`: примерно 1040 строк;
+- Flutter unit tests: 169;
+- web unit tests: 173;
 - integration matrix разделена на runtime/scene, motion/speech,
   lifecycle/recovery, model-race, resource-loading и performance soak gates.
 
@@ -375,10 +378,14 @@ Stage 55 завершён: ownership и terminal outcomes проверены н�
 архитектурных рисков не обнаружено. `flutter analyze`, все 169 Flutter-тестов и
 полная Windows integration matrix из пяти gates прошли 2026-10-03.
 
-Следующий этап не назначен. Архитектура считается стабилизированной; дальнейшая
-работа должна начинаться с продуктового требования, измеримого performance-
-сигнала или воспроизводимого дефекта. Публикация и обновление
-Three.js/three-vrm по-прежнему отложены.
+Текущее направление — Stage 56: восстановить проверяемую достоверность публичной
+документации. Аудит обнаружил устаревшие метрики Roadmap и Windows-сбой
+`dartdoc 9.0.6` в `_stripDocImports`. Это подтверждённый upstream-дефект dartdoc
+для non-ASCII documentation и CRLF
+([dart-lang/dartdoc#4289](https://github.com/dart-lang/dartdoc/pull/4289);
+исправление подготовлено для 9.0.10), а не ошибка публичного API пакета. Linux CI получает обязательный
+dartdoc gate; локальный Windows gate нужно повторить после обновления Flutter SDK.
+Публикация остаётся отложенной.
 
 Сейчас не следует:
 
@@ -1604,6 +1611,31 @@ Flutter-тестов прошли; Windows matrix подтвердила `runtim
 `motion_speech`, `runtime_recovery`, `runtime_race` и `resource_loading`.
 Новых воспроизводимых рисков и оснований для Stage 56 не обнаружено.
 Результат зафиксирован коммитом `4b0e04b`.
+
+### Stage 56 — достоверность публичной документации
+
+Статус: в работе.
+
+Цель: не допустить повторного расхождения README, API docs и фактического
+публичного контракта пакета.
+
+Работы:
+
+1. Сверить экспортируемую библиотеку, README и актуальные runtime semantics.
+2. Проверять `dart doc --dry-run .` в Linux CI; зафиксировать upstream Windows
+   crash dartdoc 9.0.6 и повторить локальный gate после SDK с dartdoc 9.0.10.
+3. Добавить dry-run dartdoc в CI как обязательный quality gate.
+4. Обновить устаревшие количественные ориентиры и список завершённых этапов.
+5. Повторно выполнить dartdoc, analyzer, Flutter и web test suites.
+
+Критерии готовности:
+
+- Linux CI dartdoc обрабатывает публичную библиотеку без crash; Windows retry
+  отложен только до SDK с upstream fix dartdoc 9.0.10;
+- README не представляет удалённые API как доступные и согласован с reload/cancellation semantics;
+- CI автоматически проверяет генерацию API documentation;
+- Roadmap содержит Stage 54–56 и актуальные ориентиры размера/покрытия;
+- Flutter и web quality gates проходят.
 
 ## 7. Правила обновления roadmap
 

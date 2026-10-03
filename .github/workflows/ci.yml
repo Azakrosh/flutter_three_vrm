@@ -47,6 +47,8 @@ jobs:
         run: flutter pub get
       - name: Analyze
         run: flutter analyze
+      - name: Validate API documentation
+        run: dart doc --dry-run .
       - name: Test
         run: flutter test
       - name: Build Android example

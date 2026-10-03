@@ -1,3 +1,11 @@
+/// High-level Flutter API for displaying and controlling one VRM avatar on
+/// Android and Windows.
+///
+/// The package owns the embedded WebView runtime and exposes typed model,
+/// animation, pose, expression, speech-timeline, camera, scene, performance,
+/// lifecycle, and recovery controls without exposing Three.js internals.
+library;
+
 export 'src/vrm_runtime.dart';
 export 'src/models/vrm_expression.dart';
 export 'src/models/vrm_graphics.dart';

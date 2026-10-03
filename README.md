@@ -140,7 +140,11 @@ VrmView(
 );
 ```
 
-Для ручного восстановления вызовите `await controller.reloadRuntime()`, а затем `await controller.waitUntilReady()`. Незавершённые команды завершаются ошибкой сразу при начале reload и не остаются ждать timeout.
+Для ручного восстановления вызовите `await controller.reloadRuntime()`, а затем
+`await controller.waitUntilReady()`. Уже принятые pending-команды сразу
+завершаются `VrmRuntimeException(code: 'canceled')` и не остаются ждать timeout.
+Для awaited-команды эту ошибку обрабатывает вызывающий код; ожидаемая отмена
+фоновой latest-value команды не публикуется в `onError`.
 
 Управление render loop зависит от платформы. С политикой `platformDefault` Android ставит renderer на паузу при потере фокуса, а Windows продолжает рендеринг видимого окна в состоянии `inactive`. Это позволяет аватару работать при переключении фокуса между Flutter и WebView2 или другим окном. Скрытое, свёрнутое, paused или detached приложение приостанавливает renderer на обеих платформах.
 
@@ -485,9 +489,10 @@ lifecycle и короткие рецепты публичного API собра
 [`docs/API_SEMANTICS.md`](docs/API_SEMANTICS.md).
 
 Integration-проверки разделены на независимые runtime/scene, motion/speech,
-lifecycle/recovery и Android performance gates. Они пройдены на физическом
-Android 16 устройстве и в Windows WebView2. Полная матрица, назначение каждого
-сценария и команды находятся в [`docs/TEST_MATRIX.md`](docs/TEST_MATRIX.md).
+lifecycle/recovery, model-race, resource-loading и Android performance gates.
+Они пройдены на физических Android-устройствах и в Windows WebView2. Полная
+матрица, назначение каждого сценария и команды находятся в
+[`docs/TEST_MATRIX.md`](docs/TEST_MATRIX.md).
 
 Запуск одного gate:
 
