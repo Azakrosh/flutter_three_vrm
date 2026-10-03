@@ -383,19 +383,7 @@ class _VrmViewState extends State<VrmView> with WidgetsBindingObserver {
       }
     }
 
-    try {
-      await sessionDisposal;
-    } on Object catch (error, stackTrace) {
-      debugPrint('Failed to dispose the VRM runtime session: $error');
-      debugPrintStack(stackTrace: stackTrace);
-    }
-
-    try {
-      await _webView.dispose();
-    } on Object catch (error, stackTrace) {
-      debugPrint('Failed to dispose the VRM WebView: $error');
-      debugPrintStack(stackTrace: stackTrace);
-    }
+    await runVrmCleanupPhases([() => sessionDisposal, _webView.dispose]);
   }
 
   @override
