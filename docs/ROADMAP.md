@@ -630,9 +630,14 @@ release checklist, clean-clone verification и окончательный ауд
 закрытые модели; в истории остаются только разрешённые sample VRM/VRMA. Самый
 большой достижимый blob — sample VRM около 10.3 MiB, объектов около лимита GitHub
 100 MiB нет. Добавлены `CONTRIBUTING.md`, `SECURITY.md`, issue/PR templates и
-`docs/REPOSITORY_PUBLICATION.md`. До первого push остаются решения владельца о
-GitHub URL, публикации существующего commit email и переименовании `master` в
-`main`, затем clean-clone verification и проверка реального GitHub Actions run.
+`docs/REPOSITORY_PUBLICATION.md`. Первый Windows clean-clone gate прошёл
+2026-10-03: 169 Flutter-тестов, 173 web-теста, analyzer/typecheck, protocol и
+bundle verification завершились успешно, итоговый worktree остался чистым.
+Проверка выявила и закрыла ложный generated-file drift через точечную LF policy в
+`.gitattributes`. Подготовка зафиксирована коммитами `8c9143c` и `6996505`.
+До первого push остаются решения владельца о GitHub URL, публикации существующего
+commit email и переименовании `master` в `main`, затем проверка реального GitHub
+Actions run.
 ### Stage 31 — Android performance observability и управление нагрузкой
 
 Статус: выполнено.

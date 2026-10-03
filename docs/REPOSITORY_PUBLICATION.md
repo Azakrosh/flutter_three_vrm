@@ -14,6 +14,8 @@ pub.dev пока не выполняется: в `pubspec.yaml` сохраняе
   GitHub templates находятся в репозитории.
 - Локальные dangling objects не передаются обычным `git push`; очистка object
   database не является условием публикации.
+- Полный локальный clean-clone gate прошёл 2026-10-03 на Windows; Flutter и web
+  suites завершились успешно, а повторная генерация не изменила worktree.
 
 ## Решения владельца до первого push
 
