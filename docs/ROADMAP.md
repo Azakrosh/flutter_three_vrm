@@ -1603,6 +1603,7 @@ lifecycle transitions, callbacks, transport operations и terminal cleanup.
 Flutter-тестов прошли; Windows matrix подтвердила `runtime_smoke`,
 `motion_speech`, `runtime_recovery`, `runtime_race` и `resource_loading`.
 Новых воспроизводимых рисков и оснований для Stage 56 не обнаружено.
+Результат зафиксирован коммитом `4b0e04b`.
 
 ## 7. Правила обновления roadmap
 
