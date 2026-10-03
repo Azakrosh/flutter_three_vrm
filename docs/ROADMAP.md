@@ -2,7 +2,7 @@
 
 Статус: активный рабочий документ
 Дата аудита: 2026-10-03
-Проверенная база: `2a3a4df fix: propagate VrmView cleanup errors`
+Проверенная база: `d56c5a4 refactor: unify VrmView configuration diagnostics`
 Целевые платформы: Android и Windows; приоритет — Android
 
 ## 1. Откуда восстановлен первоначальный план
@@ -90,6 +90,7 @@
 | 50 | Terminal settlement операций `VrmAnimationQueue` | Выполнено |
 | 51 | Error-safe teardown subscriptions runtime binding | Выполнено |
 | 52 | Наблюдаемый asynchronous teardown `VrmView` | Выполнено |
+| 53 | Единая диагностика declarative-задач `VrmView` | Выполнено |
 
 ## 3. Состояние реализации
 
@@ -337,6 +338,14 @@ Terminal Future, который запускает синхронный `State.d
 error. Session и native WebView cleanup выполняются error-safe; первая ошибка
 поднимается только после попытки завершить обе фазы.
 
+### Закрыто в Stage 53 — разная диагностика declarative-задач VrmView
+
+Graphics и background configuration Futures теперь проходят через общий
+`observeVrmViewConfigurationTask`. Policy проверяет актуальность controller в
+момент ошибки, подавляет ожидаемый `VrmRuntimeException(code: 'canceled')`,
+сохраняет stack trace и направляет активный сбой в bridge diagnostics. Только
+ошибка graphics дополнительно становится user-visible session error.
+
 ### P2 — публикационная готовность отложена
 
 В `pubspec.yaml` установлен `publish_to: none`. Это соответствует принятому
@@ -345,16 +354,18 @@ error. Session и native WebView cleanup выполняются error-safe; пе
 
 ## 5. Текущее направление
 
-Stage 52 завершён коммитами `cfce87d` и `2a3a4df`: terminal teardown `VrmView`
-передаёт первую ошибку и исходный stack trace в Flutter diagnostics после
-error-safe cleanup session и native WebView. Проходят 162 Flutter-теста и
-`flutter analyze`; Windows runtime-race, runtime/recovery и runtime smoke gates.
+Stage 53 завершён и зафиксирован коммитом `d56c5a4`: declarative graphics и
+background Futures используют одну policy для active/stale/canceled результатов,
+сохраняют исходный stack trace и не создают unhandled Zone errors. Проходят 166
+Flutter-тестов и `flutter analyze`; Windows runtime-race, runtime/recovery и
+runtime smoke gates.
 
-Следующее направление — Stage 53: унифицировать внутреннюю маршрутизацию ошибок
-declarative graphics/background задач `VrmView`. Сейчас graphics использует
-`debugPrint` и UI error, а background — bridge diagnostics; stale и canceled
-результаты должны сохранять текущую семантику. Публикация и обновление
-Three.js/three-vrm по-прежнему отложены.
+Следующее направление — Stage 54: типизировать ожидаемую отмену pending-команд
+при runtime reload/recovery. Сейчас успешный race gate печатает
+`Asynchronous VRM command failed: VRM runtime is reloading`, потому что ожидаемый
+transition представлен общим `StateError`. Реальные runtime failures должны
+оставаться диагностируемыми. Публикация и обновление Three.js/three-vrm
+по-прежнему отложены.
 
 Сейчас не следует:
 
@@ -1481,7 +1492,7 @@ Flutter-теста и `flutter analyze`; Windows gates повторно прош
 
 ### Stage 53 — единая диагностика declarative-задач VrmView
 
-Статус: запланировано.
+Статус: выполнено.
 
 Цель: дать graphics/background configuration failures единый наблюдаемый
 внутренний contract без изменения публичного API и recovery semantics.
@@ -1502,6 +1513,39 @@ Flutter-теста и `flutter analyze`; Windows gates повторно прош
 - stale/canceled результаты не создают ложных диагностик;
 - активный graphics failure остаётся видимым пользователю;
 - fire-and-forget Futures не дают unhandled Zone error;
+- unit/analyze и Windows race/recovery/smoke gates проходят.
+
+Этап завершён. Общий observer немедленно устанавливает terminal error handler,
+подавляет stale и ожидаемые canceled results, сохраняет исходный stack trace и
+разделяет user-visible graphics error от diagnostic-only background error.
+Добавлены регрессии active/stale/canceled/success и Zone handling. Всего проходят
+166 Flutter-тестов и `flutter analyze`; Windows gates повторно прошли 2026-10-03.
+Реализация зафиксирована коммитом `d56c5a4`.
+
+### Stage 54 — типизированная отмена runtime transition
+
+Статус: запланировано.
+
+Цель: не публиковать ложную async-диагностику, когда pending-команда ожидаемо
+отменяется из-за reload/recovery, сохранив ошибки реальных runtime failures.
+
+Работы:
+
+1. Представить ожидаемый reload/recovery transition типизированной причиной с
+   кодом `canceled`, не меняя protocol v3.
+2. Передавать эту причину всем pending command Futures при invalidation runtime.
+3. Подавлять её только в fire-and-forget/latest-value diagnostic paths; публичный
+   awaited Future должен завершаться типизированной ошибкой.
+4. Не подавлять transport, malformed response, timeout и WebView resource errors.
+5. Добавить unit-регрессии и убедиться, что Windows race gate проходит без
+   ложного `Asynchronous VRM command failed`.
+
+Критерии готовности:
+
+- ожидаемый reload не создаёт `VrmErrorEvent` и debug stack для фоновой команды;
+- awaiting caller получает `VrmRuntimeException(code: 'canceled')`;
+- реальные runtime/transport failures продолжают публиковаться;
+- recovery/race semantics и protocol v3 не меняются;
 - unit/analyze и Windows race/recovery/smoke gates проходят.
 
 ## 7. Правила обновления roadmap

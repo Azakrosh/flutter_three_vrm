@@ -11,7 +11,7 @@ teardown в Stage 45, thermal lifecycle serialization в Stage 46 и terminal
 content-host teardown в Stage 47, transport settlement в Stage 48, platform
 adapter lifecycle в Stage 49, terminal settlement очереди в Stage 50 и
 error-safe runtime binding teardown в Stage 51 и наблюдаемый view teardown в
-Stage 52.
+Stage 52 и единая policy declarative diagnostics в Stage 53.
 
 ## Владельцы состояния
 
@@ -138,8 +138,8 @@ runtime уже загружена.
 | `setCameraMode` | Session/App | Не replay-ится | Сохраняется | `StateError` |
 | `setTransform`, `resetCamera` и user pan/zoom | Package | Последний transform восстанавливается после model load, если revision не изменился | Сохраняется | `StateError` |
 | `setLighting`, `setEnvironmentColor`, `setShadows`, `setPhysics`, `setWind`, `stopWind` | Session/App | Не replay-ится | Сохраняется | `StateError` |
-| `setBackground*` | Session/App | Direct background не replay-ится; параметры `VrmView` replay-ятся | Сохраняется | `StateError` |
-| `setRenderQuality`, `setGraphicsPreset`, `setAdaptiveQuality`, `setGraphicsSettings` | Session/App | Direct настройки не replay-ятся; declarative параметры `VrmView` replay-ятся | Сохраняются | `StateError` |
+| `setBackground*` | Session/App | Direct background не replay-ится; параметры `VrmView` replay-ятся. Active declarative failure публикуется только в diagnostics; stale/canceled result подавляется | Сохраняется | `StateError` |
+| `setRenderQuality`, `setGraphicsPreset`, `setAdaptiveQuality`, `setGraphicsSettings` | Session/App | Direct настройки не replay-ятся; declarative параметры `VrmView` replay-ятся. Active declarative failure публикуется в diagnostics и UI; stale/canceled result подавляется | Сохраняются | `StateError` |
 | `VrmAnimationQueue.start/pause/resume/stop/interrupt` | App object | Stale transition отменяется; active position запускается после `modelLoaded` | Queue state сохраняется | `await queue.dispose()` запрещает новые команды, ожидает active playback/control callbacks и закрывает subscriptions/streams; новые команды дают синхронный `StateError` |
 
 Проверки контракта распределены между:
