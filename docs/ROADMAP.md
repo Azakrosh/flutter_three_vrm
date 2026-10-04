@@ -2,13 +2,13 @@
 
 Статус: активный рабочий документ
 Дата аудита: 2026-10-03
-Проверенная база: `c7cc70c ci: verify public documentation contract`
+Проверенная база: `24f1b53 ci: verify public documentation contract`
 Целевые платформы: Android и Windows; приоритет — Android
 
 ## 1. Откуда восстановлен первоначальный план
 
 Отдельного файла с первоначальным планом в репозитории не было. Первый
-восстанавливаемый вариант находится в `README.md` коммита `07579bc Stage 1.`:
+восстанавливаемый вариант находится в `README.md` коммита `af0e2ef Stage 1.`:
 
 > До стабильного релиза запланированы: типизированный command/response bridge
 > с timeout/cancel, authenticated resource client, GLB/glTF и
@@ -365,7 +365,7 @@ Reload/recovery теперь инвалидирует pending-команды о�
 
 ## 5. Текущее направление
 
-Stage 54 завершён и зафиксирован коммитом `b89a894`: runtime reload/recovery
+Stage 54 завершён и зафиксирован коммитом `eb6843c`: runtime reload/recovery
 завершает pending-команды типизированным `VrmRuntimeException(code: 'canceled')`,
 а bridge централизованно исключает эту ожидаемую отмену из async diagnostics.
 Проходят 169 Flutter-тестов и `flutter analyze`; Windows runtime-race,
@@ -616,7 +616,7 @@ platform gates и Android soak. Каноническая матрица нахо
 `docs/TEST_MATRIX.md`. Семантика ошибок, ownership, motion transitions и
 realtime speech, а также минимальные рецепты всех высокоуровневых блоков
 зафиксированы в `docs/API_SEMANTICS.md`. Release-gate срез зафиксирован коммитом
-`b8f4d8b`.
+`3a88f68`.
 
 ### Stage 30 — подготовка публикации
 
@@ -634,7 +634,7 @@ release checklist, clean-clone verification и окончательный ауд
 2026-10-03: 169 Flutter-тестов, 173 web-теста, analyzer/typecheck, protocol и
 bundle verification завершились успешно, итоговый worktree остался чистым.
 Проверка выявила и закрыла ложный generated-file drift через точечную LF policy в
-`.gitattributes`. Подготовка зафиксирована коммитами `8c9143c` и `6996505`.
+`.gitattributes`. Подготовка зафиксирована коммитами `be36fcc` и `17512c0`.
 Решения владельца приняты 2026-10-04: `Azakrosh/flutter_three_vrm`, ветка `main`
 и GitHub noreply identity. После обновления metadata и переписывания локальной
 истории остаются объединение с GitHub Initial commit, первый push и проверка
@@ -813,7 +813,7 @@ Offline coverage проверяет успешное сравнение, зап�
 подменённого APK hash. Все четыре пункта Stage 33 реализованы; новый тройной
 physical run остаётся операционным pre-release gate и будет выполнен после
 восстановления Firebase-квоты, а не незакрытой задачей архитектуры.
-Реализация Stage 33 зафиксирована коммитами `f187ef8` и `3e222b2`.
+Реализация Stage 33 зафиксирована коммитами `57ff9cc` и `cb6521c`.
 
 ### Stage 34 — изоляция runtime-сессии от Flutter-представления
 
@@ -937,7 +937,7 @@ state/race/resource границы; дальнейшее дробление faca
 - `VrmController` остаётся единым публичным facade и источником событий;
 - unit/analyze и затронутые Windows integration gates проходят.
 
-Реализация Stage 34–35 зафиксирована коммитом `ef57a75`.
+Реализация Stage 34–35 зафиксирована коммитом `7860a2d`.
 
 ### Stage 36 — terminal semantics и диагностика transport bridge
 
@@ -964,7 +964,7 @@ terminal outcome и не остаётся pending до общего timeout по
 dispatch failure и отсутствие ложной ошибки от позднего ответа. Всего проходят
 130 Flutter-тестов и `flutter analyze`. Windows runtime/recovery и runtime smoke
 gates повторно прошли 2026-09-30. Публичный API и protocol v3 не изменены.
-Реализация зафиксирована коммитом `4ff4bb7`.
+Реализация зафиксирована коммитом `c7dde54`.
 
 Критерии готовности:
 
@@ -1002,7 +1002,7 @@ gates повторно прошли 2026-09-30. Публичный API и protoc
 `VrmView` освобождает native WebView после session cleanup. Всего проходят 131
 Flutter-тест и `flutter analyze`; Windows runtime/recovery и resource-loading
 gates повторно прошли 2026-09-30. Публичный API и protocol v3 не изменены.
-Реализация зафиксирована коммитом `9453052`.
+Реализация зафиксирована коммитом `95247d9`.
 
 Критерии готовности:
 
@@ -1040,7 +1040,7 @@ background захватываются в immutable snapshots. Для каждо�
 superseded waiters и закрытие очереди при активной операции. Всего проходят 134
 Flutter-теста и `flutter analyze`; Windows runtime/recovery и runtime smoke gates
 повторно прошли 2026-10-01. Публичный API и protocol v3 не изменены.
-Реализация зафиксирована коммитом `36d4678`.
+Реализация зафиксирована коммитом `32514e6`.
 
 Критерии готовности:
 
@@ -1077,7 +1077,7 @@ Flutter-теста и `flutter analyze`; Windows runtime/recovery и runtime smo
 закрываются после входящих источников. Всего проходят 136 Flutter-тестов и
 `flutter analyze`; Windows motion/speech и runtime/recovery gates повторно
 прошли 2026-10-01. Protocol v3 не изменён; публичный dispose-контракт усилен до
-ожидаемого `Future<void>`. Реализация зафиксирована коммитом `f51e9ac`.
+ожидаемого `Future<void>`. Реализация зафиксирована коммитом `f7a7b46`.
 
 Критерии готовности:
 
@@ -1114,7 +1114,7 @@ regression-теста проверяют ожидание rebind cancellation, �
 ошибки и закрытие content host при ошибке текущей отмены. Всего проходят 139
 Flutter-тестов и `flutter analyze`; Windows runtime/recovery, resource-loading и
 runtime smoke gates повторно прошли 2026-10-01. Публичный API и protocol v3 не
-изменены. Реализация зафиксирована коммитом `0cbbf6d`.
+изменены. Реализация зафиксирована коммитом `eea642f`.
 
 Критерии готовности:
 
@@ -1147,7 +1147,7 @@ runtime smoke gates повторно прошли 2026-10-01. Публичный
 проверяет удержание content host до callback completion и подавление stale
 ошибки. Всего проходят 140 Flutter-тестов и `flutter analyze`; Windows
 runtime/recovery и runtime smoke gates повторно прошли 2026-10-01. Публичный API
-и protocol v3 не изменены. Реализация зафиксирована коммитом `5713400`.
+и protocol v3 не изменены. Реализация зафиксирована коммитом `9619811`.
 
 Критерии готовности:
 
@@ -1180,7 +1180,7 @@ initialization и запуска локального content host.
 порядок initialization → cleanup, idempotence и cleanup после initialization
 error. Всего проходят 142 Flutter-теста и `flutter analyze`; Windows runtime-race,
 runtime/recovery и runtime smoke gates повторно прошли 2026-10-01. Публичный API
-и protocol v3 не изменены. Реализация зафиксирована коммитом `9c211e8`.
+и protocol v3 не изменены. Реализация зафиксирована коммитом `9befe8c`.
 
 Критерии готовности:
 
@@ -1215,7 +1215,7 @@ settlement → runtime/native cleanup. Queued и future configurations откл�
 а уже активные операции достигают terminal state до освобождения WebView. Всего
 проходят 144 Flutter-теста и `flutter analyze`; Windows runtime-race,
 runtime/recovery и runtime smoke gates повторно прошли 2026-10-01. Публичный API
-и protocol v3 не изменены. Реализация зафиксирована коммитом `26dfc26`.
+и protocol v3 не изменены. Реализация зафиксирована коммитом `df602bf`.
 
 Критерии готовности:
 
@@ -1248,7 +1248,7 @@ Future до своего завершения, повторный dispose раз
 состояние после close не запускается. Всего проходят 146 Flutter-тестов и
 `flutter analyze`; Windows runtime-race, runtime/recovery и runtime smoke gates
 повторно прошли 2026-10-01. Публичный API и protocol v3 не изменены. Реализация
-зафиксирована коммитом `3e6b793`.
+зафиксирована коммитом `e3ae53b`.
 
 Критерии готовности:
 
@@ -1281,7 +1281,7 @@ Future до своего завершения, повторный dispose раз
 ровно один раз даже после предыдущей ошибки. Всего проходят 148 Flutter-тестов и
 `flutter analyze`; Windows runtime-race, runtime/recovery и runtime smoke gates
 повторно прошли 2026-10-02. Публичные сигнатуры и protocol v3 не изменены.
-Реализация зафиксирована коммитом `8fe0273`.
+Реализация зафиксирована коммитом `4aad513`.
 
 Критерии готовности:
 
@@ -1315,7 +1315,7 @@ listeners, stale event не меняет snapshot, а stop Future заверша
 достижения последнего desired state. Всего проходят 149 Flutter-тестов и
 `flutter analyze`; Windows runtime-race, runtime/recovery и runtime smoke gates
 повторно прошли 2026-10-02. Публичный API и protocol v3 не изменены. Реализация
-зафиксирована коммитом `331d000`.
+зафиксирована коммитом `6d48f91`.
 
 Критерии готовности:
 
@@ -1347,7 +1347,7 @@ listeners, stale event не меняет snapshot, а stop Future заверша
 barrier, а resource registry живёт до их завершения. Всего проходят 150
 Flutter-тестов и `flutter analyze`; Windows runtime-race, runtime/recovery и
 runtime smoke gates повторно прошли 2026-10-02. Публичный API и protocol v3 не
-изменены. Реализация зафиксирована коммитом `4e48af5`.
+изменены. Реализация зафиксирована коммитом `208dccd`.
 
 Критерии готовности:
 
@@ -1384,7 +1384,7 @@ identity transport owner. Detach немедленно завершает pending
 cleanup в общий barrier. Всего проходят 154 Flutter-теста и `flutter analyze`;
 Windows runtime-race, runtime/recovery и runtime smoke gates повторно прошли
 2026-10-02. Публичный API и protocol v3 не изменены. Реализация зафиксирована
-коммитом `90ce974`.
+коммитом `79248ee`.
 
 Критерии готовности:
 
@@ -1419,7 +1419,7 @@ Futures, отслеживает active platform operations и выполняет
 error-safe runner. Всего проходят 157 Flutter-тестов и `flutter analyze`;
 Windows runtime-race, runtime/recovery и runtime smoke gates повторно прошли
 2026-10-02. Публичный API и protocol v3 не изменены. Реализация зафиксирована
-коммитом `888065b`.
+коммитом `ee42304`.
 
 Критерии готовности:
 
@@ -1461,7 +1461,7 @@ streams закрываются независимо от ошибки преды
 регрессии для delayed operations и cancellation failure. Всего проходят 159
 Flutter-тестов и `flutter analyze`; Windows runtime-race, runtime/recovery и
 runtime smoke gates повторно прошли 2026-10-02. Реализация зафиксирована коммитом
-`51b8264`.
+`0c7a090`.
 
 ### Stage 51 — error-safe teardown subscriptions runtime binding
 
@@ -1493,7 +1493,7 @@ runtime smoke gates повторно прошли 2026-10-02. Реализаци
 error-safe фазой. Регрессия одновременно проверяет синхронную cancellation
 failure, попытку отмены остальных subscriptions, ошибку close и сохранение первой
 ошибки. Всего проходят 160 Flutter-тестов и `flutter analyze`; Windows gates
-повторно прошли 2026-10-02. Реализация зафиксирована коммитом `1dd3f45`.
+повторно прошли 2026-10-02. Реализация зафиксирована коммитом `caff5a2`.
 
 ### Stage 52 — наблюдаемый asynchronous teardown VrmView
 
@@ -1525,7 +1525,7 @@ failure, попытку отмены остальных subscriptions, ошиб�
 `FlutterError.reportError`, успешный teardown не создаёт диагностик, а
 session/WebView cleanup использует общий error-safe runner. Всего проходят 162
 Flutter-теста и `flutter analyze`; Windows gates повторно прошли 2026-10-03.
-Реализация зафиксирована коммитами `cfce87d` и `2a3a4df`.
+Реализация зафиксирована коммитами `3f88cec` и `baed665`.
 
 ### Stage 53 — единая диагностика declarative-задач VrmView
 
@@ -1557,7 +1557,7 @@ Flutter-теста и `flutter analyze`; Windows gates повторно прош
 разделяет user-visible graphics error от diagnostic-only background error.
 Добавлены регрессии active/stale/canceled/success и Zone handling. Всего проходят
 166 Flutter-тестов и `flutter analyze`; Windows gates повторно прошли 2026-10-03.
-Реализация зафиксирована коммитом `d56c5a4`.
+Реализация зафиксирована коммитом `a310a88`.
 
 ### Stage 54 — типизированная отмена runtime transition
 
@@ -1592,7 +1592,7 @@ invalidation bridge и session coordinator. Центральный `reportAsyncE
 сохраняет типизированную ошибку. Добавлены unit-регрессии для обоих путей и для
 реального runtime failure. Всего проходят 169 Flutter-тестов и `flutter analyze`;
 Windows race/recovery/smoke gates повторно прошли 2026-10-03. Реализация
-зафиксирована коммитом `b89a894`.
+зафиксирована коммитом `eb6843c`.
 
 ### Stage 55 — контрольная ревизия контрактов после hardening
 
@@ -1627,7 +1627,7 @@ lifecycle transitions, callbacks, transport operations и terminal cleanup.
 Flutter-тестов прошли; Windows matrix подтвердила `runtime_smoke`,
 `motion_speech`, `runtime_recovery`, `runtime_race` и `resource_loading`.
 Новых воспроизводимых рисков и оснований для Stage 56 не обнаружено.
-Результат зафиксирован коммитом `4b0e04b`.
+Результат зафиксирован коммитом `90eb192`.
 
 ### Stage 56 — достоверность публичной документации
 
@@ -1666,8 +1666,8 @@ typed reload-cancellation и полной integration matrix, а Ubuntu quality 
 TypeScript typecheck, 173 web-теста, protocol contract и runtime bundle checksum
 прошли 2026-10-03. Локальный Windows dartdoc 9.0.6 воспроизводимо падает в
 `_stripDocImports`; даже LF-экспорт пакета не устраняет CRLF из Windows SDK.
-Первый срез зафиксирован коммитом `92590ae`. Cross-platform verifier добавлен
-коммитом `c7cc70c` и локально проходит вместе с `flutter analyze`. Этап остаётся
+Первый срез зафиксирован коммитом `8e63dfa`. Cross-platform verifier добавлен
+коммитом `24f1b53` и локально проходит вместе с `flutter analyze`. Этап остаётся
 в работе до фактического Linux CI результата либо повторного Windows gate на
 dartdoc 9.0.10.
 
