@@ -26,16 +26,16 @@ pub.dev пока не выполняется: в `pubspec.yaml` сохраняе
 
 ## Первый push
 
-Создайте пустой GitHub-репозиторий без автоматически добавленных README,
-`.gitignore` и LICENSE. Затем из локального репозитория:
+Публичный GitHub-репозиторий был заранее создан с одним Initial commit. Его
+история получена как `origin/main` и сохранена вторым родителем локального merge,
+поэтому первый push будет fast-forward и не потребует `--force`:
 
 ```bash
-git remote add origin <repository-url>
-git push -u origin <branch>
+git push -u origin main
 ```
 
-Не добавляйте remote и не выполняйте push, пока URL и политика email не
-подтверждены.
+Remote настроен на `https://github.com/Azakrosh/flutter_three_vrm.git`. Push ещё
+не выполнен: перед ним проводится финальный reachable-history audit.
 
 ## Настройки GitHub после push
 

@@ -636,9 +636,11 @@ bundle verification завершились успешно, итоговый work
 Проверка выявила и закрыла ложный generated-file drift через точечную LF policy в
 `.gitattributes`. Подготовка зафиксирована коммитами `be36fcc` и `17512c0`.
 Решения владельца приняты 2026-10-04: `Azakrosh/flutter_three_vrm`, ветка `main`
-и GitHub noreply identity. После обновления metadata и переписывания локальной
-истории остаются объединение с GitHub Initial commit, первый push и проверка
-реального GitHub Actions run.
+и GitHub noreply identity. Все 127 локальных commit переписаны на
+`33670184+Azakrosh@users.noreply.github.com`, а 30 ссылок ROADMAP перенесены на
+новые SHA. Удалённый Initial commit `7c8c21a` сохранён в ancestry через merge
+`e9cfd08`, поэтому force-push не нужен. Остаются финальный reachable-history
+audit, первый push и проверка реального GitHub Actions run.
 ### Stage 31 — Android performance observability и управление нагрузкой
 
 Статус: выполнено.
