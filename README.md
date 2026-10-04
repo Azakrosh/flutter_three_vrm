@@ -1,5 +1,7 @@
 # flutter_three_vrm
 
+[![CI](https://github.com/Azakrosh/flutter_three_vrm/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Azakrosh/flutter_three_vrm/actions/workflows/ci.yml)
+
 Flutter-пакет для отображения и управления одним VRM-аватаром внутри WebView. Целевые платформы — Android и Windows.
 
 > Версия `0.2.0-dev.1` находится в активной переработке. Обратная совместимость с `0.1.x` не гарантируется.
