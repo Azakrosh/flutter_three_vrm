@@ -81,7 +81,7 @@ describe("runtime scene controller", () => {
     expect(mesh.castShadow).toBe(true);
     expect(mesh.receiveShadow).toBe(true);
     expect(material.version).toBeGreaterThan(initialMaterialVersion);
-    expect(harness.renderers[0]!.clear).toHaveBeenCalledOnce();
+    expect(harness.renderers[0]!.clear).not.toHaveBeenCalled();
 
     controller.setCanvasBackground("#224466", false);
     expect(controller.scene.background).not.toBeNull();
@@ -149,8 +149,14 @@ describe("runtime scene controller", () => {
     expect(firstRenderer.dispose).toHaveBeenCalledOnce();
     expect(firstRenderer.forceContextLoss).toHaveBeenCalledOnce();
     expect(harness.containerChildren).toEqual([secondRenderer.canvas]);
+    expect(secondRenderer.render).toHaveBeenCalledOnce();
+    expect(secondRenderer.render).toHaveBeenCalledWith(
+      controller.scene,
+      controller.camera,
+    );
     expect(controller.recreateRenderer(false)).toBe(false);
 
+    secondRenderer.render.mockClear();
     const prepareCamera = vi.fn();
     controller.updateAndRender(prepareCamera);
     expect(secondControls.update).toHaveBeenCalledOnce();

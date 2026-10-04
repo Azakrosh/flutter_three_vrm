@@ -2,6 +2,8 @@
 
 ## 0.2.0-dev.1
 
+- Prevent transient black WebView frames by applying render-resolution changes immediately before rendering and pre-rendering replacement canvases.
+- Patch Three.js 0.180.0 OrbitControls to end Android pinch gestures safely when one pointer remains and one-finger rotation is disabled.
 - Separate model/animation operational stalls from steady-state frame telemetry and adaptive-quality decisions.
 - Add host-process RSS snapshots, Flutter memory-pressure events, and per-phase RSS reporting to the Android soak gate.
 - Add an Android API 29+ `PowerManager` thermal-status plugin with lifecycle-safe listener cleanup and explicit unsupported-platform fallback.

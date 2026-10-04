@@ -1,0 +1,23 @@
+diff --git a/examples/jsm/controls/OrbitControls.js b/examples/jsm/controls/OrbitControls.js
+index eea26706dae735dade19367026185f6e68f5cf55..84975a5a42e9e8888a7d0eac9d41b0d58d17741f 100644
+--- a/examples/jsm/controls/OrbitControls.js
++++ b/examples/jsm/controls/OrbitControls.js
+@@ -1520,9 +1520,18 @@ function onPointerUp( event ) {
+ 
+ 		case 1:
+ 
++			// A two-pointer gesture may end in a disabled one-pointer mode
++			// (for example constrained zoom with rotation disabled). Reset the
++			// previous dolly state before _onTouchStart() can return early.
++			this.state = _STATE.NONE;
++
+ 			const pointerId = this._pointers[ 0 ];
+ 			const position = this._pointerPositions[ pointerId ];
+ 
++			// Android WebView can deliver cancellation/up events after its
++			// pointer-position entry has already disappeared.
++			if ( position === undefined ) break;
++
+ 			// minimal placeholder event - allows state correction on pointer-up
+ 			this._onTouchStart( { pointerId: pointerId, pageX: position.x, pageY: position.y } );
+ 

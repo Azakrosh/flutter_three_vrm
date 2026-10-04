@@ -29,7 +29,7 @@ describe("runtime graphics controller", () => {
     });
     expect(harness.recreateRenderer).toHaveBeenCalledWith(false);
     expect(harness.setPhysicsEnabled).toHaveBeenCalledWith(false);
-    expect(harness.scene.setPixelRatio).toHaveBeenCalledWith(3);
+    expect(harness.scene.setPixelRatio).not.toHaveBeenCalled();
     expect(harness.controller.fpsCap).toBe(120);
     expect(harness.controller.physicsEnabled).toBe(false);
     expect(harness.controller.getSnapshot()).toMatchObject({
@@ -37,6 +37,9 @@ describe("runtime graphics controller", () => {
       physicsEnabled: false,
       pixelRatio: 3,
     });
+    harness.controller.prepareForRender();
+    expect(harness.scene.setPixelRatio).toHaveBeenCalledWith(3);
+    expect(harness.ratio()).toBe(3);
   });
 
   it("uses the configured frame cap and resets cadence after resume", () => {
@@ -75,6 +78,7 @@ describe("runtime graphics controller", () => {
       maxPixelRatio: 1.25,
     });
     graphics.setPreset("performance");
+    graphics.prepareForRender();
     expect(harness.scene.setShadows).toHaveBeenLastCalledWith(false);
     expect(harness.recreateRenderer).toHaveBeenCalledWith(false);
     expect(graphics.fpsCap).toBe(30);
@@ -82,6 +86,7 @@ describe("runtime graphics controller", () => {
     expect(graphics.getSnapshot().adaptiveTargetFps).toBe(30);
 
     graphics.setPreset("quality");
+    graphics.prepareForRender();
     expect(harness.scene.setShadows).toHaveBeenLastCalledWith(true);
     expect(harness.recreateRenderer).toHaveBeenLastCalledWith(true);
     expect(graphics.fpsCap).toBe(60);
@@ -98,10 +103,18 @@ describe("runtime graphics controller", () => {
       minPixelRatio: 0.75,
       maxPixelRatio: 1.5,
     });
+    const resizeCallsBeforeSampling =
+      harness.scene.setPixelRatio.mock.calls.length;
     for (let frame = 1; frame <= 120; frame += 1) {
       graphics.recordFrame(frame * 25);
     }
-    expect(harness.ratio()).toBe(1.35);
+    // Measuring the rendered frame only queues the resize. Applying it here
+    // models the beginning of the next RAF, immediately before rendering.
+    expect(harness.ratio()).toBe(1.5);
+    expect(harness.scene.setPixelRatio).toHaveBeenCalledTimes(
+      resizeCallsBeforeSampling,
+    );
+    expect(graphics.getSnapshot().pixelRatio).toBe(1.35);
     expect(harness.onPerformance).toHaveBeenCalled();
     expect(harness.onPerformance).toHaveBeenLastCalledWith(
       expect.objectContaining({
@@ -116,6 +129,15 @@ describe("runtime graphics controller", () => {
         geometries: 2,
         textures: 3,
       }),
+    );
+    graphics.prepareForRender();
+    expect(harness.ratio()).toBe(1.35);
+    expect(harness.scene.setPixelRatio).toHaveBeenCalledTimes(
+      resizeCallsBeforeSampling + 1,
+    );
+    graphics.prepareForRender();
+    expect(harness.scene.setPixelRatio).toHaveBeenCalledTimes(
+      resizeCallsBeforeSampling + 1,
     );
     expect(graphics.getSnapshot().reason).toBe("performanceDown");
   });

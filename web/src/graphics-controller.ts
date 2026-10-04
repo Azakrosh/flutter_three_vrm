@@ -119,6 +119,7 @@ export class RuntimeGraphicsController {
   private longestFrameMs = 0;
   private lastRecordedFrameTime = 0;
   private lastPerformanceReport = 0;
+  private pendingPixelRatio: number | null = null;
   private snapshot: RuntimePerformanceSnapshot;
 
   public constructor(
@@ -183,6 +184,17 @@ export class RuntimeGraphicsController {
     return true;
   }
 
+  /**
+   * Applies a queued resolution change immediately before the same frame
+   * renders.
+   */
+  public prepareForRender(): void {
+    const pixelRatio = this.pendingPixelRatio;
+    if (pixelRatio === null) return;
+    this.pendingPixelRatio = null;
+    this.dependencies.scene.setPixelRatio(pixelRatio);
+  }
+
   public resetTiming(now: number): void {
     this.lastFrameTime = 0;
     this.performanceWindowStart = now;
@@ -215,7 +227,7 @@ export class RuntimeGraphicsController {
       this.lastFrameTime = 0;
     }
     if (pixelRatio !== undefined) {
-      this.dependencies.scene.setPixelRatio(MathUtils.clamp(pixelRatio, 0.5, 3));
+      this.queuePixelRatio(MathUtils.clamp(pixelRatio, 0.5, 3));
     }
   }
 
@@ -238,8 +250,8 @@ export class RuntimeGraphicsController {
 
   public setAdaptiveQuality(settings: unknown): void {
     const config: AdaptiveQualityConfig = this.adaptiveQuality.configure(settings);
-    this.dependencies.scene.setPixelRatio(MathUtils.clamp(
-      this.dependencies.scene.renderer.getPixelRatio(),
+    this.queuePixelRatio(MathUtils.clamp(
+      this.effectivePixelRatio(),
       config.minPixelRatio,
       config.maxPixelRatio,
     ));
@@ -263,7 +275,7 @@ export class RuntimeGraphicsController {
       updateTimeP95Ms: this.snapshot.updateTimeP95Ms,
       renderTimeP95Ms: this.snapshot.renderTimeP95Ms,
       longFrameSource: this.snapshot.longFrameSource,
-      pixelRatio: renderer.getPixelRatio(),
+      pixelRatio: this.effectivePixelRatio(),
       fpsCap: this.fpsCapValue,
       physicsEnabled: this.physicsEnabledValue,
       adaptiveQualityEnabled: this.adaptiveQuality.config.enabled,
@@ -319,9 +331,17 @@ export class RuntimeGraphicsController {
       0.95,
     );
     const adjustment = this.adaptiveQuality.evaluate(
-      fps, this.dependencies.scene.renderer.getPixelRatio(), this.fpsCapValue, now,
+      fps,
+      this.effectivePixelRatio(),
+      this.fpsCapValue,
+      now,
     );
-    if (adjustment) this.dependencies.scene.setPixelRatio(adjustment.pixelRatio);
+    if (adjustment) {
+      // setPixelRatio() resizes and clears the WebGL canvas. Queue it until
+      // immediately before the next render so WebView never composites the
+      // cleared framebuffer as a transient black frame.
+      this.queuePixelRatio(adjustment.pixelRatio);
+    }
     this.snapshot = {
       ...this.getSnapshot(adjustment?.reason ?? "sample"),
       fps,
@@ -349,6 +369,15 @@ export class RuntimeGraphicsController {
     this.longFrameCount = 0;
     this.longestFrameMs = 0;
     this.performanceWindowStart = now;
+  }
+
+  private effectivePixelRatio(): number {
+    return this.pendingPixelRatio ??
+      this.dependencies.scene.renderer.getPixelRatio();
+  }
+
+  private queuePixelRatio(pixelRatio: number): void {
+    this.pendingPixelRatio = pixelRatio;
   }
 
   private recordWorkload(updateTimeMs: number, renderTimeMs: number): void {

@@ -26,6 +26,9 @@
     "pnpm": {
         "onlyBuiltDependencies": [
             "esbuild"
-        ]
+        ],
+        "patchedDependencies": {
+            "three@0.180.0": "patches/three@0.180.0.patch"
+        }
     }
 }

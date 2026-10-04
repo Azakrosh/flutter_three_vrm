@@ -4,19 +4,24 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  three@0.180.0:
+    hash: c36d526a9f1e69aa93d4b3eda34d5a853d53f3fcd21e741b8a8b2ea699ce9c84
+    path: patches/three@0.180.0.patch
+
 importers:
 
   .:
     dependencies:
       '@pixiv/three-vrm':
         specifier: 3.5.5
-        version: 3.5.5(three@0.180.0)
+        version: 3.5.5(three@0.180.0(patch_hash=c36d526a9f1e69aa93d4b3eda34d5a853d53f3fcd21e741b8a8b2ea699ce9c84))
       '@pixiv/three-vrm-animation':
         specifier: 3.5.5
-        version: 3.5.5(three@0.180.0)
+        version: 3.5.5(three@0.180.0(patch_hash=c36d526a9f1e69aa93d4b3eda34d5a853d53f3fcd21e741b8a8b2ea699ce9c84))
       three:
         specifier: 0.180.0
-        version: 0.180.0
+        version: 0.180.0(patch_hash=c36d526a9f1e69aa93d4b3eda34d5a853d53f3fcd21e741b8a8b2ea699ce9c84)
     devDependencies:
       '@types/three':
         specifier: 0.180.0
@@ -890,57 +895,57 @@ snapshots:
 
   '@oxc-project/types@0.149.0': {}
 
-  '@pixiv/three-vrm-animation@3.5.5(three@0.180.0)':
+  '@pixiv/three-vrm-animation@3.5.5(three@0.180.0(patch_hash=c36d526a9f1e69aa93d4b3eda34d5a853d53f3fcd21e741b8a8b2ea699ce9c84))':
     dependencies:
-      '@pixiv/three-vrm-core': 3.5.5(three@0.180.0)
+      '@pixiv/three-vrm-core': 3.5.5(three@0.180.0(patch_hash=c36d526a9f1e69aa93d4b3eda34d5a853d53f3fcd21e741b8a8b2ea699ce9c84))
       '@pixiv/types-vrmc-vrm-1.0': 3.5.5
       '@pixiv/types-vrmc-vrm-animation-1.0': 3.5.5
-      three: 0.180.0
+      three: 0.180.0(patch_hash=c36d526a9f1e69aa93d4b3eda34d5a853d53f3fcd21e741b8a8b2ea699ce9c84)
 
-  '@pixiv/three-vrm-core@3.5.5(three@0.180.0)':
+  '@pixiv/three-vrm-core@3.5.5(three@0.180.0(patch_hash=c36d526a9f1e69aa93d4b3eda34d5a853d53f3fcd21e741b8a8b2ea699ce9c84))':
     dependencies:
       '@pixiv/types-vrm-0.0': 3.5.5
       '@pixiv/types-vrmc-vrm-1.0': 3.5.5
-      three: 0.180.0
+      three: 0.180.0(patch_hash=c36d526a9f1e69aa93d4b3eda34d5a853d53f3fcd21e741b8a8b2ea699ce9c84)
 
-  '@pixiv/three-vrm-materials-hdr-emissive-multiplier@3.5.5(three@0.180.0)':
+  '@pixiv/three-vrm-materials-hdr-emissive-multiplier@3.5.5(three@0.180.0(patch_hash=c36d526a9f1e69aa93d4b3eda34d5a853d53f3fcd21e741b8a8b2ea699ce9c84))':
     dependencies:
       '@pixiv/types-vrmc-materials-hdr-emissive-multiplier-1.0': 3.5.5
-      three: 0.180.0
+      three: 0.180.0(patch_hash=c36d526a9f1e69aa93d4b3eda34d5a853d53f3fcd21e741b8a8b2ea699ce9c84)
 
-  '@pixiv/three-vrm-materials-mtoon@3.5.5(three@0.180.0)':
+  '@pixiv/three-vrm-materials-mtoon@3.5.5(three@0.180.0(patch_hash=c36d526a9f1e69aa93d4b3eda34d5a853d53f3fcd21e741b8a8b2ea699ce9c84))':
     dependencies:
       '@pixiv/types-vrm-0.0': 3.5.5
       '@pixiv/types-vrmc-materials-mtoon-1.0': 3.5.5
-      three: 0.180.0
+      three: 0.180.0(patch_hash=c36d526a9f1e69aa93d4b3eda34d5a853d53f3fcd21e741b8a8b2ea699ce9c84)
 
-  '@pixiv/three-vrm-materials-v0compat@3.5.5(three@0.180.0)':
+  '@pixiv/three-vrm-materials-v0compat@3.5.5(three@0.180.0(patch_hash=c36d526a9f1e69aa93d4b3eda34d5a853d53f3fcd21e741b8a8b2ea699ce9c84))':
     dependencies:
       '@pixiv/types-vrm-0.0': 3.5.5
       '@pixiv/types-vrmc-materials-mtoon-1.0': 3.5.5
-      three: 0.180.0
+      three: 0.180.0(patch_hash=c36d526a9f1e69aa93d4b3eda34d5a853d53f3fcd21e741b8a8b2ea699ce9c84)
 
-  '@pixiv/three-vrm-node-constraint@3.5.5(three@0.180.0)':
+  '@pixiv/three-vrm-node-constraint@3.5.5(three@0.180.0(patch_hash=c36d526a9f1e69aa93d4b3eda34d5a853d53f3fcd21e741b8a8b2ea699ce9c84))':
     dependencies:
       '@pixiv/types-vrmc-node-constraint-1.0': 3.5.5
-      three: 0.180.0
+      three: 0.180.0(patch_hash=c36d526a9f1e69aa93d4b3eda34d5a853d53f3fcd21e741b8a8b2ea699ce9c84)
 
-  '@pixiv/three-vrm-springbone@3.5.5(three@0.180.0)':
+  '@pixiv/three-vrm-springbone@3.5.5(three@0.180.0(patch_hash=c36d526a9f1e69aa93d4b3eda34d5a853d53f3fcd21e741b8a8b2ea699ce9c84))':
     dependencies:
       '@pixiv/types-vrm-0.0': 3.5.5
       '@pixiv/types-vrmc-springbone-1.0': 3.5.5
       '@pixiv/types-vrmc-springbone-extended-collider-1.0': 3.5.5
-      three: 0.180.0
+      three: 0.180.0(patch_hash=c36d526a9f1e69aa93d4b3eda34d5a853d53f3fcd21e741b8a8b2ea699ce9c84)
 
-  '@pixiv/three-vrm@3.5.5(three@0.180.0)':
+  '@pixiv/three-vrm@3.5.5(three@0.180.0(patch_hash=c36d526a9f1e69aa93d4b3eda34d5a853d53f3fcd21e741b8a8b2ea699ce9c84))':
     dependencies:
-      '@pixiv/three-vrm-core': 3.5.5(three@0.180.0)
-      '@pixiv/three-vrm-materials-hdr-emissive-multiplier': 3.5.5(three@0.180.0)
-      '@pixiv/three-vrm-materials-mtoon': 3.5.5(three@0.180.0)
-      '@pixiv/three-vrm-materials-v0compat': 3.5.5(three@0.180.0)
-      '@pixiv/three-vrm-node-constraint': 3.5.5(three@0.180.0)
-      '@pixiv/three-vrm-springbone': 3.5.5(three@0.180.0)
-      three: 0.180.0
+      '@pixiv/three-vrm-core': 3.5.5(three@0.180.0(patch_hash=c36d526a9f1e69aa93d4b3eda34d5a853d53f3fcd21e741b8a8b2ea699ce9c84))
+      '@pixiv/three-vrm-materials-hdr-emissive-multiplier': 3.5.5(three@0.180.0(patch_hash=c36d526a9f1e69aa93d4b3eda34d5a853d53f3fcd21e741b8a8b2ea699ce9c84))
+      '@pixiv/three-vrm-materials-mtoon': 3.5.5(three@0.180.0(patch_hash=c36d526a9f1e69aa93d4b3eda34d5a853d53f3fcd21e741b8a8b2ea699ce9c84))
+      '@pixiv/three-vrm-materials-v0compat': 3.5.5(three@0.180.0(patch_hash=c36d526a9f1e69aa93d4b3eda34d5a853d53f3fcd21e741b8a8b2ea699ce9c84))
+      '@pixiv/three-vrm-node-constraint': 3.5.5(three@0.180.0(patch_hash=c36d526a9f1e69aa93d4b3eda34d5a853d53f3fcd21e741b8a8b2ea699ce9c84))
+      '@pixiv/three-vrm-springbone': 3.5.5(three@0.180.0(patch_hash=c36d526a9f1e69aa93d4b3eda34d5a853d53f3fcd21e741b8a8b2ea699ce9c84))
+      three: 0.180.0(patch_hash=c36d526a9f1e69aa93d4b3eda34d5a853d53f3fcd21e741b8a8b2ea699ce9c84)
 
   '@pixiv/types-vrm-0.0@3.5.5': {}
 
@@ -1255,7 +1260,7 @@ snapshots:
 
   std-env@4.2.0: {}
 
-  three@0.180.0: {}
+  three@0.180.0(patch_hash=c36d526a9f1e69aa93d4b3eda34d5a853d53f3fcd21e741b8a8b2ea699ce9c84): {}
 
   tinybench@6.1.4: {}
 

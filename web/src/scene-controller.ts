@@ -206,6 +206,9 @@ export class RuntimeSceneController {
   }
 
   public setPixelRatio(pixelRatio: number): void {
+    if (Math.abs(this.rendererValue.getPixelRatio() - pixelRatio) <= 1e-9) {
+      return;
+    }
     this.rendererValue.setPixelRatio(pixelRatio);
     const viewport = this.getViewport();
     this.rendererValue.setSize(viewport.width, viewport.height, false);
@@ -245,7 +248,6 @@ export class RuntimeSceneController {
       mesh.receiveShadow = enabled;
       markMaterialForUpdate(mesh.material);
     });
-    this.rendererValue.clear();
     return true;
   }
 
@@ -281,6 +283,9 @@ export class RuntimeSceneController {
     try {
       newControls = this.createConfiguredControls(newRenderer.domElement);
       newControls.target.copy(oldTarget);
+      this.markMaterialsForUpdate();
+      // Populate the replacement framebuffer before exposing its canvas.
+      newRenderer.render(this.scene, this.camera);
     } catch (error) {
       newRenderer.dispose();
       newRenderer.forceContextLoss();
@@ -290,8 +295,10 @@ export class RuntimeSceneController {
     this.detachRendererEvents();
     this.detachControlsEvents(oldControls);
     oldControls.dispose();
-    oldRenderer.dispose();
-    oldRenderer.forceContextLoss();
+
+    // Append the already-rendered canvas before removing the old one so native
+    // WebView compositing never observes a container without a valid frame.
+    this.container.appendChild(newRenderer.domElement);
     if (oldCanvas.parentNode === this.container) {
       this.container.removeChild(oldCanvas);
     }
@@ -300,11 +307,11 @@ export class RuntimeSceneController {
     this.contextLostValue = false;
     this.rendererValue = newRenderer;
     this.controlsValue = newControls;
-    this.container.appendChild(newRenderer.domElement);
     this.attachRendererEvents(newRenderer.domElement);
     this.attachControlsEvents(newControls);
-    this.markMaterialsForUpdate();
-    newRenderer.clear();
+
+    oldRenderer.dispose();
+    oldRenderer.forceContextLoss();
     return true;
   }
 
