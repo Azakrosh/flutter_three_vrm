@@ -378,7 +378,7 @@ Stage 55 завершён: ownership и terminal outcomes проверены н�
 архитектурных рисков не обнаружено. `flutter analyze`, все 169 Flutter-тестов и
 полная Windows integration matrix из пяти gates прошли 2026-10-03.
 
-Текущее направление: Stage 30 и Stage 56 завершены 2026-10-04. Репозиторий
+Текущее направление: Stage 30, Stage 56 и Stage 57 завершены 2026-10-04. Репозиторий
 опубликован на `https://github.com/Azakrosh/flutter_three_vrm`, история использует
 GitHub noreply identity, ветка `main` отслеживает `origin/main`. Первый публичный
 GitHub Actions run `37183478503` завершил `quality` и `windows` jobs со статусом
@@ -1671,6 +1671,31 @@ analyzer, 169 Flutter-тестов, 173 web-теста, protocol/bundle gates, A
 Windows build и Windows runtime smoke. Upstream Windows dartdoc retry остаётся
 техническим наблюдением и больше не блокирует этап.
 
+### Stage 57 — GitHub governance и supply-chain настройки
+
+Статус: выполнено 2026-10-04.
+
+Цель: сделать публичный репозиторий безопасным и обслуживаемым без усложнения
+ежедневной работы единственного владельца.
+
+Результат:
+
+- добавлены CODEOWNERS, CI badge и еженедельные Dependabot version updates для
+  Flutter package, example, npm web-runtime и GitHub Actions;
+- `main` защищена обязательными `quality`/`windows`, strict status checks,
+  conversation resolution и запретом force-push/delete;
+- admin bypass оставлен включённым как аварийный путь для одного владельца;
+- разрешён только squash merge, включены auto-merge и delete branch on merge;
+- Actions token ограничен read-only и не может approve pull requests;
+- включены vulnerability alerts, Dependabot security updates, standard secret
+  scanning, push protection и Private vulnerability reporting;
+- repository description/topics заданы, wiki/projects отключены, issues оставлены;
+- API readback подтвердил настройки; non-provider secret patterns и validity
+  checks GitHub оставил недоступными для текущего репозитория.
+
+Проверяемая часть governance-контракта добавлена в
+`tool/verify_public_docs.mjs`. GitHub автоматически распознал все четыре секции
+Dependabot и запустил initial update jobs.
 ## 7. Правила обновления roadmap
 
 - После этапа обновлять его статус и добавлять commit hash.

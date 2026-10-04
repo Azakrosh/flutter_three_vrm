@@ -50,6 +50,22 @@ fast-forward push выполнен 2026-10-04: локальная и удалё�
 - проверить описание, topics и ссылку на лицензию на главной странице;
 - не включать GitHub Pages: пакет не требует публичного web-hosting.
 
+## Фактическая конфигурация GitHub
+
+Проверено 2026-10-04 через GitHub API:
+
+- `main` требует успешные checks `quality` и `windows`, актуальность относительно
+  base branch и разрешение review conversations;
+- force-push и удаление `main` запрещены; admin bypass сохранён для аварийного
+  обслуживания единственного владельца;
+- разрешён только squash merge, включены auto-merge и удаление merged branches;
+- Actions используют read-only token и не могут подтверждать pull requests;
+- включены Dependabot alerts/security updates, standard secret scanning, push
+  protection и Private vulnerability reporting;
+- расширенные non-provider patterns и validity checks остались недоступны;
+- wiki и projects отключены, issues оставлены включёнными;
+- `.github/CODEOWNERS` назначает `@Azakrosh`, а `.github/dependabot.yml` еженедельно
+  проверяет root Flutter package, example, web-runtime и GitHub Actions.
 ## Проверка чистого клона
 
 До тега клонируйте репозиторий в новый каталог и выполните:

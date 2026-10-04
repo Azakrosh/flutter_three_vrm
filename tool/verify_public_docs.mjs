@@ -114,6 +114,8 @@ assertContains(
 );
 
 for (const documentPath of [
+  '.github/CODEOWNERS',
+  '.github/dependabot.yml',
   'CONTRIBUTING.md',
   'SECURITY.md',
   'docs/REPOSITORY_PUBLICATION.md',
@@ -139,6 +141,11 @@ assertContains(
   publicLibrary,
   'High-level Flutter API for displaying and controlling one VRM avatar',
   'public library overview',
+);
+assertContains(
+  readme,
+  'actions/workflows/ci.yml/badge.svg?branch=main',
+  'README CI badge',
 );
 assertContains(
   workflow,
