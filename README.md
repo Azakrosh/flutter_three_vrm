@@ -30,7 +30,7 @@ Runtime собирается из зафиксированных зависим�
 dependencies:
   flutter_three_vrm:
     git:
-      url: https://github.com/OWNER/flutter_three_vrm.git
+      url: https://github.com/Azakrosh/flutter_three_vrm.git
       ref: <commit-or-tag>
 ```
 

@@ -27,6 +27,24 @@ const packageVersion = requireMatch(
   'pubspec package version',
 );
 const webPackage = JSON.parse(webPackageSource);
+const repositoryUrl = 'https://github.com/Azakrosh/flutter_three_vrm';
+
+assertContains(
+  pubspec,
+  'repository: ' + repositoryUrl,
+  'pubspec repository URL',
+);
+assertContains(
+  pubspec,
+  'issue_tracker: ' + repositoryUrl + '/issues',
+  'pubspec issue tracker URL',
+);
+assertContains(
+  readme,
+  'url: ' + repositoryUrl + '.git',
+  'README Git dependency URL',
+);
+assertAbsent(readme, /github\.com\/OWNER\//, 'placeholder GitHub owner');
 
 assertEqual(
   webPackage.version,

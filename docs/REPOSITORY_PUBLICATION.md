@@ -19,12 +19,10 @@ pub.dev пока не выполняется: в `pubspec.yaml` сохраняе
 
 ## Решения владельца до первого push
 
-1. Выбрать GitHub owner и окончательное имя репозитория.
-2. Решить, допустима ли публикация email авторов из существующих commit metadata.
-   Переписывание авторов меняет SHA всей затронутой истории и выполняется только
-   до первого публичного push.
-3. Заменить `github.com/OWNER/flutter_three_vrm.git` в README на окончательный URL.
-4. Решить, переименовывать ли локальную ветку `master` в `main`.
+Решения приняты 2026-10-04: репозиторий —
+`https://github.com/Azakrosh/flutter_three_vrm`, основная ветка — `main`, все
+локальные author/committer identities переписываются на GitHub noreply
+`33670184+Azakrosh@users.noreply.github.com`.
 
 ## Первый push
 

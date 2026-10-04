@@ -1,5 +1,7 @@
 name: flutter_three_vrm
 description: A production-oriented VRM avatar runtime for Flutter on Android and Windows.
+repository: https://github.com/Azakrosh/flutter_three_vrm
+issue_tracker: https://github.com/Azakrosh/flutter_three_vrm/issues
 version: 0.2.0-dev.1
 publish_to: none
 

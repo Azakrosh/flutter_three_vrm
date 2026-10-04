@@ -635,9 +635,10 @@ release checklist, clean-clone verification и окончательный ауд
 bundle verification завершились успешно, итоговый worktree остался чистым.
 Проверка выявила и закрыла ложный generated-file drift через точечную LF policy в
 `.gitattributes`. Подготовка зафиксирована коммитами `8c9143c` и `6996505`.
-До первого push остаются решения владельца о GitHub URL, публикации существующего
-commit email и переименовании `master` в `main`, затем проверка реального GitHub
-Actions run.
+Решения владельца приняты 2026-10-04: `Azakrosh/flutter_three_vrm`, ветка `main`
+и GitHub noreply identity. После обновления metadata и переписывания локальной
+истории остаются объединение с GitHub Initial commit, первый push и проверка
+реального GitHub Actions run.
 ### Stage 31 — Android performance observability и управление нагрузкой
 
 Статус: выполнено.
