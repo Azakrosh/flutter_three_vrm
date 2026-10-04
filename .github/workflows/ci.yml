@@ -11,7 +11,7 @@ permissions:
 jobs:
   quality:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
@@ -47,19 +47,27 @@ jobs:
         run: git diff --exit-code -- assets/web/dist
       - name: Install Flutter dependencies
         run: flutter pub get
+      - name: Verify Git consumer package boundary
+        env:
+          CONSUMER_REPOSITORY: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.clone_url || format('{0}/{1}.git', github.server_url, github.repository) }}
+          CONSUMER_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: node tool/verify_git_consumer.mjs --repository "$CONSUMER_REPOSITORY" --ref "$CONSUMER_REF"
       - name: Analyze
         run: flutter analyze
       - name: Validate API documentation
         run: dart doc --dry-run .
       - name: Test
         run: flutter test
-      - name: Build Android example
+      - name: Build Android debug example
         working-directory: example
         run: flutter build apk --debug
+      - name: Build Android release app bundle
+        working-directory: example
+        run: flutter build appbundle --release
 
   windows:
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
@@ -91,9 +99,9 @@ jobs:
             }
           }
           & ./tool/test_firebase_test_lab.ps1
-      - name: Build Windows example
+      - name: Build Windows release example
         working-directory: example
-        run: flutter build windows --debug
+        run: flutter build windows --release
       - name: Run Windows runtime smoke test
         working-directory: example
         run: flutter test integration_test/runtime_smoke_test.dart -d windows

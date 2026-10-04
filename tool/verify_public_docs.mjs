@@ -158,6 +158,22 @@ assertContains(
   'CI dartdoc gate',
 );
 assertContains(
+  workflow,
+  'node tool/verify_git_consumer.mjs',
+  'CI Git consumer boundary gate',
+);
+assertContains(
+  workflow,
+  'flutter build appbundle --release',
+  'CI Android release build gate',
+);
+assertContains(
+  workflow,
+  'flutter build windows --release',
+  'CI Windows release build gate',
+);
+await access(resolve(repositoryDirectory, 'tool/verify_git_consumer.mjs'));
+assertContains(
   controller,
   'VrmRuntimeException(code: ' + "'canceled'" + ')',
   'controller typed cancellation documentation',

@@ -1696,6 +1696,46 @@ Windows build и Windows runtime smoke. Upstream Windows dartdoc retry оста�
 Проверяемая часть governance-контракта добавлена в
 `tool/verify_public_docs.mjs`. GitHub автоматически распознал все четыре секции
 Dependabot и запустил initial update jobs.
+
+### Stage 58 — production consumer и release-mode validation
+
+Статус: в работе с 2026-10-04.
+
+Цель: подтвердить перенос пакета из репозитория в реальное Flutter-приложение и
+выявлять различия debug/release до интеграции продукта.
+
+Работы:
+
+1. Создавать временный внешний Flutter consumer, подключать пакет через Git по
+   полному commit SHA и анализировать только публичные экспорты.
+2. Собирать Android App Bundle и Windows application в release mode в CI.
+3. Проверить установку подписанной Android release-сборки и Windows package на
+   целевых устройствах; compile-only CI не заменяет этот gate.
+4. Провести интеграцию с реальным авторизованным API загрузки модели в host app.
+5. Проверить синхронизацию непрерывного Flutter-аудио с amplitude/viseme timeline
+   от production-потока сервера.
+6. Выполнить 30–60-минутный soak с production VRM/VRMA, фоном и типичными
+   переходами на low-end Android и целевом Windows-устройстве.
+7. После появления стабильного релиза добавить compatibility job для минимально
+   поддерживаемых Flutter, Android и Windows toolchains.
+
+Критерии готовности:
+
+- чистый consumer разрешает пакет по Git SHA без доступа к `lib/src`;
+- Android и Windows release-сборки проходят воспроизводимо;
+- подписанные артефакты устанавливаются и проходят runtime smoke на устройствах;
+- авторизованная загрузка и realtime speech path проверены в host application;
+- длительный production-asset soak не выявляет необратимого роста памяти,
+  WebGL context loss или рассинхронизации движения и речи;
+- результаты и поддерживаемые toolchains зафиксированы в test matrix.
+
+Первый срез: добавлены внешний Git-consumer probe и compile-only release gates
+для Android AAB и Windows. 2026-10-04 локально прошли consumer probe, analyzer,
+169 Flutter-тестов, 173 web-теста, protocol/bundle gates, Windows release build
+и Android release AAB размером 53,3 MB. До завершения device/API/audio пунктов
+пакет считается готовым для контролируемой prerelease-интеграции, но не для
+stable production release.
+
 ## 7. Правила обновления roadmap
 
 - После этапа обновлять его статус и добавлять commit hash.

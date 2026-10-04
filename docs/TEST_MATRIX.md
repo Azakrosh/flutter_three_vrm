@@ -16,8 +16,14 @@
 | Protocol | `corepack pnpm verify:contract` | Совпадение команд и событий protocol v3 |
 | Embedded bundle | `corepack pnpm build && corepack pnpm verify:build` | Воспроизводимый bundle и checksum manifest |
 | Firebase tooling | `tool/test_firebase_test_lab.ps1` + `run_firebase_soak.ps1 -ValidateArtifactsOnly ...` | Matrix state/records, APK manifest, строгий JUnit/`runtime_soak_*` evidence parser и repeat comparison с negative cases |
+| Git consumer | `node tool/verify_git_consumer.mjs --repository <repo> --ref <sha>` | Разрешение внешней Git-зависимости и анализ только публичного API |
+| Android release | `flutter build appbundle --release` из `example` | Release/R8/resource compilation; не подтверждает подпись и установку production artifact |
+| Windows release | `flutter build windows --release` из `example` | Release compilation и bundling; device runtime проверяется отдельными integration gates |
 
-Команды `pnpm` выполняются из каталога `web`.
+Команды `pnpm` выполняются из каталога `web`. Consumer probe создаёт временный
+пакет вне рабочего дерева и всегда удаляет его после проверки. Release-сборки в
+CI являются compile-only gates: Android example пока использует debug signing,
+а установку и runtime signed artifacts необходимо подтверждать отдельно.
 
 ## Integration gates
 

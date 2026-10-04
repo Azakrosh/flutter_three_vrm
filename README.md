@@ -33,8 +33,12 @@ dependencies:
   flutter_three_vrm:
     git:
       url: https://github.com/Azakrosh/flutter_three_vrm.git
-      ref: <commit-or-tag>
+      ref: <full-commit-sha>
 ```
+
+До первого стабильного релиза закрепляйте зависимость на полном commit SHA. CI
+репозитория отдельно проверяет установку пакета как внешней Git-зависимости и
+доступность только публичных экспортов.
 
 Требования: Dart `>=3.12`, Flutter `>=3.44`, Android System WebView; на Windows — установленный Microsoft Edge WebView2 Runtime.
 
