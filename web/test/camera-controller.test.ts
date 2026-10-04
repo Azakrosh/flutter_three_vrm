@@ -86,6 +86,9 @@ describe("runtime camera controller", () => {
     controller.updateAnimation(5.5);
     expect(camera.position.y).toBeGreaterThan(1.2);
     expect(camera.position.y).toBeLessThan(1.35);
+    const halfwayPosition = camera.position.clone();
+    controller.prepareForRender();
+    expect(camera.position.toArray()).toEqual(halfwayPosition.toArray());
     controller.updateAnimation(6);
     expect(controls.enabled).toBe(true);
     expect(controls.target.y).toBeCloseTo(1.05);
@@ -180,13 +183,81 @@ describe("runtime camera controller", () => {
     expect(camera.position.y).toBeCloseTo(eyeAnchor.y);
     expectProjectedAtCenter(camera, eyeAnchor);
 
+    simulateOrbitControlsZoom(camera, torsoPivot, 0.5);
+    controller.updatePanFollowing(1 / 60);
+    controller.prepareForRender();
+
+    expect(controls.minDistance).toBeGreaterThan(0.5);
+    expect(camera.position.distanceTo(torsoPivot)).toBeCloseTo(
+      controls.minDistance,
+    );
+    expect(camera.position.distanceTo(eyeAnchor)).toBeGreaterThanOrEqual(0.4);
+    expectProjectedAtCenter(camera, eyeAnchor);
+
     controller.setMode("free");
+    expect(controls.minDistance).toBeCloseTo(0.5);
     simulateOrbitControlsZoom(camera, torsoPivot, 2.2);
     controller.updatePanFollowing(1 / 60);
     controller.prepareForRender();
 
     expect(controls.target.toArray()).toEqual(torsoPivot.toArray());
     expect(camera.position.distanceTo(torsoPivot)).toBeCloseTo(2.2);
+    expect(camera.position.y).toBeCloseTo(eyeAnchor.y);
+    expectProjectedAtCenter(camera, eyeAnchor);
+  });
+
+  it("recovers constrained framing after OrbitControls applies its angle limits", () => {
+    const camera = createCamera();
+    const controls = createControls(camera);
+    const controller = new RuntimeCameraController(camera, controls);
+    const { vrm } = createVrm();
+    const eyeAnchor = new Vector3(0, 1.58, 0.02);
+
+    controller.frameAvatar(vrm, 0, 0, true);
+    const torsoPivot = controls.target.clone();
+    const zoomDistance = 1.1;
+
+    // Reproduce the old implementation: fixed PI / 2 and zero azimuth make
+    // OrbitControls put the camera at torso height before every render.
+    camera.position.set(
+      torsoPivot.x,
+      torsoPivot.y,
+      torsoPivot.z + zoomDistance,
+    );
+    camera.lookAt(torsoPivot);
+    controller.prepareForRender();
+
+    expect(camera.position.distanceTo(torsoPivot)).toBeCloseTo(zoomDistance);
+    expect(camera.position.x).toBeCloseTo(eyeAnchor.x);
+    expect(camera.position.y).toBeCloseTo(eyeAnchor.y);
+    expectProjectedAtCenter(camera, eyeAnchor);
+    expect(controls.minPolarAngle).toBeCloseTo(controls.maxPolarAngle);
+    expect(controls.minPolarAngle).not.toBeCloseTo(Math.PI / 2);
+    expect(controls.minAzimuthAngle).toBeCloseTo(controls.maxAzimuthAngle);
+  });
+
+  it("returns from free mode to an upright constrained eye-level view", () => {
+    const camera = createCamera();
+    const controls = createControls(camera);
+    const controller = new RuntimeCameraController(camera, controls);
+    const { vrm } = createVrm();
+    const eyeAnchor = new Vector3(0, 1.58, 0.02);
+
+    controller.frameAvatar(vrm, 0, 0, true);
+    controller.setMode("free");
+    const torsoPivot = controls.target.clone();
+    camera.position.set(
+      torsoPivot.x + 0.6,
+      torsoPivot.y - 0.25,
+      torsoPivot.z + 1.4,
+    );
+    controller.prepareForRender();
+    const freeDistance = camera.position.distanceTo(torsoPivot);
+
+    controller.setMode("constrained");
+
+    expect(camera.position.distanceTo(torsoPivot)).toBeCloseTo(freeDistance);
+    expect(camera.position.x).toBeCloseTo(eyeAnchor.x);
     expect(camera.position.y).toBeCloseTo(eyeAnchor.y);
     expectProjectedAtCenter(camera, eyeAnchor);
   });

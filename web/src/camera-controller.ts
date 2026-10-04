@@ -65,6 +65,9 @@ export interface ConstrainedPanInput {
 
 const VIEW_OFFSET_HEIGHT = 1000;
 const EPSILON_SQUARED = 1e-12;
+const MIN_CAMERA_DISTANCE = 0.5;
+const MAX_CAMERA_DISTANCE = 6.6;
+const MIN_CONSTRAINED_FOCUS_CLEARANCE = 0.4;
 
 /**
  * Owns the avatar camera rig.
@@ -137,7 +140,11 @@ export class RuntimeCameraController {
   public captureControlsTransform(): void {
     this.customTransform = true;
     this.captureNativePan();
-    this.correctZoomTowardFocus();
+    if (this.mode === "constrained") {
+      this.stabilizeConstrainedCamera();
+    } else {
+      this.correctZoomTowardFocus();
+    }
     this.targetPosition.copy(this.camera.position);
     this.applyPanProjection();
   }
@@ -168,23 +175,22 @@ export class RuntimeCameraController {
     if (this.mode === "constrained") {
       this.controls.enablePan = false;
       this.controls.enableRotate = false;
-      this.controls.minPolarAngle = Math.PI / 2;
-      this.controls.maxPolarAngle = Math.PI / 2;
-      this.controls.minAzimuthAngle = 0;
-      this.controls.maxAzimuthAngle = 0;
-      this.controls.minDistance = 0.5;
-      this.controls.maxDistance = 6.6;
+      this.controls.minDistance = this.getConstrainedMinDistance();
+      this.controls.maxDistance = MAX_CAMERA_DISTANCE;
     } else {
       // Native OrbitControls pan remains enabled for mouse and touch. Its
       // target translation is captured into projection pan before rendering.
       this.controls.enablePan = true;
       this.controls.enableRotate = true;
+      this.controls.minDistance = MIN_CAMERA_DISTANCE;
+      this.controls.maxDistance = MAX_CAMERA_DISTANCE;
       this.controls.minPolarAngle = 0.01;
       this.controls.maxPolarAngle = Math.PI - 0.01;
       this.controls.minAzimuthAngle = -Infinity;
       this.controls.maxAzimuthAngle = Infinity;
     }
     this.controls.target.copy(this.orbitPivot);
+    if (this.mode === "constrained") this.stabilizeConstrainedCamera();
     this.controls.update();
     this.lastControlsDistance = this.controls.getDistance();
     this.prepareForRender();
@@ -192,6 +198,9 @@ export class RuntimeCameraController {
 
   /** Applies the eye aim after OrbitControls updates its torso-based rig. */
   public prepareForRender(): void {
+    if (this.mode === "constrained" && !this.animating) {
+      this.stabilizeConstrainedCamera();
+    }
     this.camera.lookAt(this.displayedFocusAnchor);
     this.applyPanProjection();
   }
@@ -313,7 +322,11 @@ export class RuntimeCameraController {
       const factor = 1 - Math.exp(-25 * deltaSeconds);
       this.displayedPanOffset.lerp(this.panOffset, factor);
     }
-    this.correctZoomTowardFocus();
+    if (this.mode === "constrained") {
+      this.stabilizeConstrainedCamera();
+    } else {
+      this.correctZoomTowardFocus();
+    }
     this.applyPanProjection();
   }
 
@@ -341,6 +354,7 @@ export class RuntimeCameraController {
       eased,
     );
     this.camera.lookAt(this.controls.target);
+    if (this.mode === "constrained") this.lockConstrainedOrbitAngles();
     this.applyPanProjection();
     if (progress >= 1) {
       this.animating = false;
@@ -409,6 +423,71 @@ export class RuntimeCameraController {
     this.controls.target.copy(this.orbitPivot);
     this.targetPosition.copy(this.camera.position);
     this.invalidateProjection();
+  }
+
+  /** Keeps constrained zoom front-facing while its orbit pivot stays at torso. */
+  private stabilizeConstrainedCamera(): void {
+    this.controls.minDistance = this.getConstrainedMinDistance();
+    const requestedDistance = MathUtils.clamp(
+      this.controls.getDistance(),
+      this.controls.minDistance,
+      this.controls.maxDistance,
+    );
+    const offsetX = this.displayedFocusAnchor.x - this.orbitPivot.x;
+    const offsetY = this.displayedFocusAnchor.y - this.orbitPivot.y;
+    const perpendicularSquared = offsetX * offsetX + offsetY * offsetY;
+    const forwardDistance = Math.max(
+      1e-6,
+      this.orbitPivot.z - this.displayedFocusAnchor.z +
+        Math.sqrt(
+          Math.max(
+            0,
+            requestedDistance * requestedDistance - perpendicularSquared,
+          ),
+        ),
+    );
+    this.camera.position.set(
+      this.displayedFocusAnchor.x,
+      this.displayedFocusAnchor.y,
+      this.displayedFocusAnchor.z + forwardDistance,
+    );
+    this.controls.target.copy(this.orbitPivot);
+    this.targetPosition.copy(this.camera.position);
+
+    this.lockConstrainedOrbitAngles();
+    this.lastControlsDistance = this.controls.getDistance();
+    this.invalidateProjection();
+  }
+
+  /** Keeps the camera safely in front of the focus at maximum zoom. */
+  private getConstrainedMinDistance(): number {
+    const offsetX = this.displayedFocusAnchor.x - this.orbitPivot.x;
+    const offsetY = this.displayedFocusAnchor.y - this.orbitPivot.y;
+    const cameraOffsetZ =
+      this.displayedFocusAnchor.z +
+      MIN_CONSTRAINED_FOCUS_CLEARANCE -
+      this.orbitPivot.z;
+    return Math.max(
+      MIN_CAMERA_DISTANCE,
+      Math.hypot(offsetX, offsetY, cameraOffsetZ),
+    );
+  }
+
+  /** Locks a non-rotating rig without forcing it onto the torso horizon. */
+  private lockConstrainedOrbitAngles(): void {
+    this.orbitDirection.copy(this.camera.position).sub(this.controls.target);
+    const actualDistance = Math.max(this.orbitDirection.length(), 1e-6);
+    const polarAngle = Math.acos(
+      MathUtils.clamp(this.orbitDirection.y / actualDistance, -1, 1),
+    );
+    const azimuthAngle = Math.atan2(
+      this.orbitDirection.x,
+      this.orbitDirection.z,
+    );
+    this.controls.minPolarAngle = polarAngle;
+    this.controls.maxPolarAngle = polarAngle;
+    this.controls.minAzimuthAngle = azimuthAngle;
+    this.controls.maxAzimuthAngle = azimuthAngle;
   }
 
   /** Replaces OrbitControls' torso-directed dolly with a face-directed dolly. */
