@@ -105,7 +105,35 @@ describe("runtime camera controller", () => {
     ).toThrow("finite numbers");
   });
 
-  it("smoothly follows constrained pan", () => {
+  it("smoothly resets a physically panned free camera", () => {
+    const camera = createCamera();
+    const controls = createControls(camera);
+    const controller = new RuntimeCameraController(camera, controls);
+    const { vrm } = createVrm();
+
+    controller.frameAvatar(vrm, 0, 0, true);
+    controller.setMode("free");
+    controller.setTransform({ x: 0, y: 0.5, zoom: 1.2 });
+    controller.prepareForRender();
+    const startCameraY = camera.position.y;
+    controller.finishRender();
+
+    controller.reset(vrm, 1000, 0);
+    controller.updateAnimation(0.5);
+    controller.prepareForRender();
+
+    expect(camera.position.y).toBeGreaterThan(startCameraY);
+    expect(camera.position.y).toBeLessThan(1.58);
+    expect(controls.target.y).toBeCloseTo(1.05);
+    controller.finishRender();
+
+    controller.updateAnimation(1);
+    expect(camera.position.y).toBeCloseTo(1.58);
+    expect(controls.target.y).toBeCloseTo(1.05);
+    expect(controller.getTransform()).toMatchObject({ x: 0, y: 0 });
+  });
+
+  it("smoothly translates the complete constrained camera rig", () => {
     const camera = createCamera();
     const controls = createControls(camera);
     const controller = new RuntimeCameraController(camera, controls);
@@ -121,15 +149,111 @@ describe("runtime camera controller", () => {
     expect(controller.hasCustomTransform).toBe(true);
     const initialTarget = controls.target.clone();
     const initialPosition = camera.position.clone();
+    const initialRigOffset = camera.position.clone().sub(controls.target);
     controller.updatePanFollowing(1 / 60);
-    expect(controls.target.equals(initialTarget)).toBe(true);
-    expect(camera.position.equals(initialPosition)).toBe(true);
-    expect(camera.view?.enabled).toBe(true);
+    controller.prepareForRender();
+
+    expect(controls.target.equals(initialTarget)).toBe(false);
+    expect(camera.position.equals(initialPosition)).toBe(false);
+    expect(camera.position.clone().sub(controls.target).toArray()).toEqual(
+      initialRigOffset.toArray(),
+    );
+    expect(camera.view?.enabled ?? false).toBe(false);
     expect(controller.getTransform().x).toBeGreaterThan(0);
     expect(controller.getTransform().y).toBeGreaterThan(0);
+    expectProjectedAtCenter(camera, controls.target);
   });
 
-  it("keeps the torso pivot stable after free pan and rotation", () => {
+  it("keeps a level optical axis when lower-body framing is zoomed close", () => {
+    const camera = createCamera();
+    const controls = createControls(camera);
+    const controller = new RuntimeCameraController(camera, controls);
+    const { vrm } = createVrm();
+    const eyeAnchor = new Vector3(0, 1.58, 0.02);
+
+    controller.frameAvatar(vrm, 0, 0, true);
+    controller.setTransform({ x: 0.15, y: 0.8, zoom: 0.75 });
+    controller.prepareForRender();
+
+    const translatedAim = eyeAnchor.clone().add(new Vector3(-0.15, -0.8, 0));
+    const viewDirection = new Vector3();
+    camera.getWorldDirection(viewDirection);
+
+    expect(camera.position.y).toBeCloseTo(translatedAim.y);
+    expect(viewDirection.x).toBeCloseTo(0, 8);
+    expect(viewDirection.y).toBeCloseTo(0, 8);
+    expect(viewDirection.z).toBeCloseTo(-1, 8);
+    expect(camera.position.distanceTo(controls.target)).toBeCloseTo(0.75);
+    expect(camera.view?.enabled ?? false).toBe(false);
+    expectProjectedAtCenter(camera, translatedAim);
+  });
+
+  it("keeps a level optical axis for close lower-body zoom in free mode", () => {
+    const camera = createCamera();
+    const controls = createControls(camera);
+    const controller = new RuntimeCameraController(camera, controls);
+    const { vrm } = createVrm();
+    const eyeAnchor = new Vector3(0, 1.58, 0.02);
+
+    controller.frameAvatar(vrm, 0, 0, true);
+    controller.setMode("free");
+    controller.setTransform({ x: 0.15, y: 0.8, zoom: 0.75 });
+
+    simulateOrbitControlsZoom(camera, controls.target, 0.55);
+    controller.updatePanFollowing(1 / 60);
+    controller.prepareForRender();
+
+    const translatedAim = eyeAnchor.clone().add(new Vector3(-0.15, -0.8, 0));
+    const viewDirection = new Vector3();
+    camera.getWorldDirection(viewDirection);
+
+    expect(camera.position.y).toBeCloseTo(translatedAim.y);
+    expect(viewDirection.x).toBeCloseTo(0, 8);
+    expect(viewDirection.y).toBeCloseTo(0, 8);
+    expect(viewDirection.z).toBeCloseTo(-1, 8);
+    expect(camera.view?.enabled ?? false).toBe(false);
+    expectProjectedAtCenter(camera, translatedAim);
+    controller.finishRender();
+    expect(camera.position.distanceTo(controls.target)).toBeCloseTo(0.55);
+  });
+
+  it("preserves panned framing across camera modes and controls replacement", () => {
+    const camera = createCamera();
+    const controls = createControls(camera);
+    const controller = new RuntimeCameraController(camera, controls);
+    const { vrm } = createVrm();
+    const eyeAnchor = new Vector3(0, 1.58, 0.02);
+
+    controller.frameAvatar(vrm, 0, 0, true);
+    controller.setTransform({ x: 0.2, y: 0.5, zoom: 1.2 });
+    controller.prepareForRender();
+    camera.updateMatrixWorld(true);
+    const constrainedProjection = eyeAnchor.clone().project(camera);
+
+    controller.setMode("free");
+    controller.prepareForRender();
+    camera.updateMatrixWorld(true);
+    const freeProjection = eyeAnchor.clone().project(camera);
+
+    expect(camera.view?.enabled ?? false).toBe(false);
+    expect(camera.position.x).toBeCloseTo(eyeAnchor.x - 0.2);
+    expect(camera.position.y).toBeCloseTo(eyeAnchor.y - 0.5);
+    expect(freeProjection.x).toBeCloseTo(constrainedProjection.x, 8);
+    expect(freeProjection.y).toBeCloseTo(constrainedProjection.y, 8);
+    controller.finishRender();
+
+    controller.setMode("constrained");
+    expect(camera.view?.enabled ?? false).toBe(false);
+    expect(camera.position.distanceTo(controls.target)).toBeCloseTo(1.2);
+
+    const replacement = createControls(camera);
+    controller.replaceControls(replacement);
+    expect(camera.position.distanceTo(replacement.target)).toBeCloseTo(1.2);
+    expect(replacement.target.x).toBeCloseTo(0.03 - 0.2);
+    expect(replacement.target.y).toBeCloseTo(1.05 - 0.5);
+  });
+
+  it("keeps the torso pivot fixed after free pan and later rotation", () => {
     const camera = createCamera();
     const controls = createControls(camera);
     const controller = new RuntimeCameraController(camera, controls);
@@ -138,7 +262,14 @@ describe("runtime camera controller", () => {
     controller.frameAvatar(vrm, 0, 0, true);
     controller.setMode("free");
     const pivot = controls.target.clone();
-    const prePanPosition = camera.position.clone();
+    const basePosition = camera.position.clone();
+
+    // OrbitControls emits start/end for a right-button click even without a
+    // move. Capturing that gesture must be a strict no-op.
+    controller.captureControlsTransform();
+    expect(controls.target.toArray()).toEqual(pivot.toArray());
+    expect(controller.getTransform()).toMatchObject({ x: 0, y: 0 });
+
     const nativePan = new Vector3(0.3, 0.25, 0);
     controls.target.add(nativePan);
     camera.position.add(nativePan);
@@ -146,15 +277,19 @@ describe("runtime camera controller", () => {
     controller.updatePanFollowing(1 / 60);
 
     expect(controls.target.toArray()).toEqual(pivot.toArray());
-    expect(camera.position.x).toBeCloseTo(prePanPosition.x);
-    expect(camera.position.y).toBeCloseTo(prePanPosition.y);
-    expect(camera.position.z).toBeCloseTo(prePanPosition.z);
+    expect(camera.position.x).toBeCloseTo(basePosition.x);
+    expect(camera.position.y).toBeCloseTo(basePosition.y);
+    expect(camera.position.z).toBeCloseTo(basePosition.z);
     expect(controller.getTransform().x).toBeCloseTo(-0.3);
     expect(controller.getTransform().y).toBeCloseTo(-0.25);
-    expect(camera.view?.enabled).toBe(true);
 
-    // A later orbit changes only the camera position. The torso remains the
-    // target and the independent screen-space pan is retained.
+    controller.prepareForRender();
+    expect(camera.position.x).toBeCloseTo(basePosition.x + nativePan.x);
+    expect(camera.position.y).toBeCloseTo(basePosition.y + nativePan.y);
+    controller.finishRender();
+
+    // Rotation continues around the humanoid torso, never around the point
+    // where the preceding right-button pan gesture occurred.
     camera.position.set(pivot.x + 1.4, pivot.y + 0.2, pivot.z);
     controller.updatePanFollowing(1 / 60);
 
@@ -271,8 +406,10 @@ describe("runtime camera controller", () => {
     controller.setTransform({ x: 0.2, y: -0.1, zoom: 1.4 });
     controller.frameAvatar(vrm, 0, 0, true);
 
-    expect(controls.target.x).toBeCloseTo(0.03);
-    expect(controls.target.y).toBeCloseTo(1.05);
+    // In constrained mode the serialized pan translates both camera and
+    // OrbitControls target. Their relative distance remains the saved zoom.
+    expect(controls.target.x).toBeCloseTo(0.03 - 0.2);
+    expect(controls.target.y).toBeCloseTo(1.05 + 0.1);
     expect(controls.target.z).toBeCloseTo(0.01);
     expect(camera.position.distanceTo(controls.target)).toBeCloseTo(1.4);
     expect(controller.getTransform()).toMatchObject({
@@ -305,6 +442,7 @@ function createControls(camera: PerspectiveCamera): RuntimeCameraControls {
     maxDistance: Infinity,
     enableDamping: false,
     dampingFactor: 0,
+    screenSpacePanning: true,
     getDistance: () => camera.position.distanceTo(target),
     update: vi.fn(),
   };

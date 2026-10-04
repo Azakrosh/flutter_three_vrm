@@ -1,6 +1,7 @@
 import type { VRM, VRMHumanBoneName } from "@pixiv/three-vrm";
 import {
   MathUtils,
+  Quaternion,
   Vector2,
   Vector3,
   type PerspectiveCamera,
@@ -50,6 +51,7 @@ export interface RuntimeCameraControls {
   maxDistance: number;
   enableDamping: boolean;
   dampingFactor: number;
+  screenSpacePanning: boolean;
   getDistance(): number;
   update(): void;
 }
@@ -63,7 +65,6 @@ export interface ConstrainedPanInput {
   readonly modelHeight: number;
 }
 
-const VIEW_OFFSET_HEIGHT = 1000;
 const EPSILON_SQUARED = 1e-12;
 const MIN_CAMERA_DISTANCE = 0.5;
 const MAX_CAMERA_DISTANCE = 6.6;
@@ -72,9 +73,9 @@ const MIN_CONSTRAINED_FOCUS_CLEARANCE = 0.4;
 /**
  * Owns the avatar camera rig.
  *
- * OrbitControls.target is reserved for the humanoid torso pivot. User pan is
- * represented by an off-axis projection, so panning changes composition but
- * never moves the point around which free-mode rotation orbits.
+ * Pan always translates the complete camera rig instead of shifting its
+ * projection matrix. This preserves perspective at close zoom, while free mode
+ * additionally lets OrbitControls rotate the translated rig.
  */
 export class RuntimeCameraController {
   private controls: RuntimeCameraControls;
@@ -88,6 +89,10 @@ export class RuntimeCameraController {
   private readonly nativePanDelta = new Vector3();
   private readonly cameraRight = new Vector3();
   private readonly cameraUp = new Vector3();
+  private readonly panTranslation = new Vector3();
+  private readonly aimTarget = new Vector3();
+  private readonly renderPosition = new Vector3();
+  private readonly renderQuaternion = new Quaternion();
   private readonly orbitDirection = new Vector3();
   private readonly preZoomPosition = new Vector3();
   private readonly focusDirection = new Vector3();
@@ -99,10 +104,7 @@ export class RuntimeCameraController {
   private animating = false;
   private customTransform = false;
   private lastControlsDistance = Number.NaN;
-  private lastProjectionX = Number.NaN;
-  private lastProjectionY = Number.NaN;
-  private lastProjectionDistance = Number.NaN;
-  private lastProjectionAspect = Number.NaN;
+  private renderPresentationApplied = false;
 
   public constructor(
     private readonly camera: PerspectiveCamera,
@@ -128,8 +130,14 @@ export class RuntimeCameraController {
   }
 
   public replaceControls(controls: RuntimeCameraControls): void {
+    this.restoreRenderPresentation();
     this.controls = controls;
     this.controls.target.copy(this.orbitPivot);
+    if (this.mode === "constrained") {
+      this.controls.target.add(
+        this.getConstrainedPanTranslation(this.panTranslation),
+      );
+    }
     this.applyMode();
   }
 
@@ -139,30 +147,57 @@ export class RuntimeCameraController {
 
   public captureControlsTransform(): void {
     this.customTransform = true;
-    this.captureNativePan();
     if (this.mode === "constrained") {
       this.stabilizeConstrainedCamera();
     } else {
+      this.captureNativePan();
       this.correctZoomTowardFocus();
     }
     this.targetPosition.copy(this.camera.position);
-    this.applyPanProjection();
+    this.applyPanPresentation();
   }
 
   public clearCustomTransform(): void {
+    this.restoreRenderPresentation();
     this.customTransform = false;
+    if (this.mode === "constrained") {
+      this.camera.position.sub(
+        this.getConstrainedPanTranslation(this.panTranslation),
+      );
+    }
     this.panOffset.set(0, 0);
     this.displayedPanOffset.set(0, 0);
-    this.invalidateProjection();
-    this.applyPanProjection();
+    this.controls.target.copy(this.orbitPivot);
+    if (this.mode === "constrained") {
+      this.stabilizeConstrainedCamera();
+    } else {
+      this.camera.lookAt(this.displayedFocusAnchor);
+      this.targetPosition.copy(this.camera.position);
+    }
+    this.applyPanPresentation();
   }
 
   public setMode(mode: string): void {
     if (mode !== "constrained" && mode !== "free") {
       throw new TypeError(`Unknown camera mode: ${mode}`);
     }
-    this.captureNativePan();
+    this.restoreRenderPresentation();
+    if (mode === this.mode) {
+      if (mode === "free") this.captureNativePan();
+      this.applyMode();
+      return;
+    }
+
+    if (this.mode === "free") {
+      this.captureNativePan();
+    } else {
+      this.camera.position.sub(
+        this.getConstrainedPanTranslation(this.panTranslation),
+      );
+      this.controls.target.copy(this.orbitPivot);
+    }
     this.mode = mode;
+    this.targetPosition.copy(this.camera.position);
     this.applyMode();
   }
 
@@ -172,14 +207,14 @@ export class RuntimeCameraController {
     // Pointer-controlled camera movement must stop when the gesture ends.
     this.controls.enableDamping = false;
     this.controls.dampingFactor = 0;
+    this.controls.screenSpacePanning = true;
     if (this.mode === "constrained") {
       this.controls.enablePan = false;
       this.controls.enableRotate = false;
       this.controls.minDistance = this.getConstrainedMinDistance();
       this.controls.maxDistance = MAX_CAMERA_DISTANCE;
     } else {
-      // Native OrbitControls pan remains enabled for mouse and touch. Its
-      // target translation is captured into projection pan before rendering.
+      // Native OrbitControls pan physically translates both camera and target.
       this.controls.enablePan = true;
       this.controls.enableRotate = true;
       this.controls.minDistance = MIN_CAMERA_DISTANCE;
@@ -189,20 +224,48 @@ export class RuntimeCameraController {
       this.controls.minAzimuthAngle = -Infinity;
       this.controls.maxAzimuthAngle = Infinity;
     }
-    this.controls.target.copy(this.orbitPivot);
-    if (this.mode === "constrained") this.stabilizeConstrainedCamera();
+    if (this.mode === "constrained") {
+      this.stabilizeConstrainedCamera();
+    } else {
+      this.controls.target.copy(this.orbitPivot);
+    }
     this.controls.update();
     this.lastControlsDistance = this.controls.getDistance();
-    this.prepareForRender();
+    if (this.mode === "constrained") {
+      this.prepareForRender();
+    } else {
+      this.restoreRenderPresentation();
+      this.camera.lookAt(this.displayedFocusAnchor);
+      this.applyPanPresentation();
+    }
   }
 
-  /** Applies the eye aim after OrbitControls updates its torso-based rig. */
+  /** Applies render-only framing after OrbitControls updates its base rig. */
   public prepareForRender(): void {
-    if (this.mode === "constrained" && !this.animating) {
-      this.stabilizeConstrainedCamera();
+    this.restoreRenderPresentation();
+    if (this.mode === "constrained") {
+      if (!this.animating) this.stabilizeConstrainedCamera();
+      this.camera.lookAt(this.getDisplayedAimTarget(this.aimTarget));
+    } else {
+      this.renderPosition.copy(this.camera.position);
+      this.renderQuaternion.copy(this.camera.quaternion);
+      this.camera.lookAt(this.displayedFocusAnchor);
+      this.getFreePanTranslation(this.panTranslation);
+      this.camera.position.add(this.panTranslation);
+      this.camera.lookAt(
+        this.aimTarget
+          .copy(this.displayedFocusAnchor)
+          .add(this.panTranslation),
+      );
+      this.camera.updateMatrixWorld(true);
+      this.renderPresentationApplied = true;
     }
-    this.camera.lookAt(this.displayedFocusAnchor);
-    this.applyPanProjection();
+    this.applyPanPresentation();
+  }
+
+  /** Restores the control camera immediately after the renderer consumed it. */
+  public finishRender(): void {
+    this.restoreRenderPresentation();
   }
 
   public frameAvatar(
@@ -263,21 +326,36 @@ export class RuntimeCameraController {
       // A transform may be restored before the replacement model is framed.
       // Move the camera with the new humanoid pivot to preserve its angle and
       // distance instead of orbiting the new avatar around the old model.
-      this.targetPosition.copy(this.camera.position).add(pivotDelta);
+      this.panTranslation.set(0, 0, 0);
+      if (this.mode === "constrained") {
+        this.getConstrainedPanTranslation(this.panTranslation);
+      }
+      this.targetPosition
+        .copy(this.camera.position)
+        .sub(this.panTranslation)
+        .add(pivotDelta);
       positionAtOrbitDistance(
         this.targetPosition,
         this.focusAnchor,
         this.orbitPivot,
         this.controls.getDistance(),
       );
+      if (this.mode === "constrained") {
+        this.targetPosition.add(this.panTranslation);
+      }
     }
 
     if (durationMs <= 0) {
       this.animating = false;
       this.camera.position.copy(this.targetPosition);
-      this.controls.target.copy(this.orbitPivot);
       this.displayedFocusAnchor.copy(this.focusAnchor);
       this.displayedPanOffset.copy(this.panOffset);
+      this.controls.target.copy(this.orbitPivot);
+      if (this.mode === "constrained") {
+        this.controls.target.add(
+          this.getConstrainedPanTranslation(this.panTranslation),
+        );
+      }
       this.applyMode();
     } else {
       this.animating = true;
@@ -299,7 +377,9 @@ export class RuntimeCameraController {
   public setConstrainedPanTarget(input: ConstrainedPanInput): void {
     if (this.mode !== "constrained") return;
     this.customTransform = true;
-    const distance = this.camera.position.distanceTo(this.displayedFocusAnchor);
+    const distance = this.camera.position.distanceTo(
+      this.getDisplayedAimTarget(this.aimTarget),
+    );
     const verticalFov = MathUtils.degToRad(this.camera.fov);
     const heightAtDepth = 2 * Math.tan(verticalFov / 2) * distance;
     const widthAtDepth = heightAtDepth * this.camera.aspect;
@@ -327,7 +407,7 @@ export class RuntimeCameraController {
     } else {
       this.correctZoomTowardFocus();
     }
-    this.applyPanProjection();
+    this.applyPanPresentation();
   }
 
   public updateAnimation(elapsedTime: number): void {
@@ -342,7 +422,6 @@ export class RuntimeCameraController {
       this.targetPosition,
       eased,
     );
-    this.controls.target.lerpVectors(this.startPivot, this.orbitPivot, eased);
     this.displayedFocusAnchor.lerpVectors(
       this.startFocusAnchor,
       this.focusAnchor,
@@ -353,15 +432,31 @@ export class RuntimeCameraController {
       this.panOffset,
       eased,
     );
-    this.camera.lookAt(this.controls.target);
-    if (this.mode === "constrained") this.lockConstrainedOrbitAngles();
-    this.applyPanProjection();
+    this.aimTarget.copy(this.orbitPivot);
+    if (this.mode === "constrained") {
+      this.aimTarget.add(
+        this.getConstrainedPanTranslation(this.panTranslation),
+      );
+    }
+    this.controls.target.lerpVectors(this.startPivot, this.aimTarget, eased);
+    if (this.mode === "constrained") {
+      this.camera.lookAt(this.getDisplayedAimTarget(this.aimTarget));
+      this.lockConstrainedOrbitAngles();
+    } else {
+      this.camera.lookAt(this.displayedFocusAnchor);
+    }
+    this.applyPanPresentation();
     if (progress >= 1) {
       this.animating = false;
       this.camera.position.copy(this.targetPosition);
-      this.controls.target.copy(this.orbitPivot);
       this.displayedFocusAnchor.copy(this.focusAnchor);
       this.displayedPanOffset.copy(this.panOffset);
+      this.controls.target.copy(this.orbitPivot);
+      if (this.mode === "constrained") {
+        this.controls.target.add(
+          this.getConstrainedPanTranslation(this.panTranslation),
+        );
+      }
       this.applyMode();
     }
   }
@@ -377,9 +472,17 @@ export class RuntimeCameraController {
   public setTransform(value: unknown): void {
     const { x, y, zoom } = parseRuntimeCameraTransform(value);
 
+    this.restoreRenderPresentation();
     this.animating = false;
     this.customTransform = true;
-    this.captureNativePan();
+    if (this.mode === "free") {
+      this.captureNativePan();
+    } else {
+      this.camera.position.sub(
+        this.getConstrainedPanTranslation(this.panTranslation),
+      );
+    }
+
     this.panOffset.set(x, y);
     this.displayedPanOffset.copy(this.panOffset);
     this.controls.target.copy(this.orbitPivot);
@@ -396,15 +499,25 @@ export class RuntimeCameraController {
       this.orbitPivot,
       distance,
     );
+    if (this.mode === "constrained") {
+      this.getConstrainedPanTranslation(this.panTranslation);
+      this.targetPosition.add(this.panTranslation);
+      this.controls.target.add(this.panTranslation);
+    }
     this.camera.position.copy(this.targetPosition);
     this.controls.update();
     this.lastControlsDistance = this.controls.getDistance();
-    this.invalidateProjection();
-    this.prepareForRender();
+    if (this.mode === "constrained") {
+      this.prepareForRender();
+    } else {
+      this.camera.lookAt(this.displayedFocusAnchor);
+      this.applyPanPresentation();
+    }
   }
 
-  /** Converts OrbitControls' native target translation into screen framing. */
+  /** Captures native pan as framing while keeping the torso orbit pivot fixed. */
   private captureNativePan(): void {
+    if (this.mode !== "free") return;
     this.nativePanDelta.copy(this.controls.target).sub(this.orbitPivot);
     if (this.nativePanDelta.lengthSq() <= EPSILON_SQUARED) {
       this.controls.target.copy(this.orbitPivot);
@@ -417,12 +530,11 @@ export class RuntimeCameraController {
     this.panOffset.y -= this.nativePanDelta.dot(this.cameraUp);
     this.displayedPanOffset.copy(this.panOffset);
 
-    // Undo the world-space translation performed by OrbitControls. Only the
-    // projection offset remains, while the camera continues to orbit the torso.
+    // OrbitControls physically pans camera and target. Move both back to their
+    // base rig; the same displacement is applied only during rendering.
     this.camera.position.sub(this.nativePanDelta);
     this.controls.target.copy(this.orbitPivot);
     this.targetPosition.copy(this.camera.position);
-    this.invalidateProjection();
   }
 
   /** Keeps constrained zoom front-facing while its orbit pivot stays at torso. */
@@ -451,12 +563,13 @@ export class RuntimeCameraController {
       this.displayedFocusAnchor.y,
       this.displayedFocusAnchor.z + forwardDistance,
     );
-    this.controls.target.copy(this.orbitPivot);
+    this.getConstrainedPanTranslation(this.panTranslation);
+    this.camera.position.add(this.panTranslation);
+    this.controls.target.copy(this.orbitPivot).add(this.panTranslation);
     this.targetPosition.copy(this.camera.position);
 
     this.lockConstrainedOrbitAngles();
     this.lastControlsDistance = this.controls.getDistance();
-    this.invalidateProjection();
   }
 
   /** Keeps the camera safely in front of the focus at maximum zoom. */
@@ -527,55 +640,41 @@ export class RuntimeCameraController {
     this.controls.target.copy(this.orbitPivot);
     this.targetPosition.copy(this.camera.position);
     this.lastControlsDistance = this.controls.getDistance();
-    this.invalidateProjection();
   }
 
-  private applyPanProjection(): void {
-    const distance = Math.max(
-      this.camera.position.distanceTo(this.displayedFocusAnchor),
-      1e-6,
-    );
-    const aspect = Math.max(this.camera.aspect, 1e-6);
-    if (
-      this.displayedPanOffset.x === this.lastProjectionX &&
-      this.displayedPanOffset.y === this.lastProjectionY &&
-      distance === this.lastProjectionDistance &&
-      aspect === this.lastProjectionAspect
-    ) {
-      return;
-    }
-    this.lastProjectionX = this.displayedPanOffset.x;
-    this.lastProjectionY = this.displayedPanOffset.y;
-    this.lastProjectionDistance = distance;
-    this.lastProjectionAspect = aspect;
+  private applyPanPresentation(): void {
+    if (this.camera.view?.enabled) this.camera.clearViewOffset();
+  }
 
-    if (this.displayedPanOffset.lengthSq() <= EPSILON_SQUARED) {
-      if (this.camera.view?.enabled) this.camera.clearViewOffset();
-      return;
-    }
-
-    const verticalFov = MathUtils.degToRad(this.camera.fov);
-    const frustumHeight = 2 * Math.tan(verticalFov / 2) * distance;
-    const frustumWidth = frustumHeight * aspect;
-    const fullHeight = VIEW_OFFSET_HEIGHT;
-    const fullWidth = fullHeight * aspect;
-    const offsetX = -this.displayedPanOffset.x / frustumWidth * fullWidth;
-    const offsetY = this.displayedPanOffset.y / frustumHeight * fullHeight;
-    this.camera.setViewOffset(
-      fullWidth,
-      fullHeight,
-      offsetX,
-      offsetY,
-      fullWidth,
-      fullHeight,
+  private getConstrainedPanTranslation(target: Vector3): Vector3 {
+    return target.set(
+      -this.displayedPanOffset.x,
+      -this.displayedPanOffset.y,
+      0,
     );
   }
 
-  private invalidateProjection(): void {
-    this.lastProjectionX = Number.NaN;
-    this.lastProjectionY = Number.NaN;
-    this.lastProjectionDistance = Number.NaN;
-    this.lastProjectionAspect = Number.NaN;
+  private getFreePanTranslation(target: Vector3): Vector3 {
+    this.cameraRight.set(1, 0, 0).applyQuaternion(this.camera.quaternion);
+    this.cameraUp.set(0, 1, 0).applyQuaternion(this.camera.quaternion);
+    return target
+      .copy(this.cameraRight)
+      .multiplyScalar(-this.displayedPanOffset.x)
+      .addScaledVector(this.cameraUp, -this.displayedPanOffset.y);
+  }
+
+  private getDisplayedAimTarget(target: Vector3): Vector3 {
+    return target
+      .copy(this.displayedFocusAnchor)
+      .add(this.getConstrainedPanTranslation(this.panTranslation));
+  }
+
+  private restoreRenderPresentation(): void {
+    if (!this.renderPresentationApplied) return;
+    this.camera.position.copy(this.renderPosition);
+    this.camera.quaternion.copy(this.renderQuaternion);
+    this.camera.updateMatrixWorld(true);
+    this.renderPresentationApplied = false;
   }
 }
 

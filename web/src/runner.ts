@@ -626,7 +626,11 @@ class VrmRunner implements RuntimeCommandHost {
     if (this.isDisposed) return;
     this.pointerController.detach();
     try {
-      if (this.sceneController.recreateRenderer(antialias)) {
+      if (this.sceneController.recreateRenderer(
+        antialias,
+        () => this.cameraController.prepareForRender(),
+        () => this.cameraController.finishRender(),
+      )) {
         this.cameraController.replaceControls(this.controls);
       }
     } finally {
@@ -668,9 +672,10 @@ class VrmRunner implements RuntimeCommandHost {
 
     const renderStartedAt = performance.now();
     this.graphicsController.prepareForRender();
-    this.sceneController.updateAndRender(() => {
-      this.cameraController.prepareForRender();
-    });
+    this.sceneController.updateAndRender(
+      () => this.cameraController.prepareForRender(),
+      () => this.cameraController.finishRender(),
+    );
     const renderFinishedAt = performance.now();
     this.graphicsController.recordFrame(
       now,

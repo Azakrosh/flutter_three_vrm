@@ -264,7 +264,11 @@ export class RuntimeSceneController {
     this.scene.background = new Color(colorHex);
   }
 
-  public recreateRenderer(antialias: boolean): boolean {
+  public recreateRenderer(
+    antialias: boolean,
+    prepareCamera?: () => void,
+    finishCamera?: () => void,
+  ): boolean {
     if (this.disposed || antialias === this.antialiasValue) return false;
 
     const oldRenderer = this.rendererValue;
@@ -285,7 +289,12 @@ export class RuntimeSceneController {
       newControls.target.copy(oldTarget);
       this.markMaterialsForUpdate();
       // Populate the replacement framebuffer before exposing its canvas.
-      newRenderer.render(this.scene, this.camera);
+      try {
+        prepareCamera?.();
+        newRenderer.render(this.scene, this.camera);
+      } finally {
+        finishCamera?.();
+      }
     } catch (error) {
       newRenderer.dispose();
       newRenderer.forceContextLoss();
@@ -315,11 +324,18 @@ export class RuntimeSceneController {
     return true;
   }
 
-  public updateAndRender(prepareCamera?: () => void): void {
+  public updateAndRender(
+    prepareCamera?: () => void,
+    finishCamera?: () => void,
+  ): void {
     if (this.disposed || this.contextLostValue) return;
     this.controlsValue.update();
-    prepareCamera?.();
-    this.rendererValue.render(this.scene, this.camera);
+    try {
+      prepareCamera?.();
+      this.rendererValue.render(this.scene, this.camera);
+    } finally {
+      finishCamera?.();
+    }
   }
 
   public dispose(): void {

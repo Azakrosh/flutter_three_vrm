@@ -136,7 +136,13 @@ describe("runtime scene controller", () => {
     controller.setPixelRatio(1.25);
     controller.setShadows(true);
 
-    expect(controller.recreateRenderer(false)).toBe(true);
+    const prepareReplacementCamera = vi.fn();
+    const finishReplacementCamera = vi.fn();
+    expect(controller.recreateRenderer(
+      false,
+      prepareReplacementCamera,
+      finishReplacementCamera,
+    )).toBe(true);
     const secondRenderer = harness.renderers[1]!;
     const secondControls = harness.controls[1]!;
     expect(controller.antialias).toBe(false);
@@ -154,11 +160,20 @@ describe("runtime scene controller", () => {
       controller.scene,
       controller.camera,
     );
+    expect(prepareReplacementCamera).toHaveBeenCalledOnce();
+    expect(finishReplacementCamera).toHaveBeenCalledOnce();
+    expect(prepareReplacementCamera.mock.invocationCallOrder[0]).toBeLessThan(
+      secondRenderer.render.mock.invocationCallOrder[0]!,
+    );
+    expect(secondRenderer.render.mock.invocationCallOrder[0]).toBeLessThan(
+      finishReplacementCamera.mock.invocationCallOrder[0]!,
+    );
     expect(controller.recreateRenderer(false)).toBe(false);
 
     secondRenderer.render.mockClear();
     const prepareCamera = vi.fn();
-    controller.updateAndRender(prepareCamera);
+    const finishCamera = vi.fn();
+    controller.updateAndRender(prepareCamera, finishCamera);
     expect(secondControls.update).toHaveBeenCalledOnce();
     expect(prepareCamera).toHaveBeenCalledOnce();
     expect(secondControls.update.mock.invocationCallOrder[0]).toBeLessThan(
@@ -171,6 +186,18 @@ describe("runtime scene controller", () => {
       controller.scene,
       controller.camera,
     );
+    expect(finishCamera).toHaveBeenCalledOnce();
+    expect(secondRenderer.render.mock.invocationCallOrder[0]).toBeLessThan(
+      finishCamera.mock.invocationCallOrder[0]!,
+    );
+
+    const finishAfterFailure = vi.fn();
+    secondRenderer.render.mockImplementationOnce(() => {
+      throw new Error("Render failed");
+    });
+    expect(() => controller.updateAndRender(undefined, finishAfterFailure))
+      .toThrow("Render failed");
+    expect(finishAfterFailure).toHaveBeenCalledOnce();
 
     controller.dispose();
     controller.dispose();
