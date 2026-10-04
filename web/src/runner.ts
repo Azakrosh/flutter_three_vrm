@@ -667,7 +667,9 @@ class VrmRunner implements RuntimeCommandHost {
     this.cameraController.updateAnimation(elapsedTime);
 
     const renderStartedAt = performance.now();
-    this.sceneController.updateAndRender();
+    this.sceneController.updateAndRender(() => {
+      this.cameraController.prepareForRender();
+    });
     const renderFinishedAt = performance.now();
     this.graphicsController.recordFrame(
       now,

@@ -308,9 +308,10 @@ export class RuntimeSceneController {
     return true;
   }
 
-  public updateAndRender(): void {
+  public updateAndRender(prepareCamera?: () => void): void {
     if (this.disposed || this.contextLostValue) return;
     this.controlsValue.update();
+    prepareCamera?.();
     this.rendererValue.render(this.scene, this.camera);
   }
 

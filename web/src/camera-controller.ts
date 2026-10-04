@@ -76,12 +76,18 @@ const EPSILON_SQUARED = 1e-12;
 export class RuntimeCameraController {
   private controls: RuntimeCameraControls;
   private readonly orbitPivot = new Vector3();
+  private readonly focusAnchor = new Vector3();
+  private readonly displayedFocusAnchor = new Vector3();
+  private readonly startFocusAnchor = new Vector3();
   private readonly targetPosition = new Vector3();
   private readonly startPosition = new Vector3();
   private readonly startPivot = new Vector3();
   private readonly nativePanDelta = new Vector3();
   private readonly cameraRight = new Vector3();
   private readonly cameraUp = new Vector3();
+  private readonly orbitDirection = new Vector3();
+  private readonly preZoomPosition = new Vector3();
+  private readonly focusDirection = new Vector3();
   private readonly panOffset = new Vector2();
   private readonly displayedPanOffset = new Vector2();
   private readonly startPanOffset = new Vector2();
@@ -89,6 +95,7 @@ export class RuntimeCameraController {
   private animationStartTime = 0;
   private animating = false;
   private customTransform = false;
+  private lastControlsDistance = Number.NaN;
   private lastProjectionX = Number.NaN;
   private lastProjectionY = Number.NaN;
   private lastProjectionDistance = Number.NaN;
@@ -100,6 +107,9 @@ export class RuntimeCameraController {
   ) {
     this.controls = controls;
     this.orbitPivot.copy(controls.target);
+    this.focusAnchor.copy(controls.target);
+    this.displayedFocusAnchor.copy(controls.target);
+    this.startFocusAnchor.copy(controls.target);
     this.targetPosition.copy(camera.position);
     this.applyMode();
   }
@@ -127,6 +137,7 @@ export class RuntimeCameraController {
   public captureControlsTransform(): void {
     this.customTransform = true;
     this.captureNativePan();
+    this.correctZoomTowardFocus();
     this.targetPosition.copy(this.camera.position);
     this.applyPanProjection();
   }
@@ -175,6 +186,13 @@ export class RuntimeCameraController {
     }
     this.controls.target.copy(this.orbitPivot);
     this.controls.update();
+    this.lastControlsDistance = this.controls.getDistance();
+    this.prepareForRender();
+  }
+
+  /** Applies the eye aim after OrbitControls updates its torso-based rig. */
+  public prepareForRender(): void {
+    this.camera.lookAt(this.displayedFocusAnchor);
     this.applyPanProjection();
   }
 
@@ -198,6 +216,7 @@ export class RuntimeCameraController {
       modelHeight = headPosition.y - vrm.scene.position.y + 0.15;
     }
     const nextPivot = calculateAvatarOrbitPivot(vrm, modelHeight);
+    const nextFocusAnchor = calculateAvatarFocusAnchor(vrm, modelHeight);
 
     const verticalFov = MathUtils.degToRad(this.camera.fov);
     const targetFrustumHeight = modelHeight / 0.8;
@@ -213,27 +232,42 @@ export class RuntimeCameraController {
 
     this.startPosition.copy(this.camera.position);
     this.startPivot.copy(this.controls.target);
+    this.startFocusAnchor.copy(this.displayedFocusAnchor);
     this.startPanOffset.copy(this.displayedPanOffset);
     const pivotDelta = nextPivot.clone().sub(this.orbitPivot);
     this.orbitPivot.copy(nextPivot);
+    this.focusAnchor.copy(nextFocusAnchor);
     if (!this.customTransform) {
       this.panOffset.set(0, 0);
       this.targetPosition.set(
-        this.orbitPivot.x,
-        this.orbitPivot.y,
-        this.orbitPivot.z + distance,
+        this.focusAnchor.x,
+        this.focusAnchor.y,
+        this.focusAnchor.z + 1,
+      );
+      positionAtOrbitDistance(
+        this.targetPosition,
+        this.focusAnchor,
+        this.orbitPivot,
+        distance,
       );
     } else {
       // A transform may be restored before the replacement model is framed.
       // Move the camera with the new humanoid pivot to preserve its angle and
       // distance instead of orbiting the new avatar around the old model.
       this.targetPosition.copy(this.camera.position).add(pivotDelta);
+      positionAtOrbitDistance(
+        this.targetPosition,
+        this.focusAnchor,
+        this.orbitPivot,
+        this.controls.getDistance(),
+      );
     }
 
     if (durationMs <= 0) {
       this.animating = false;
       this.camera.position.copy(this.targetPosition);
       this.controls.target.copy(this.orbitPivot);
+      this.displayedFocusAnchor.copy(this.focusAnchor);
       this.displayedPanOffset.copy(this.panOffset);
       this.applyMode();
     } else {
@@ -256,7 +290,7 @@ export class RuntimeCameraController {
   public setConstrainedPanTarget(input: ConstrainedPanInput): void {
     if (this.mode !== "constrained") return;
     this.customTransform = true;
-    const distance = this.controls.getDistance();
+    const distance = this.camera.position.distanceTo(this.displayedFocusAnchor);
     const verticalFov = MathUtils.degToRad(this.camera.fov);
     const heightAtDepth = 2 * Math.tan(verticalFov / 2) * distance;
     const widthAtDepth = heightAtDepth * this.camera.aspect;
@@ -279,6 +313,7 @@ export class RuntimeCameraController {
       const factor = 1 - Math.exp(-25 * deltaSeconds);
       this.displayedPanOffset.lerp(this.panOffset, factor);
     }
+    this.correctZoomTowardFocus();
     this.applyPanProjection();
   }
 
@@ -295,6 +330,11 @@ export class RuntimeCameraController {
       eased,
     );
     this.controls.target.lerpVectors(this.startPivot, this.orbitPivot, eased);
+    this.displayedFocusAnchor.lerpVectors(
+      this.startFocusAnchor,
+      this.focusAnchor,
+      eased,
+    );
     this.displayedPanOffset.lerpVectors(
       this.startPanOffset,
       this.panOffset,
@@ -306,6 +346,7 @@ export class RuntimeCameraController {
       this.animating = false;
       this.camera.position.copy(this.targetPosition);
       this.controls.target.copy(this.orbitPivot);
+      this.displayedFocusAnchor.copy(this.focusAnchor);
       this.displayedPanOffset.copy(this.panOffset);
       this.applyMode();
     }
@@ -334,18 +375,18 @@ export class RuntimeCameraController {
       this.controls.minDistance,
       this.controls.maxDistance,
     );
-    this.targetPosition.copy(this.camera.position).sub(this.orbitPivot);
-    if (this.targetPosition.lengthSq() <= EPSILON_SQUARED) {
-      this.targetPosition.set(0, 0, 1);
-    }
-    this.targetPosition
-      .normalize()
-      .multiplyScalar(distance)
-      .add(this.orbitPivot);
+    this.targetPosition.copy(this.camera.position);
+    positionAtOrbitDistance(
+      this.targetPosition,
+      this.displayedFocusAnchor,
+      this.orbitPivot,
+      distance,
+    );
     this.camera.position.copy(this.targetPosition);
     this.controls.update();
+    this.lastControlsDistance = this.controls.getDistance();
     this.invalidateProjection();
-    this.applyPanProjection();
+    this.prepareForRender();
   }
 
   /** Converts OrbitControls' native target translation into screen framing. */
@@ -370,8 +411,51 @@ export class RuntimeCameraController {
     this.invalidateProjection();
   }
 
+  /** Replaces OrbitControls' torso-directed dolly with a face-directed dolly. */
+  private correctZoomTowardFocus(): void {
+    const currentDistance = this.controls.getDistance();
+    if (!Number.isFinite(this.lastControlsDistance)) {
+      this.lastControlsDistance = currentDistance;
+      return;
+    }
+    if (Math.abs(currentDistance - this.lastControlsDistance) <= 1e-9) return;
+
+    this.orbitDirection.copy(this.camera.position).sub(this.orbitPivot);
+    if (this.orbitDirection.lengthSq() <= EPSILON_SQUARED) {
+      this.orbitDirection.set(0, 0, 1);
+    } else {
+      this.orbitDirection.normalize();
+    }
+    this.preZoomPosition
+      .copy(this.orbitDirection)
+      .multiplyScalar(this.lastControlsDistance)
+      .add(this.orbitPivot);
+    this.focusDirection
+      .copy(this.preZoomPosition)
+      .sub(this.displayedFocusAnchor);
+    if (this.focusDirection.lengthSq() <= EPSILON_SQUARED) {
+      this.focusDirection.set(0, 0, 1);
+    }
+    this.camera.position
+      .copy(this.displayedFocusAnchor)
+      .add(this.focusDirection.normalize());
+    positionAtOrbitDistance(
+      this.camera.position,
+      this.displayedFocusAnchor,
+      this.orbitPivot,
+      currentDistance,
+    );
+    this.controls.target.copy(this.orbitPivot);
+    this.targetPosition.copy(this.camera.position);
+    this.lastControlsDistance = this.controls.getDistance();
+    this.invalidateProjection();
+  }
+
   private applyPanProjection(): void {
-    const distance = Math.max(this.controls.getDistance(), 1e-6);
+    const distance = Math.max(
+      this.camera.position.distanceTo(this.displayedFocusAnchor),
+      1e-6,
+    );
     const aspect = Math.max(this.camera.aspect, 1e-6);
     if (
       this.displayedPanOffset.x === this.lastProjectionX &&
@@ -442,6 +526,41 @@ function calculateAvatarOrbitPivot(vrm: VRM, modelHeight: number): Vector3 {
   vrm.scene.getWorldPosition(fallback);
   fallback.y += modelHeight * 0.55;
   return fallback;
+}
+
+function calculateAvatarFocusAnchor(vrm: VRM, modelHeight: number): Vector3 {
+  const leftEye = readBoneWorldPosition(vrm, ["leftEye"]);
+  const rightEye = readBoneWorldPosition(vrm, ["rightEye"]);
+  if (leftEye !== null && rightEye !== null) {
+    return new Vector3().addVectors(leftEye, rightEye).multiplyScalar(0.5);
+  }
+  if (leftEye !== null) return leftEye;
+  if (rightEye !== null) return rightEye;
+  const head = readBoneWorldPosition(vrm, ["head"]);
+  if (head !== null) {
+    head.y += modelHeight * 0.05;
+    return head;
+  }
+  return calculateAvatarOrbitPivot(vrm, modelHeight);
+}
+
+function positionAtOrbitDistance(
+  position: Vector3,
+  focusAnchor: Vector3,
+  orbitPivot: Vector3,
+  distance: number,
+): void {
+  const direction = position.clone().sub(focusAnchor);
+  if (direction.lengthSq() <= EPSILON_SQUARED) direction.set(0, 0, 1);
+  direction.normalize();
+  const focusOffset = focusAnchor.clone().sub(orbitPivot);
+  const alongOffset = focusOffset.dot(direction);
+  const discriminant = Math.max(
+    0,
+    alongOffset * alongOffset + distance * distance - focusOffset.lengthSq(),
+  );
+  const focusDistance = Math.max(1e-6, -alongOffset + Math.sqrt(discriminant));
+  position.copy(focusAnchor).addScaledVector(direction, focusDistance);
 }
 
 function readBoneWorldPosition(

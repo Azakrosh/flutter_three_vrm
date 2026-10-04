@@ -57,8 +57,8 @@ describe("runtime camera controller", () => {
       expect.closeTo(1.05),
       expect.closeTo(0.01),
     ]);
-    expect(camera.position.x).toBeCloseTo(0.03);
-    expect(camera.position.y).toBeCloseTo(1.05);
+    expect(camera.position.x).toBeCloseTo(0);
+    expect(camera.position.y).toBeCloseTo(1.58);
     expect(controller.getTransform()).toMatchObject({
       x: 0,
       y: 0,
@@ -84,8 +84,8 @@ describe("runtime camera controller", () => {
     expect(controller.hasCustomTransform).toBe(false);
     expect(controls.enabled).toBe(false);
     controller.updateAnimation(5.5);
-    expect(camera.position.y).toBeGreaterThan(0.95);
-    expect(camera.position.y).toBeLessThan(1.05);
+    expect(camera.position.y).toBeGreaterThan(1.2);
+    expect(camera.position.y).toBeLessThan(1.35);
     controller.updateAnimation(6);
     expect(controls.enabled).toBe(true);
     expect(controls.target.y).toBeCloseTo(1.05);
@@ -160,6 +160,37 @@ describe("runtime camera controller", () => {
     expect(controller.getTransform().y).toBeCloseTo(-0.25);
   });
 
+  it("keeps the eye line stable while zooming around the torso pivot", () => {
+    const camera = createCamera();
+    const controls = createControls(camera);
+    const controller = new RuntimeCameraController(camera, controls);
+    const { vrm } = createVrm();
+    const eyeAnchor = new Vector3(0, 1.58, 0.02);
+
+    controller.frameAvatar(vrm, 0, 0, true);
+    const torsoPivot = controls.target.clone();
+    expect(camera.position.y).toBeCloseTo(eyeAnchor.y);
+
+    simulateOrbitControlsZoom(camera, torsoPivot, 1.1);
+    controller.updatePanFollowing(1 / 60);
+    controller.prepareForRender();
+
+    expect(controls.target.toArray()).toEqual(torsoPivot.toArray());
+    expect(camera.position.distanceTo(torsoPivot)).toBeCloseTo(1.1);
+    expect(camera.position.y).toBeCloseTo(eyeAnchor.y);
+    expectProjectedAtCenter(camera, eyeAnchor);
+
+    controller.setMode("free");
+    simulateOrbitControlsZoom(camera, torsoPivot, 2.2);
+    controller.updatePanFollowing(1 / 60);
+    controller.prepareForRender();
+
+    expect(controls.target.toArray()).toEqual(torsoPivot.toArray());
+    expect(camera.position.distanceTo(torsoPivot)).toBeCloseTo(2.2);
+    expect(camera.position.y).toBeCloseTo(eyeAnchor.y);
+    expectProjectedAtCenter(camera, eyeAnchor);
+  });
+
   it("reanchors a transform restored before model framing", () => {
     const camera = createCamera();
     const controls = createControls(camera);
@@ -222,6 +253,12 @@ function createVrm(): {
   const head = new Object3D();
   head.position.y = 1.5;
   scene.add(head);
+  const leftEye = new Object3D();
+  leftEye.position.set(-0.03, 1.58, 0.02);
+  scene.add(leftEye);
+  const rightEye = new Object3D();
+  rightEye.position.set(0.03, 1.58, 0.02);
+  scene.add(rightEye);
   const leftHand = new Object3D();
   leftHand.position.set(-1.4, 1.3, 0);
   scene.add(leftHand);
@@ -236,6 +273,8 @@ function createVrm(): {
         hips,
         upperChest,
         head,
+        leftEye,
+        rightEye,
         leftHand,
       })[name] ?? null,
       getRawBoneNode: () => null,
@@ -243,4 +282,23 @@ function createVrm(): {
     springBoneManager,
   } as unknown as VRM;
   return { vrm, resetSpringBones };
+}
+
+function simulateOrbitControlsZoom(
+  camera: PerspectiveCamera,
+  target: Vector3,
+  distance: number,
+): void {
+  camera.position.sub(target).normalize().multiplyScalar(distance).add(target);
+  camera.lookAt(target);
+}
+
+function expectProjectedAtCenter(
+  camera: PerspectiveCamera,
+  worldPosition: Vector3,
+): void {
+  camera.updateMatrixWorld(true);
+  const projected = worldPosition.clone().project(camera);
+  expect(projected.x).toBeCloseTo(0, 8);
+  expect(projected.y).toBeCloseTo(0, 8);
 }

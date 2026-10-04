@@ -151,8 +151,16 @@ describe("runtime scene controller", () => {
     expect(harness.containerChildren).toEqual([secondRenderer.canvas]);
     expect(controller.recreateRenderer(false)).toBe(false);
 
-    controller.updateAndRender();
+    const prepareCamera = vi.fn();
+    controller.updateAndRender(prepareCamera);
     expect(secondControls.update).toHaveBeenCalledOnce();
+    expect(prepareCamera).toHaveBeenCalledOnce();
+    expect(secondControls.update.mock.invocationCallOrder[0]).toBeLessThan(
+      prepareCamera.mock.invocationCallOrder[0]!,
+    );
+    expect(prepareCamera.mock.invocationCallOrder[0]).toBeLessThan(
+      secondRenderer.render.mock.invocationCallOrder[0]!,
+    );
     expect(secondRenderer.render).toHaveBeenCalledWith(
       controller.scene,
       controller.camera,
