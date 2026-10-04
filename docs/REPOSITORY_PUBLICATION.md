@@ -34,8 +34,10 @@ pub.dev пока не выполняется: в `pubspec.yaml` сохраняе
 git push -u origin main
 ```
 
-Remote настроен на `https://github.com/Azakrosh/flutter_three_vrm.git`. Push ещё
-не выполнен: перед ним проводится финальный reachable-history audit.
+Remote настроен на `https://github.com/Azakrosh/flutter_three_vrm.git`. Первый
+fast-forward push выполнен 2026-10-04: локальная и удалённая `main` совпали на
+`bc38ffa`. GitHub Actions run `37183478503` завершился успешно для `quality` и
+`windows` jobs.
 
 ## Настройки GitHub после push
 

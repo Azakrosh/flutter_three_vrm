@@ -378,24 +378,18 @@ Stage 55 завершён: ownership и terminal outcomes проверены н�
 архитектурных рисков не обнаружено. `flutter analyze`, все 169 Flutter-тестов и
 полная Windows integration matrix из пяти gates прошли 2026-10-03.
 
-Текущее направление — возобновлённый Stage 30: подготовить существующую историю и
-metadata к первому публичному push на GitHub, не публикуя пакет на pub.dev.
-Достижимая история уже проверена на секреты, закрытые VRM/VRMA и GitHub size
-limits. Добавляются contribution/security policy, GitHub templates и
-воспроизводимый release checklist. Перед первым push владелец должен подтвердить
-финальный URL, политику email в commit metadata и имя основной ветки.
-
-Stage 56 продолжается параллельно: Ubuntu CI получает обязательный dartdoc gate,
-а локальный Windows `dartdoc 9.0.6` воспроизводимо падает в `_stripDocImports`
-из-за подтверждённого upstream-дефекта для non-ASCII documentation и CRLF
-([dart-lang/dartdoc#4289](https://github.com/dart-lang/dartdoc/pull/4289)).
-Локальный Windows gate нужно повторить после SDK с dartdoc 9.0.10.
+Текущее направление: Stage 30 и Stage 56 завершены 2026-10-04. Репозиторий
+опубликован на `https://github.com/Azakrosh/flutter_three_vrm`, история использует
+GitHub noreply identity, ветка `main` отслеживает `origin/main`. Первый публичный
+GitHub Actions run `37183478503` завершил `quality` и `windows` jobs со статусом
+`success`, включая Linux dartdoc, Android/Windows builds и Windows runtime smoke.
+Публикация на pub.dev по-прежнему не входит в текущий scope.
 
 Сейчас не следует:
 
 - обновлять Three.js/three-vrm без отдельной причины;
 - добавлять новые эффекты или ещё один способ управления моделью;
-- выполнять первый push до подтверждения URL и commit-email policy;
+- создавать pub.dev release или GitHub tag без отдельного решения;
 - менять protocol v3 только ради рефакторинга;
 - одновременно менять motion или speech semantics.
 ## 6. Следующие этапы
@@ -620,8 +614,8 @@ realtime speech, а также минимальные рецепты всех в
 
 ### Stage 30 — подготовка публикации
 
-Статус: в работе; scope ограничен публичным GitHub-репозиторием. Публикация на
-pub.dev остаётся отложенной, `publish_to: none` сохраняется.
+Статус: выполнено 2026-10-04; scope ограничен публичным GitHub-репозиторием.
+Публикация на pub.dev остаётся отложенной, `publish_to: none` сохраняется.
 
 Включает GitHub metadata, package metadata, API docs, versioning policy,
 release checklist, clean-clone verification и окончательный аудит лицензий.
@@ -639,8 +633,10 @@ bundle verification завершились успешно, итоговый work
 и GitHub noreply identity. Все 127 локальных commit переписаны на
 `33670184+Azakrosh@users.noreply.github.com`, а 30 ссылок ROADMAP перенесены на
 новые SHA. Удалённый Initial commit `7c8c21a` сохранён в ancestry через merge
-`e9cfd08`, поэтому force-push не нужен. Остаются финальный reachable-history
-audit, первый push и проверка реального GitHub Actions run.
+`e9cfd08`, поэтому force-push не потребовался. Финальный reachable-history audit
+прошёл без секретов и запрещённых assets. Первый push `bc38ffa` выполнен
+fast-forward; GitHub Actions run `37183478503` подтвердил `quality` и
+`windows` jobs. Этап завершён.
 ### Stage 31 — Android performance observability и управление нагрузкой
 
 Статус: выполнено.
@@ -1633,7 +1629,7 @@ Flutter-тестов прошли; Windows matrix подтвердила `runtim
 
 ### Stage 56 — достоверность публичной документации
 
-Статус: в работе.
+Статус: выполнено 2026-10-04.
 
 Цель: не допустить повторного расхождения README, API docs и фактического
 публичного контракта пакета.
@@ -1669,9 +1665,11 @@ TypeScript typecheck, 173 web-теста, protocol contract и runtime bundle ch
 прошли 2026-10-03. Локальный Windows dartdoc 9.0.6 воспроизводимо падает в
 `_stripDocImports`; даже LF-экспорт пакета не устраняет CRLF из Windows SDK.
 Первый срез зафиксирован коммитом `8e63dfa`. Cross-platform verifier добавлен
-коммитом `24f1b53` и локально проходит вместе с `flutter analyze`. Этап остаётся
-в работе до фактического Linux CI результата либо повторного Windows gate на
-dartdoc 9.0.10.
+коммитом `24f1b53` и локально проходит вместе с `flutter analyze`. Первый
+публичный GitHub Actions run `37183478503` подтвердил Linux `dart doc --dry-run .`,
+analyzer, 169 Flutter-тестов, 173 web-теста, protocol/bundle gates, Android build,
+Windows build и Windows runtime smoke. Upstream Windows dartdoc retry остаётся
+техническим наблюдением и больше не блокирует этап.
 
 ## 7. Правила обновления roadmap
 
@@ -1681,4 +1679,4 @@ dartdoc 9.0.10.
 - Generated runtime не редактируется вручную.
 - Изменения поведения проверяются минимум unit/contract тестом; lifecycle,
   loading, rendering и disposal — также smoke-тестом на затронутой платформе.
-- Публикация на pub.dev остаётся отложенной; GitHub-подготовка ведётся по Stage 30.
+- Публикация на pub.dev остаётся отложенной; GitHub Stage 30 завершён.
