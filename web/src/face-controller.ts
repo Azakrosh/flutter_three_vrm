@@ -159,14 +159,10 @@ export class RuntimeFaceController {
         state.targetWeight,
         step,
       );
-      let effectiveWeight = state.currentWeight;
-      if (
-        this.isBlinking && blinkWeight > 0.01 &&
-        (name === "happy" || name === "surprised")
-      ) {
-        effectiveWeight *= 1 - blinkWeight;
-      }
-      manager.setValue(name, effectiveWeight);
+      // A VRM emotion may bind both eyes and mouth. Reducing its entire weight
+      // during a blink would make the mouth pulse as well. three-vrm applies
+      // each model's overrideBlink setting to the blink preset itself.
+      manager.setValue(name, state.currentWeight);
       if (state.targetWeight === 0 && state.currentWeight < 0.001) {
         manager.setValue(name, 0);
         delete this.activeExpressions[name];

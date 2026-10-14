@@ -46,20 +46,24 @@ describe("runtime face controller", () => {
     expect(harness.setValue).toHaveBeenLastCalledWith("oh", 0);
   });
 
-  it("updates blink after the expression pass and suppresses overlapping eye emotion", () => {
-    const harness = createHarness();
-    harness.controller.setExpression("happy");
-    harness.controller.updateExpressions(0.25);
-    for (let frame = 0; frame < 30; frame += 1) {
-      harness.controller.updateBlink(0.1);
-    }
-    harness.setValue.mockClear();
-    harness.controller.updateExpressions(0.1);
-    const blink = harness.setValue.mock.calls.find(([name]) => name === "blink")?.[1];
-    const happy = harness.setValue.mock.calls.find(([name]) => name === "happy")?.[1];
-    expect(blink).toBeGreaterThan(0);
-    expect(happy).toBeCloseTo(1 - blink, 6);
-  });
+  it.each(["happy", "surprised"] as const)(
+    "keeps %s at full weight during automatic blinking",
+    (emotion) => {
+      const harness = createHarness();
+      harness.controller.setExpression(emotion);
+      harness.controller.updateExpressions(0.25);
+      const blinkWeights: number[] = [];
+      for (let frame = 0; frame < 38; frame += 1) {
+        harness.controller.updateBlink(0.1);
+        harness.setValue.mockClear();
+        harness.controller.updateExpressions(0.1);
+        blinkWeights.push(harness.setValue.mock.calls.find(([name]) => name === "blink")?.[1]);
+        expect(harness.setValue.mock.calls.find(([name]) => name === emotion)?.[1]).toBe(1);
+      }
+      expect(blinkWeights.some((weight) => weight > 0)).toBe(true);
+      expect(blinkWeights.at(-1)).toBe(0);
+    },
+  );
 
   it("applies custom blend shapes and clears them only with a loaded model", () => {
     const harness = createHarness();
